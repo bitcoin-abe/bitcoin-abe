@@ -1095,14 +1095,14 @@ class Abe:
             SELECT block_hash, block_height, block_nTime
               FROM chain_summary
              WHERE chain_id = ?""" + ("" if hi is None else """
-               AND block_height <= ?""") + """
+               AND block_height BETWEEN ? AND ?""") + """
                AND in_longest = 1
              ORDER BY block_height DESC LIMIT ?
         """
         if hi is None:
             bind = (chain['id'], count)
         else:
-            bind = (chain['id'], hi, count)
+            bind = (chain['id'], hi - count + 1, hi, count)
         rows = abe.store.selectall(sql, bind)
 
         if not rows:
@@ -1126,15 +1126,25 @@ class Abe:
             hi = int(rows[0][1])
         basename = os.path.basename(page['env']['PATH_INFO'])
         body += ['<table><tr><th>Block</th><th>Time</th></tr>\n',
-                 map(to_html, rows),
-                 '</table>\n',
-                 '<p><a href="', basename, '?hi=', str(hi - count),
-                 '&amp;count=', str(count), '">Next</a>']
-        for c in (20, 50, 100, 500):
+                 map(to_html, rows), '</table>\n<p><a href="',
+                 basename, '?count=', str(count), '">&lt;&lt;</a>']
+        body += [' <a href="', basename, '?hi=', str(hi + count),
+                 '&amp;count=', str(count), '">&lt;</a>']
+        body += [' ', '&gt;']
+        if hi >= count:
+            body[-1] = ['<a href="', basename, '?hi=', str(hi - count),
+                        '&amp;count=', str(count), '">', body[-1], '</a>']
+        body += [' ', '&gt;&gt;']
+        if hi != count - 1:
+            body[-1] = ['<a href="', basename, '?hi=', str(count - 1),
+                        '&amp;count=', str(count), '">', body[-1], '</a>']
+        for c in (20, 50, 100, 500, 2016):
             body += [' ']
             if c != count:
-                body += ['<a href="', basename, '?count=', str(c),
-                         '&amp;hi=', str(hi), '">']
+                body += ['<a href="', basename, '?count=', str(c)]
+                if hi is not None:
+                    body += ['&amp;hi=', str(max(hi, c - 1))]
+                body += ['">']
             body += [' ', str(c)]
             if c != count:
                 body += ['</a>']
