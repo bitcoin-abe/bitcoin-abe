@@ -85,8 +85,8 @@ class DataStore(object):
         efficient option.  "buffer" wraps binary data using the
         built-in buffer() function, which works for sqlite3.
 
-        args.datadir optionally names the Bitcoin data directory
-        containing blk0001.dat.  The catch_up() method requires this.
+        args.datadirs names Bitcoin data directories containing
+        blk0001.dat to scan for new blocks.
 
         args.rescan should be true if the contents of the block files
         have been changed other than through normal client operation.
@@ -137,16 +137,14 @@ class DataStore(object):
 
         store._set_sql_flavour()
 
-        store.blkfile_number = 1
-        store.blkfile_offset = 0L
-        if store.initialized and not args.rescan and args.datadir is not None:
-            row = store.selectrow("""
-                SELECT blkfile_number, blkfile_offset
-                  FROM datadir
-                 WHERE datadir = ?""", (args.datadir,))
-            if (row is not None):
-                (store.blkfile_number, store.blkfile_offset) = row
-                store.blkfile_offset = long(store.blkfile_offset)
+        store.datadirs = {}
+        if store.initialized:
+            for row in store.selectall("""
+                SELECT datadir, blkfile_number, blkfile_offset
+                  FROM datadir"""):
+                dir, num, offs = row
+                store.datadirs[dir] = {"blkfile_number": num,
+                                       "blkfile_offset": int(offs)}
 
     # Accommodate SQL quirks.
     def _set_sql_flavour(store):
@@ -836,35 +834,48 @@ class DataStore(object):
                   (pubkey_id, dbhash, store.binin(pubkey)))
         return pubkey_id
 
-    # Load all blocks starting at the current file and offset.
     def catch_up(store):
+        for dirname in store.args.datadirs:
+            store.catch_up_dir(dirname)
+
+    # Load all blocks starting at the current file and offset.
+    def catch_up_dir(store, dirname):
+        dircfg = store.datadirs.get(dirname)
+        if dircfg is None:
+            dircfg = {"blkfile_number": 1, "blkfile_offset": 0L}
+            store.sql("""
+                INSERT INTO datadir (
+                    datadir, blkfile_number, blkfile_offset
+                ) VALUES (?, ?, ?)""", (dirname, 1, 0))
+            store.datadirs[dirname] = dircfg
+
         def open_blkfile():
-            filename = os.path.join(store.args.datadir, "blk%04d.dat"
-                                    % (store.blkfile_number,))
+            filename = os.path.join(dirname, "blk%04d.dat"
+                                    % (dircfg['blkfile_number'],))
             ds = BCDataStream()
             ds.map_file(open(filename, "rb"), 0)
             return ds
 
         # First attempt failures are fatal.
         ds = open_blkfile()
-        ds.read_cursor = store.blkfile_offset
+        ds.read_cursor = dircfg['blkfile_offset']
 
         while (True):
-            store.import_blkdat(ds)
+            store.import_blkdat(dirname, ds)
 
             # Try another file.
-            store.blkfile_number += 1
+            dircfg['blkfile_number'] += 1
             try:
                 ds = open_blkfile()
             except IOError:
                 # No more block files.
-                store.blkfile_number -= 1
+                dircfg['blkfile_number'] -= 1
                 return
 
-            store.blkfile_offset = 0
+            dircfg['blkfile_offset'] = 0
 
     # Load all blocks from the given data stream.
-    def import_blkdat(store, ds):
+    def import_blkdat(store, dirname, ds):
         bytes_done = 0
 
         while ds.read_cursor + 8 <= len(ds.input):
@@ -874,7 +885,10 @@ class DataStore(object):
             if ds.read_cursor + length >= len(ds.input):
                 ds.read_cursor = offset
                 break
+
             hash = doubleSha256(ds.input[ds.read_cursor : ds.read_cursor + 80])
+            # XXX should decode target and check hash against it to avoid
+            # loading garbage data.
 
             if store.contains_block(hash):
                 # Block header already seen.  Skip the block.
@@ -896,29 +910,24 @@ class DataStore(object):
 
                 bytes_done += length
                 if bytes_done > 100000 :
-                    store.save_blkfile_offset(ds.read_cursor)
+                    store.save_blkfile_offset(dirname, ds.read_cursor)
                     store.commit()
                     bytes_done = 0
 
         if bytes_done > 0:
-            store.save_blkfile_offset(ds.read_cursor)
+            store.save_blkfile_offset(dirname, ds.read_cursor)
             store.commit()
 
-    def save_blkfile_offset(store, offset):
-        if store.args.datadir is not None:
-            store.sql("""
-                UPDATE datadir
-                   SET blkfile_number = ?,
-                       blkfile_offset = ?
-                 WHERE datadir = ?""",
-                      (store.blkfile_number, offset, store.args.datadir))
-            if store.cursor.rowcount == 0:
-                store.sql("""
-                    INSERT INTO datadir (
-                        datadir, blkfile_number, blkfile_offset
-                    ) VALUES (?, ?, ?)""",
-                          (store.args.datadir, store.blkfile_number, offset))
-        store.blkfile_offset = offset
+    def save_blkfile_offset(store, dirname, offset):
+        store.sql("""
+            UPDATE datadir
+               SET blkfile_number = ?,
+                   blkfile_offset = ?
+             WHERE datadir = ?""",
+                  (store.datadirs[dirname]['blkfile_number'], offset, dirname))
+        if store.cursor.rowcount == 0:
+            raise AssertionError('Missing datadir row: ' + dirname)
+        store.datadirs[dirname]['blkfile_offset'] = offset
 
 def doubleSha256(s):
     return SHA256.new(SHA256.new(s).digest()).digest()
@@ -1022,7 +1031,7 @@ class Abe:
                 body += ['<p class="error">'
                          'Sorry, I don\'t know about that chain!</p>\n']
             else:
-                found = false
+                found = False
 
         if not found:
             status = '404 Not Found'
@@ -1216,9 +1225,10 @@ def parse_argv(argv):
         description="Another Bitcoin block explorer.", epilog=examples,
         formatter_class=argparse.RawDescriptionHelpFormatter)
                                      
-    parser.add_argument("--datadir", dest="datadir", default=None,
-                        metavar="DIR",
-                        help="Look for block files (blk*.dat) in DIR.")
+    parser.add_argument("--datadir", dest="datadirs", default=[],
+                        metavar="DIR", action="append",
+                        help="Look for block files (blk*.dat) in DIR."
+                        " May be specified more than once.")
     parser.add_argument("--dbtype", "-d", dest="module", default=None,
                         help="DB-API driver module, by default `sqlite3'.")
     parser.add_argument("--connect-args", "-c", dest="connect_args",
@@ -1246,8 +1256,8 @@ def parse_argv(argv):
                         
     args = parser.parse_args(argv)
 
-    if args.datadir is None:
-        args.datadir = determine_db_dir()
+    if not args.datadirs:
+        args.datadirs = [determine_db_dir()]
 
     if args.module is None:
         args.module = "sqlite3"
