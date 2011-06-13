@@ -1,6 +1,6 @@
 Another Block Explorer for Bitcoin.
 Copyright(C) 2011 by John Tobey <John.Tobey@gmail.com>
-License: GNU Affero Public License, see the file LICENSE.txt.
+License: GNU Affero General Public License, see the file LICENSE.txt.
 Portions Copyright (c) 2010 Gavin Andresen, see bct-LICENSE.txt.
 
 This program depends on Python Crypto modules (Debian package
