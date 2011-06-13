@@ -30,6 +30,7 @@ from BCDataStream import *
 from deserialize import parse_Block
 from util import determine_db_dir
 
+ABE_APPNAME = "ABE"
 ABE_VERSION = '0.1'
 SCHEMA_VERSION = "1"
 EMAIL_ADDRESS = "John.Tobey@gmail.com"
@@ -1011,7 +1012,7 @@ class Abe:
         status = '200 OK'
         body = []
         page = {
-            "title": ["ABE ", ABE_VERSION],
+            "title": [ABE_APPNAME, " ", ABE_VERSION],
             "body": body,
             "env": env,
             }
@@ -1046,12 +1047,13 @@ class Abe:
                    ['<html><head><title>', page['title'], '</title></head>',
                     '<body>', page['body'],
                     '<p style="font-size: smaller; font-style: italic">',
-                    'ABE ', ABE_VERSION, ', ',
+                    ABE_APPNAME, ' ', ABE_VERSION, ', ',
                     'questions to <a href="mailto:', escape(EMAIL_ADDRESS),
                     '">', escape(EMAIL_ADDRESS), '</a></p>',
                     '</body></html>'])
 
     def handle(abe, page, chain, objtype, objid, well_formed, dotdot):
+        page['dotdot'] = dotdot
         if objtype == 'b':
             abe.show_block_number(chain, objid, page)
         elif objtype == 'block':
@@ -1093,6 +1095,7 @@ class Abe:
             symbol = chain['name']
 
         if symbol is not None:
+            page['title'] = escape(symbol)
             page['body'] += [
                 '<h1>', escape(symbol), '</h1>\n']
         body = page['body']
@@ -1134,29 +1137,42 @@ class Abe:
         if hi is None:
             hi = int(rows[0][1])
         basename = os.path.basename(page['env']['PATH_INFO'])
-        body += ['<table><tr><th>Block</th><th>Time</th></tr>\n',
-                 map(to_html, rows), '</table>\n<p><a href="',
-                 basename, '?count=', str(count), '">&lt;&lt;</a>']
-        body += [' <a href="', basename, '?hi=', str(hi + count),
+
+        nav = ['<a href="',
+               basename, '?count=', str(count), '">&lt;&lt;</a>']
+        nav += [' <a href="', basename, '?hi=', str(hi + count),
                  '&amp;count=', str(count), '">&lt;</a>']
-        body += [' ', '&gt;']
+        nav += [' ', '&gt;']
         if hi >= count:
-            body[-1] = ['<a href="', basename, '?hi=', str(hi - count),
-                        '&amp;count=', str(count), '">', body[-1], '</a>']
-        body += [' ', '&gt;&gt;']
+            nav[-1] = ['<a href="', basename, '?hi=', str(hi - count),
+                        '&amp;count=', str(count), '">', nav[-1], '</a>']
+        nav += [' ', '&gt;&gt;']
         if hi != count - 1:
-            body[-1] = ['<a href="', basename, '?hi=', str(count - 1),
-                        '&amp;count=', str(count), '">', body[-1], '</a>']
+            nav[-1] = ['<a href="', basename, '?hi=', str(count - 1),
+                        '&amp;count=', str(count), '">', nav[-1], '</a>']
         for c in (20, 50, 100, 500, 2016):
-            body += [' ']
+            nav += [' ']
             if c != count:
-                body += ['<a href="', basename, '?count=', str(c)]
+                nav += ['<a href="', basename, '?count=', str(c)]
                 if hi is not None:
-                    body += ['&amp;hi=', str(max(hi, c - 1))]
-                body += ['">']
-            body += [' ', str(c)]
+                    nav += ['&amp;hi=', str(max(hi, c - 1))]
+                nav += ['">']
+            nav += [' ', str(c)]
             if c != count:
-                body += ['</a>']
+                nav += ['</a>']
+
+        for row in abe.store.selectall("""
+            SELECT DISTINCT c.chain_name
+              FROM chain c join chain_candidate cc USING (chain_id)
+             WHERE cc.in_longest = 1"""):
+            (name,) = row
+            if name != chain['name']:
+                nav += [' <a href="', page['dotdot'], 'chain/', escape(name),
+                        '/">', escape(name), '</a>']
+
+        body += ['<p>', nav, '</p>\n',
+                 '<table><tr><th>Block</th><th>Time</th></tr>\n',
+                 map(to_html, rows), '</table>\n<p>', nav, '</p>\n']
         return True
 
     def show_block_number(abe, symbol, height, page):
