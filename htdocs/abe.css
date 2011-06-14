@@ -1,0 +1,10 @@
+td {
+    font-family: Verdana, Helvetica, sans-serif;
+    border-width: 1px;
+    border-style: solid;
+    margin: 0;
+    padding: 0 1ex;
+}
+table {
+    border-spacing: 0;
+}

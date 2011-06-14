@@ -764,6 +764,7 @@ class DataStore(object):
                 SELECT block_height, block_chain_work
                   FROM block
                  WHERE block_id = ?""", (block_id,))
+            # XXX should do work=store.binout(work) ??
             return (block_id, height, work)
         best = (0, 0, 0)
         for next_id in next_blocks:
@@ -932,6 +933,7 @@ def calculate_work(prev_work, nBits):
     if prev_work is None:
         return None
     old = int(binascii.hexlify(prev_work), 16)
+    # XXX will this round using the same rules as C++ Bitcoin?
     new = int((1L << 256) /
               (((nBits & 0xffffff) << (8 * ((nBits >> 24) - 3))) + 1))
     s = "%x" % (old + new)
@@ -951,6 +953,7 @@ class Abe:
     def __init__(abe, store, args):
         abe.store = store
         abe.args = args
+        abe.htdocs = os.path.join(os.path.split(__file__)[0], 'htdocs')
 
     def parse_pi(abe, pi):
         """
@@ -1030,21 +1033,43 @@ class Abe:
                 found = False
 
         if not found:
+            try:
+                # Serve static content.
+                # XXX Should check file modification time and handle
+                # HTTP if-modified-since.  Or just hope serious users
+                # will map our htdocs as static in their web server.
+                # Hmm, we could help them by mapping some path other
+                # than / to it.
+                # XXX is "+ pi" adequate for non-POSIX systems?
+                found = open(abe.htdocs + pi, "rb")
+                import mimetypes
+                (type, enc) = mimetypes.guess_type(pi)
+                if type is not None:
+                    # XXX Should do something with enc if not None.
+                    start_response(status, [('Content-type', type)])
+                    return found
+            except IOError:
+                pass
+
+        if not found:
             status = '404 Not Found'
-            page["body"] = ['Sorry, ', env['PATH_INFO'],
-                            ' does not exist on this server.']
+            page["body"] = ['<p class="error">Sorry, ', pi,
+                            ' does not exist on this server.</p>']
 
         start_response(status, [('Content-type', 'text/html'),
                                 ('Cache-Control', 'max-age=30')])
         def flatten(l):
             return ''.join(map(flatten, l)) if isinstance(l, list) else str(l)
         return map(flatten,
-                   ['<html><head><title>', page['title'], '</title></head>',
-                    '<body>', page['body'],
+                   ['<html><head>\n',
+                    '<link rel="stylesheet" type="text/css" href="',
+                    page['dotdot'], 'abe.css" />\n'
+                    '<title>', page['title'], '</title>\n</head>\n',
+                    '<body>\n', page['body'],
                     '<p style="font-size: smaller; font-style: italic">',
                     ABE_APPNAME, ' ', ABE_VERSION, ', ',
                     'questions to <a href="mailto:', escape(EMAIL_ADDRESS),
-                    '">', escape(EMAIL_ADDRESS), '</a></p>',
+                    '">', escape(EMAIL_ADDRESS), '</a></p>\n',
                     '</body></html>'])
 
     def handle(abe, page, chain, objtype, objid, well_formed, dotdot):
