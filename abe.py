@@ -285,6 +285,7 @@ class DataStore(object):
 )""",
 
 # A block of the type used by Bitcoin.
+# XXX Should probably index block_height, better chain_id+block_height.
 """CREATE TABLE block (
     block_id      NUMERIC(14) PRIMARY KEY,
     block_hash    BIT(256)    UNIQUE NOT NULL,
@@ -416,6 +417,7 @@ class DataStore(object):
     txout_id      NUMERIC(26),
     PRIMARY KEY (pubkey_id, txout_id)
 )""",
+#"""CREATE INDEX x_pubkey_txout_txout ON pubkey_txout (txout_id)""",
 
 """CREATE VIEW chain_summary AS SELECT
     cc.chain_id,
@@ -434,7 +436,7 @@ class DataStore(object):
 
 """CREATE VIEW txout_detail AS SELECT
     cc.chain_id,
-    cc.in_longest
+    cc.in_longest,
     block_id,
     b.block_hash,
     b.block_height,
@@ -461,7 +463,7 @@ class DataStore(object):
 
 """CREATE VIEW txin_detail AS SELECT
     cc.chain_id,
-    cc.in_longest
+    cc.in_longest,
     block_id,
     b.block_hash,
     b.block_height,
