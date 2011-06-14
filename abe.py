@@ -32,26 +32,26 @@ from util import determine_db_dir
 
 ABE_APPNAME = "ABE"
 ABE_VERSION = '0.1'
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 EMAIL_ADDRESS = "John.Tobey@gmail.com"
 
 BITCOIN_MAGIC = "\xf9\xbe\xb4\xd9"
 BITCOIN_MAGIC_ID = 1
 BITCOIN_POLICY_ID = 1
 BITCOIN_CHAIN_ID = 1
-BITCOIN_ADDRESS_VERSION = 0
+BITCOIN_ADDRESS_VERSION = "\0"
 
 TESTNET_MAGIC = "\xfa\xbf\xb5\xda"
 TESTNET_MAGIC_ID = 2
 TESTNET_POLICY_ID = 2
 TESTNET_CHAIN_ID = 2
-TESTNET_ADDRESS_VERSION = 111
+TESTNET_ADDRESS_VERSION = "\x6f"
 
 NAMECOIN_MAGIC = "\xf9\xbe\xb4\xfe"
 NAMECOIN_MAGIC_ID = 3
 NAMECOIN_POLICY_ID = 3
 NAMECOIN_CHAIN_ID = 3
-NAMECOIN_ADDRESS_VERSION = 52
+NAMECOIN_ADDRESS_VERSION = "\x34"
 
 DEFAULT_CHAIN_ID = NAMECOIN_CHAIN_ID
 
@@ -261,7 +261,7 @@ class DataStore(object):
     binary_type VARCHAR(20)
 )""",
 """CREATE TABLE datadir (
-    datadir     VARCHAR(32767) PRIMARY KEY,
+    dirname     VARCHAR(32767) PRIMARY KEY,
     blkfile_number NUMERIC(4),
     blkfile_offset NUMERIC(20)
 )""",
@@ -305,7 +305,7 @@ class DataStore(object):
     policy_id   NUMERIC(10),
     chain_name  VARCHAR(100) UNIQUE NOT NULL,
     chain_code3 CHAR(3)     NULL,
-    chain_address_version NUMERIC(3) DEFAULT 0 NOT NULL,
+    chain_address_version BIT VARYING(800) NOT NULL,
     chain_last_block_id NUMERIC(14) NULL,
     FOREIGN KEY (magic_id)  REFERENCES magic (magic_id),
     FOREIGN KEY (policy_id) REFERENCES policy (policy_id),
@@ -846,7 +846,7 @@ class DataStore(object):
             dircfg = {"blkfile_number": 1, "blkfile_offset": 0L}
             store.sql("""
                 INSERT INTO datadir (
-                    datadir, blkfile_number, blkfile_offset
+                    dirname, blkfile_number, blkfile_offset
                 ) VALUES (?, ?, ?)""", (dirname, 1, 0))
             store.datadirs[dirname] = dircfg
 
@@ -924,7 +924,7 @@ class DataStore(object):
             UPDATE datadir
                SET blkfile_number = ?,
                    blkfile_offset = ?
-             WHERE datadir = ?""",
+             WHERE dirname = ?""",
                   (store.datadirs[dirname]['blkfile_number'], offset, dirname))
         if store.cursor.rowcount == 0:
             raise AssertionError('Missing datadir row: ' + dirname)
