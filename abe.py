@@ -35,6 +35,8 @@ ABE_VERSION = '0.1'
 SCHEMA_VERSION = "2"
 EMAIL_ADDRESS = "John.Tobey@gmail.com"
 
+COIN = 100000000
+
 BITCOIN_MAGIC = "\xf9\xbe\xb4\xd9"
 BITCOIN_MAGIC_ID = 1
 BITCOIN_POLICY_ID = 1
@@ -137,15 +139,7 @@ class DataStore(object):
             store.initialized = False
 
         store._set_sql_flavour()
-
-        store.datadirs = {}
-        if store.initialized:
-            for row in store.selectall("""
-                SELECT datadir, blkfile_number, blkfile_offset
-                  FROM datadir"""):
-                dir, num, offs = row
-                store.datadirs[dir] = {"blkfile_number": num,
-                                       "blkfile_offset": int(offs)}
+        store._read_datadirs()
 
     # Accommodate SQL quirks.
     def _set_sql_flavour(store):
@@ -226,6 +220,16 @@ class DataStore(object):
     def selectall(store, stmt, params=()):
         store.sql(stmt, params)
         return store.cursor.fetchall()
+
+    def _read_datadirs(store):
+        store.datadirs = {}
+        if store.initialized:
+            for row in store.selectall("""
+                SELECT dirname, blkfile_number, blkfile_offset
+                  FROM datadir"""):
+                dir, num, offs = row
+                store.datadirs[dir] = {"blkfile_number": num,
+                                       "blkfile_offset": int(offs)}
 
     # Implement synthetic key sequences in a simple, thread-unsafe manner.
     # Override this if another process or thread may be inserting rows.
@@ -1102,36 +1106,47 @@ class Abe:
 
         count = get_int_param(page, 'count') or 20
         hi = get_int_param(page, 'hi')
+        orig_hi = hi
 
-        sql = """
-            SELECT block_hash, block_height, block_nTime
-              FROM chain_summary
-             WHERE chain_id = ?""" + ("" if hi is None else """
-               AND block_height BETWEEN ? AND ?""") + """
-               AND in_longest = 1
-             ORDER BY block_height DESC LIMIT ?
-        """
         if hi is None:
+            (hi,) = abe.store.selectrow("""
+                SELECT b.block_height
+                  FROM block b
+                  JOIN chain c ON (c.chain_last_block_id = b.block_id)
+                 WHERE c.chain_id = ?
+            """, (chain['id'],))
             bind = (chain['id'], count)
-        else:
-            bind = (chain['id'], hi - count + 1, hi, count)
-        rows = abe.store.selectall(sql, bind)
-
-        if not rows:
-            if hi is None and count > 0:
+        if hi is None:
+            if orig_hi is None and count > 0:
                 body += ['<p>The chain is empty.</p>']
             else:
                 body += ['<p class="error">'
                          'The requested range contains no blocks.</p>\n']
             return True
 
+        rows = abe.store.selectall("""
+            SELECT block_hash, block_height, block_nTime,
+                   COUNT(DISTINCT block_tx.tx_id) num_tx,
+                   SUM(txout.txout_value) value_out
+              FROM chain_summary
+              JOIN block_tx USING (block_id)
+              JOIN txout USING (tx_id)
+             WHERE chain_id = ?
+               AND block_height BETWEEN ? AND ?
+               AND in_longest = 1
+             GROUP BY block_hash, block_height, block_nTime
+             ORDER BY block_height DESC LIMIT ?
+        """, (chain['id'], hi - count + 1, hi, count))
+
         def to_html(row):
-            (hash, height, nTime) = row
+            (hash, height, nTime, num_tx, value_out) = row
             import time
             return ['<tr><td><a href="block/', hash, '">', height,
                     '</a></td><td>',
                     time.strftime('%Y-%m-%d %H:%M:%S',
                                   time.gmtime(int(nTime))),
+                    '</td><td>', num_tx,
+                    '</td><td>', format_satoshis(int(value_out)),
                     '</td></tr>\n']
 
         if hi is None:
@@ -1171,7 +1186,8 @@ class Abe:
                         '/">', escape(name), '</a>']
 
         body += ['<p>', nav, '</p>\n',
-                 '<table><tr><th>Block</th><th>Time</th></tr>\n',
+                 '<table><tr><th>Block</th><th>Time</th>',
+                 '<th>Transactions</th><th>Value Out</th></tr>\n',
                  map(to_html, rows), '</table>\n<p>', nav, '</p>\n']
         return True
 
@@ -1207,6 +1223,16 @@ class Abe:
 def get_int_param(page, name):
     vals = page['params'].get(name)
     return vals and int(vals[0])
+
+def format_satoshis(satoshis):
+    if satoshis is None:
+        return ''
+    if satoshis < 0:
+        return '-' + format_satoshis(-satoshis)
+    integer = satoshis / COIN
+    frac = satoshis % COIN
+    return (str(integer) +
+            ('.' + ('00000000' + str(frac))[-8:]).rstrip('0').rstrip('.'))
 
 def serve(store):
     args = store.args
