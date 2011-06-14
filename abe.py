@@ -652,7 +652,7 @@ class DataStore(object):
                 INSERT INTO txout (
                     txout_id, tx_id, txout_pos, txout_value,
                     txout_scriptPubKey, pubkey_id
-                ) VALUES (?, ?, ?, ?, ?)""",
+                ) VALUES (?, ?, ?, ?, ?, ?)""",
                       (txout_id, tx_id, pos, txout['value'],
                        store.binin(txout['scriptPubKey']), pubkey_id))
             store.sql("""

@@ -18,6 +18,9 @@ SELECT 1 / (SELECT COUNT(1)
 UPDATE config SET schema_version = '2.5' WHERE config_id = '1';
 
 ALTER TABLE txout ADD COLUMN pubkey_id NUMERIC(26);
+CREATE UNIQUE INDEX x_pubkey_txout_txout ON pubkey_txout (txout_id);
+/* UPDATE txout SET pubkey_id = pt.pubkey_id FROM pubkey_txout pt
+    WHERE txout.txout_id = pt.txout_id; */
 UPDATE txout SET pubkey_id = (
     SELECT pubkey_id FROM pubkey_txout pt WHERE pt.txout_id = txout.txout_id);
 
