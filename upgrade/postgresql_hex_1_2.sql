@@ -30,3 +30,4 @@ ALTER TABLE chain DROP COLUMN chain_address_version;
 ALTER TABLE chain RENAME COLUMN x_upgrade TO chain_address_version;
 
 UPDATE config SET schema_version = '2' WHERE config_id = '1';
+COMMIT;

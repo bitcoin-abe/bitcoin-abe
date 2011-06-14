@@ -31,11 +31,13 @@ from deserialize import parse_Block
 from util import determine_db_dir
 
 ABE_APPNAME = "ABE"
-ABE_VERSION = '0.1'
-SCHEMA_VERSION = "2"
+ABE_VERSION = '0.1.1'
+SCHEMA_VERSION = "3"
 EMAIL_ADDRESS = "John.Tobey@gmail.com"
 
-COIN = 100000000
+# XXX This should probably be a property of chain, or even a query param.
+LOG10COIN = 8
+COIN = 10 ** LOG10COIN
 
 BITCOIN_MAGIC = "\xf9\xbe\xb4\xd9"
 BITCOIN_MAGIC_ID = 1
@@ -61,8 +63,8 @@ WORK_BITS = 304
 CHAIN_WORK_ZERO = "\0" * (WORK_BITS / 8)
 GENESIS_HASH_PREV = "\0" * 32
 
-SCRIPT_ADDRESS_RE = re.compile("\x76\xa9\x14(.{20})\x88\xac\\Z", re.DOTALL)
-SCRIPT_PUBKEY_RE = re.compile("\x41(.{65})\xac\\Z", re.DOTALL)
+SCRIPT_ADDRESS_RE = re.compile("\x76\xa9\x14(.{20})\x88\xac", re.DOTALL)
+SCRIPT_PUBKEY_RE = re.compile("\x41(.{65})\xac", re.DOTALL)
 
 class DataStore(object):
 
@@ -375,6 +377,7 @@ class DataStore(object):
     txout_pos     NUMERIC(10),
     txout_value   NUMERIC(30) NOT NULL,
     txout_scriptPubKey BIT VARYING(80000),
+    pubkey_id     NUMERIC(26),
     UNIQUE (tx_id, txout_pos)
 )""",
 
@@ -409,15 +412,6 @@ class DataStore(object):
     pubkey_hash   BIT(160)    UNIQUE NOT NULL,
     pubkey        BIT(520)    UNIQUE NULL
 )""",
-
-# Denormalize address-transaction relationships derivable from
-# txout_scriptPubKey in standard transactions.
-"""CREATE TABLE pubkey_txout (
-    pubkey_id     NUMERIC(26),
-    txout_id      NUMERIC(26),
-    PRIMARY KEY (pubkey_id, txout_id)
-)""",
-#"""CREATE INDEX x_pubkey_txout_txout ON pubkey_txout (txout_id)""",
 
 """CREATE VIEW chain_summary AS SELECT
     cc.chain_id,
@@ -458,8 +452,7 @@ class DataStore(object):
   JOIN block_tx USING (block_id)
   JOIN tx    ON (tx.tx_id = block_tx.tx_id)
   JOIN txout ON (tx.tx_id = txout.tx_id)
-  LEFT JOIN (pubkey_txout JOIN pubkey USING (pubkey_id)) pubkey
-      ON (txout.txout_id = pubkey.txout_id)""",
+  LEFT JOIN pubkey USING (pubkey_id)""",
 
 """CREATE VIEW txin_detail AS SELECT
     cc.chain_id,
@@ -488,8 +481,8 @@ class DataStore(object):
   JOIN tx    ON (tx.tx_id = block_tx.tx_id)
   JOIN txin  ON (tx.tx_id = txin.tx_id)
   LEFT JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
-  LEFT JOIN (pubkey_txout JOIN pubkey USING (pubkey_id)) pubkey
-      ON (prevout.txout_id = pubkey.txout_id)""",
+  LEFT JOIN pubkey
+      ON (prevout.pubkey_id = pubkey.pubkey_id)""",
 ):
             try:
                 store.sql(stmt)
@@ -645,13 +638,23 @@ class DataStore(object):
         for pos in xrange(len(tx['txOut'])):
             txout = tx['txOut'][pos]
             txout_id = store.new_id("txout")
+
+            pubkey_id = None
+            match = SCRIPT_ADDRESS_RE.match(txout['scriptPubKey'])
+            if match:
+                pubkey_id = store.pubkey_hash_to_id(match.group(1))
+            else:
+                match = SCRIPT_PUBKEY_RE.match(txout['scriptPubKey'])
+                if match:
+                    pubkey_id = store.pubkey_to_id(match.group(1))
+
             store.sql("""
                 INSERT INTO txout (
                     txout_id, tx_id, txout_pos, txout_value,
-                    txout_scriptPubKey
+                    txout_scriptPubKey, pubkey_id
                 ) VALUES (?, ?, ?, ?, ?)""",
                       (txout_id, tx_id, pos, txout['value'],
-                       store.binin(txout['scriptPubKey'])))
+                       store.binin(txout['scriptPubKey']), pubkey_id))
             store.sql("""
                 UPDATE txin
                    SET txout_id = ?
@@ -667,20 +670,6 @@ class DataStore(object):
                     DELETE FROM unlinked_txin
                      WHERE txout_tx_hash = ? AND txout_pos = ?)""",
                       (dbhash, pos))
-
-            match = SCRIPT_ADDRESS_RE.match(txout['scriptPubKey'])
-            if match:
-                pubkey_hash = match.group(1)
-                pubkey_id = store.pubkey_hash_to_id(pubkey_hash)
-            else:
-                match = SCRIPT_PUBKEY_RE.match(txout['scriptPubKey'])
-                if match:
-                    pubkey = match.group(1)
-                    pubkey_id = store.pubkey_to_id(pubkey)
-            if match:
-                store.sql("""
-                    INSERT INTO pubkey_txout (pubkey_id, txout_id)
-                    VALUES (?, ?)""", (pubkey_id, txout_id))
 
         # Import transaction inputs.
         for pos in xrange(len(tx['txIn'])):
@@ -1234,7 +1223,8 @@ def format_satoshis(satoshis):
     integer = satoshis / COIN
     frac = satoshis % COIN
     return (str(integer) +
-            ('.' + ('00000000' + str(frac))[-8:]).rstrip('0').rstrip('.'))
+            ('.' + (('0' * LOG10COIN) + str(frac))[-LOG10COIN:])
+            .rstrip('0').rstrip('.'))
 
 def serve(store):
     args = store.args
