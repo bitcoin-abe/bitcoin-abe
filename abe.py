@@ -1079,14 +1079,20 @@ class Abe:
             page["body"] = ['<p class="error">Sorry, ', pi,
                             ' does not exist on this server.</p>']
 
-        start_response(status, [('Content-type', 'text/html'),
+        start_response(status, [('Content-type', 'application/xhtml+xml'),
                                 ('Cache-Control', 'max-age=30')])
         def flatten(l):
             return ''.join(map(flatten, l)) if isinstance(l, list) else str(l)
         return map(flatten,
-                   ['<html><head>\n',
+                   ['<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"\n'
+                    '  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">\n'
+                    '<html xmlns="http://www.w3.org/1999/xhtml"'
+                    ' xml:lang="en" lang="en">\n'
+                    '<head>\n',
                     '<link rel="stylesheet" type="text/css" href="',
                     page['dotdot'], 'abe.css" />\n'
+                    '<link rel="shortcut icon" href="',
+                    page['dotdot'], 'favicon.ico" />\n'
                     '<title>', page['title'], '</title>\n</head>\n',
                     '<body>\n', page['body'],
                     '<p style="font-size: smaller; font-style: italic">',
