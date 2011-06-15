@@ -12,10 +12,10 @@ SELECT 'Wrong schema configuration for this script, exiting' error
 SELECT 1 / (SELECT COUNT(1)
               FROM config
              WHERE config_id = 1
-               AND schema_version = '2');
+               AND schema_version = '2') SHOULD_BE_1;
 
 /* Set a temporary version string during upgrade. */
-UPDATE config SET schema_version = '2.5' WHERE config_id = '1';
+UPDATE config SET schema_version = '2.5' WHERE config_id = 1;
 
 ALTER TABLE txout ADD COLUMN pubkey_id NUMERIC(26);
 CREATE UNIQUE INDEX x_pubkey_txout_txout ON pubkey_txout (txout_id);
@@ -84,5 +84,5 @@ CREATE VIEW txout_detail AS SELECT
 
 DROP TABLE pubkey_txout;
 
-UPDATE config SET schema_version = '3' WHERE config_id = '1';
+UPDATE config SET schema_version = '3' WHERE config_id = 1;
 COMMIT;

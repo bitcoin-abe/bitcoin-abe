@@ -32,7 +32,7 @@ from util import determine_db_dir
 
 ABE_APPNAME = "ABE"
 ABE_VERSION = '0.1.1'
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 EMAIL_ADDRESS = "John.Tobey@gmail.com"
 
 # XXX This should probably be a property of chain, or even a query param.
@@ -425,8 +425,26 @@ class DataStore(object):
     b.block_nNonce,
     b.block_height,
     b.prev_block_id,
-    b.block_chain_work
-  FROM chain_candidate cc JOIN block b USING (block_id)""",
+    b.block_chain_work,
+    COUNT(DISTINCT block_tx.tx_id) num_tx,
+    SUM(txout.txout_value) value_out
+FROM chain_candidate cc
+JOIN block b USING (block_id)
+JOIN block_tx USING (block_id)
+JOIN txout USING (tx_id)
+GROUP BY
+    cc.chain_id,
+    cc.in_longest,
+    block_id,
+    b.block_hash,
+    b.block_version,
+    b.block_hashMerkleRoot,
+    b.block_nTime,
+    b.block_nBits,
+    b.block_nNonce,
+    b.block_height,
+    b.prev_block_id,
+    b.block_chain_work""",
 
 """CREATE VIEW txout_detail AS SELECT
     cc.chain_id,
@@ -1141,16 +1159,11 @@ class Abe:
             return True
 
         rows = abe.store.selectall("""
-            SELECT block_hash, block_height, block_nTime,
-                   COUNT(DISTINCT block_tx.tx_id) num_tx,
-                   SUM(txout.txout_value) value_out
+            SELECT block_hash, block_height, block_nTime, num_tx, value_out
               FROM chain_summary
-              JOIN block_tx USING (block_id)
-              JOIN txout USING (tx_id)
              WHERE chain_id = ?
                AND block_height BETWEEN ? AND ?
                AND in_longest = 1
-             GROUP BY block_hash, block_height, block_nTime
              ORDER BY block_height DESC LIMIT ?
         """, (chain['id'], hi - count + 1, hi, count))
 
