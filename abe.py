@@ -947,13 +947,18 @@ GROUP BY
 def doubleSha256(s):
     return SHA256.new(SHA256.new(s).digest()).digest()
 
+def calculate_target(nBits):
+    return (nBits & 0xffffff) << (8 * ((nBits >> 24) - 3))
+
+def calculate_difficulty(nBits):
+    return ((1 << 224) - 1) * 1000 / calculate_target(nBits) / 1000.0
+
 def calculate_work(prev_work, nBits):
     if prev_work is None:
         return None
     old = int(binascii.hexlify(prev_work), 16)
     # XXX will this round using the same rules as C++ Bitcoin?
-    new = int((1L << 256) /
-              (((nBits & 0xffffff) << (8 * ((nBits >> 24) - 3))) + 1))
+    new = int((1L << 256) / (calculate_target(nBits) + 1))
     s = "%x" % (old + new)
     s = ("0" * ((WORK_BITS / 4) - len(s))) + s
     return binascii.unhexlify(s)
@@ -1159,7 +1164,8 @@ class Abe:
             return True
 
         rows = abe.store.selectall("""
-            SELECT block_hash, block_height, block_nTime, num_tx, value_out
+            SELECT block_hash, block_height, block_nTime, num_tx, value_out,
+                   block_nBits
               FROM chain_summary
              WHERE chain_id = ?
                AND block_height BETWEEN ? AND ?
@@ -1168,7 +1174,7 @@ class Abe:
         """, (chain['id'], hi - count + 1, hi, count))
 
         def to_html(row):
-            (hash, height, nTime, num_tx, value_out) = row
+            (hash, height, nTime, num_tx, value_out, nBits) = row
             import time
             return ['<tr><td><a href="block/', hash, '">', height,
                     '</a></td><td>',
@@ -1176,6 +1182,7 @@ class Abe:
                                   time.gmtime(int(nTime))),
                     '</td><td>', num_tx,
                     '</td><td>', format_satoshis(int(value_out)),
+                    '</td><td>', calculate_difficulty(int(nBits)),
                     '</td></tr>\n']
 
         if hi is None:
@@ -1216,7 +1223,8 @@ class Abe:
 
         body += ['<p>', nav, '</p>\n',
                  '<table><tr><th>Block</th><th>Time</th>',
-                 '<th>Transactions</th><th>Value Out</th></tr>\n',
+                 '<th>Transactions</th><th>Value Out</th>',
+                 '<th>Difficulty</th></tr>\n',
                  map(to_html, rows), '</table>\n<p>', nav, '</p>\n']
         return True
 
