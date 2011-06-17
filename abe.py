@@ -1472,8 +1472,8 @@ class Abe:
 
     def show_address(abe, address, page):
         dbhash = abe.store.binin(base58.bc_address_to_hash_160(address))
-        page['body'] = [
-            '<h1>Address ', address, '</h1>']
+        page['title'] = 'Address ' + address
+        page['body'] = ['<h1>', page['title'], '</h1>']
         body = page['body']
 
         chains = {}
