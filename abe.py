@@ -1330,7 +1330,7 @@ class Abe:
 
         body += ['Height: ', str(height), '<br />\n',
                  'Version: ', block_version, '<br />\n',
-                 'hashMerkleRoot: ', hashMerkleRoot, '<br />\n',
+                 'Transaction Root: ', hashMerkleRoot, '<br />\n',
                  'Time: ', str(nTime), ' (', format_time(nTime), ')<br />\n',
                  'Difficulty: ', format_difficulty(calculate_difficulty(nBits)),
                  ' (Bits: %x)' % (nBits,), '<br />\n',
@@ -1442,7 +1442,8 @@ class Abe:
         chain = abe.chain_lookup_by_name(symbol)
 
         page['body'] = [
-            '<h1>', chain['name'], ' Block ', height, '</h1>\n']
+            '<h1>', chain['name'], ' ', chain['code3'] or 'Block', ' ',
+            height, '</h1>\n']
         abe._show_block('chain_id = ? AND block_height = ? AND in_longest = 1',
                         (chain['id'], height), page, '../block/', chain)
 
@@ -1457,13 +1458,14 @@ class Abe:
              WHERE b.block_hash = ?
              GROUP BY cc.block_id, b.block_height""",
             (dbhash,))
-        if row is not None:
-            chain_id, block_id, height = row
-            page['body'][-1] = ['<h1>Block ', height, '</h1>\n']
-            abe._show_block('block_id = ?', (block_id,), page, '',
-                            abe.chain_lookup_by_id(chain_id))
-        else:
+        if row is None:
             abe._show_block('block_hash = ?', (dbhash,), page, '', None)
+        else:
+            chain_id, block_id, height = row
+            chain = abe.chain_lookup_by_id(chain_id)
+            page['body'][-1] = ['<h1>', chain['code3'] or 'Block', ' ',
+                                height, '</h1>\n']
+            abe._show_block('block_id = ?', (block_id,), page, '', chain)
 
     def show_tx(abe, tx_hash, page):
         body = page['body'] = [
@@ -1486,14 +1488,16 @@ class Abe:
                 balance[chain_id] = 0
             balance[chain_id] += value
 
-        txout = []
-        txin = []
+        txouts = []
+        txins = []
         rows = abe.store.selectall("""
             SELECT
                 cc.chain_id,
                 b.block_height,
+                b.block_hash,
                 b.block_nTime,
                 tx.tx_hash,
+                txin.txin_pos,
                 prevout.txout_value
               FROM chain_candidate cc
               JOIN block b USING (block_id)
@@ -1507,23 +1511,29 @@ class Abe:
              ORDER BY cc.chain_id, b.block_height, block_tx.tx_pos""",
                       (dbhash,))
         for row in rows:
-            (chain_id, height, nTime, tx_hash, value) = (
-                int(row[0]), int(row[1]), int(row[2]),
-                abe.store.hashout_hex(row[3]), int(row[4]))
+            (chain_id, height, blk_hash, nTime, tx_hash, pos, value) = (
+                int(row[0]), int(row[1]), abe.store.hashout_hex(row[2]),
+                int(row[3]), abe.store.hashout_hex(row[4]), int(row[5]),
+                int(row[6]))
             adj_balance(chain_id, -value)
-            txin.append({
+            txins.append({
+                    "type": "i",
                     "chain_id": chain_id,
                     "height": height,
+                    "blk_hash": blk_hash,
                     "nTime": nTime,
                     "tx_hash": tx_hash,
-                    "value": value,
+                    "pos": pos,
+                    "value": -value,
                     })
         rows = abe.store.selectall("""
             SELECT
                 cc.chain_id,
                 b.block_height,
+                b.block_hash,
                 b.block_nTime,
                 tx.tx_hash,
+                txout.txout_pos,
                 txout.txout_value
               FROM chain_candidate cc
               JOIN block b USING (block_id)
@@ -1536,15 +1546,19 @@ class Abe:
              ORDER BY cc.chain_id, b.block_height, block_tx.tx_pos""",
                       (dbhash,))
         for row in rows:
-            (chain_id, height, nTime, tx_hash, value) = (
-                int(row[0]), int(row[1]), int(row[2]),
-                abe.store.hashout_hex(row[3]), int(row[4]))
+            (chain_id, height, blk_hash, nTime, tx_hash, pos, value) = (
+                int(row[0]), int(row[1]), abe.store.hashout_hex(row[2]),
+                int(row[3]), abe.store.hashout_hex(row[4]), int(row[5]),
+                int(row[6]))
             adj_balance(chain_id, value)
-            txout.append({
+            txouts.append({
+                    "type": "o",
                     "chain_id": chain_id,
                     "height": height,
+                    "blk_hash": blk_hash,
                     "nTime": nTime,
                     "tx_hash": tx_hash,
+                    "pos": pos,
                     "value": value,
                     })
 
@@ -1558,10 +1572,54 @@ class Abe:
             if chain_id != chain_ids[0]:
                 body += [', ']
             body += [format_satoshis(balance[chain_id], chain),
-                     ' ', chain['code3']]
+                     ' ', escape(chain['code3'])]
+            balance[chain_id] = 0  # Reset for history traversal.
+
         body += ['<br /></p>\n']
         body += ['<h3>Transactions</h3>\n'
-                 '<p>Watch this space...</p>']
+                 '<table>\n<tr><th>Transaction</th><th>Block</th>'
+                 '<th>Amount</th><th>Balance</th>'
+                 '<th>Currency</th></tr>\n']
+
+        elts = []
+        while (txins or txouts):
+            txout = txouts and txouts[0]
+            txin = txins and txins[0]
+            if txout and txin:
+                if txout['chain_id'] == txin['chain_id']:
+                    if txout['height'] > txin['height']:
+                        elt = txin
+                    else:
+                        # Outs before ins in the same block.
+                        # XXX Bad if in depends on out in same block.
+                        elt = txout
+                elif txout['nTime'] > txin['nTime']:
+                    elt = txin
+                else:
+                    elt = txout
+            else:
+                elt = txout or txin
+            elts.append(elt)
+            del (txouts if elt == txout else txins)[0]
+
+        for elt in elts:
+            chain = chains[elt['chain_id']]
+            balance[elt['chain_id']] += elt['value']
+            body += ['<tr><td><a href="../tx/', elt['tx_hash'],
+                     '#', elt['type'], elt['pos'],
+                     '">', elt['tx_hash'][:10], '...</a>',
+                     '</td><td><a href="../block/', elt['blk_hash'],
+                     '">', elt['height'], '</a> (',
+                     format_time(elt['nTime']), ')</td><td>']
+            if elt['value'] < 0:
+                body += ['(', format_satoshis(elt['value'], chain), ')']
+            else:
+                body += [format_satoshis(elt['value'], chain)]
+            body += ['</td><td>',
+                     format_satoshis(balance[elt['chain_id']], chain),
+                     '</td><td>', escape(chain['code3']),
+                     '</td></tr>\n']
+        body += ['</table>\n']
 
 def get_int_param(page, name):
     vals = page['params'].get(name)
