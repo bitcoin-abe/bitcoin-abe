@@ -32,7 +32,8 @@ from util import determine_db_dir
 
 ABE_APPNAME = "ABE"
 ABE_VERSION = '0.1.1'
-SCHEMA_VERSION = "4"
+ABE_URL = 'https://github.com/jtobey/bitcoin-abe'
+SCHEMA_VERSION = "5"
 EMAIL_ADDRESS = "John.Tobey@gmail.com"
 
 # XXX This should probably be a property of chain, or even a query param.
@@ -443,10 +444,11 @@ class DataStore(object):
     pubkey        BIT(520)    UNIQUE NULL
 )""",
 
+# XXX I could do a lot with MATERIALIZED views.
 """CREATE VIEW chain_summary AS SELECT
     cc.chain_id,
     cc.in_longest,
-    block_id,
+    b.block_id,
     b.block_hash,
     b.block_version,
     b.block_hashMerkleRoot,
@@ -455,17 +457,19 @@ class DataStore(object):
     b.block_nNonce,
     b.block_height,
     b.prev_block_id,
+    prev.block_hash prev_block_hash,
     b.block_chain_work,
     COUNT(DISTINCT block_tx.tx_id) num_tx,
     SUM(txout.txout_value) value_out
 FROM chain_candidate cc
-JOIN block b USING (block_id)
-JOIN block_tx USING (block_id)
+JOIN block b ON (cc.block_id = b.block_id)
+LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)
+JOIN block_tx on (block_tx.block_id = b.block_id)
 JOIN txout USING (tx_id)
 GROUP BY
     cc.chain_id,
     cc.in_longest,
-    block_id,
+    b.block_id,
     b.block_hash,
     b.block_version,
     b.block_hashMerkleRoot,
@@ -474,6 +478,7 @@ GROUP BY
     b.block_nNonce,
     b.block_height,
     b.prev_block_id,
+    prev.block_hash,
     b.block_chain_work""",
 
 """CREATE VIEW txout_detail AS SELECT
@@ -980,7 +985,10 @@ def calculate_target(nBits):
     return (nBits & 0xffffff) << (8 * ((nBits >> 24) - 3))
 
 def calculate_difficulty(nBits):
-    return ((1 << 224) - 1) * 1000 / calculate_target(nBits) / 1000.0
+    return ((1 << 224) - 1) * 1000 / (calculate_target(nBits) + 1) / 1000.0
+
+def work_to_difficulty(work):
+    return work * ((1 << 224) - 1) * 1000 / (1 << 256) / 1000.0
 
 def calculate_work(prev_work, nBits):
     if prev_work is None:
@@ -1002,6 +1010,11 @@ class Abe:
         abe.store = store
         abe.args = args
         abe.htdocs = os.path.join(os.path.split(__file__)[0], 'htdocs')
+        abe.footer = ['<p style="font-size: smaller; font-style: italic">',
+                      '<a href="', ABE_URL, '">', ABE_APPNAME, '</a> ',
+                      ABE_VERSION, ', ',
+                      'questions to <a href="mailto:', escape(EMAIL_ADDRESS),
+                      '">', escape(EMAIL_ADDRESS), '</a></p>\n']
 
     def parse_pi(abe, pi):
         """
@@ -1119,11 +1132,7 @@ class Abe:
                     '<link rel="shortcut icon" href="',
                     page['dotdot'], 'favicon.ico" />\n'
                     '<title>', page['title'], '</title>\n</head>\n',
-                    '<body>\n', page['body'],
-                    '<p style="font-size: smaller; font-style: italic">',
-                    ABE_APPNAME, ' ', ABE_VERSION, ', ',
-                    'questions to <a href="mailto:', escape(EMAIL_ADDRESS),
-                    '">', escape(EMAIL_ADDRESS), '</a></p>\n',
+                    '<body>\n', page['body'], abe.footer,
                     '</body></html>'])
 
     def handle(abe, page, chain, objtype, objid, well_formed, dotdot):
@@ -1206,11 +1215,9 @@ class Abe:
 
         def to_html(row):
             (hash, height, nTime, num_tx, value_out, nBits) = row
-            import time
             return ['<tr><td><a href="block/', abe.store.hashout_hex(hash),
-                    '">', height, '</a></td><td>',
-                    time.strftime('%Y-%m-%d %H:%M:%S',
-                                  time.gmtime(int(nTime))),
+                    '">', height, '</a>'
+                    '</td><td>', format_time(int(nTime)),
                     '</td><td>', num_tx,
                     '</td><td>', format_satoshis(int(value_out)),
                     '</td><td>', calculate_difficulty(int(nBits)),
@@ -1259,24 +1266,80 @@ class Abe:
                  map(to_html, rows), '</table>\n<p>', nav, '</p>\n']
         return True
 
+    def _show_block(abe, where, bind, page, dotdotblock):
+        body = page['body']
+        sql = """
+            SELECT
+                block_id,
+                block_hash,
+                block_version,
+                block_hashMerkleRoot,
+                block_nTime,
+                block_nBits,
+                block_nNonce,
+                block_height,
+                prev_block_hash,
+                block_chain_work
+              FROM chain_summary
+             WHERE """ + where
+        row = abe.store.selectrow(sql, bind)
+        if (row is None):
+            body += ['<p class="error">Block not found.</p>']
+            return
+        (block_id, block_hash, block_version, hashMerkleRoot,
+         nTime, nBits, nNonce, height,
+         prev_block_hash, block_chain_work) = (
+            row[0], abe.store.hashout_hex(row[1]), row[2],
+            abe.store.hashout_hex(row[3]), row[4], int(row[5]), row[6],
+            row[7], abe.store.hashout_hex(row[8]),
+            abe.store.binout_int(row[9]))
+
+        next_list = abe.store.selectall("""
+            SELECT DISTINCT n.block_hash, cc.in_longest
+              FROM block_next bn
+              JOIN block n ON (bn.next_block_id = n.block_id)
+              JOIN chain_candidate cc ON (n.block_id = cc.block_id)
+             WHERE bn.block_id = ?
+             ORDER BY cc.in_longest DESC""",
+                                  (block_id,))
+
+        page['title'] = 'Block ' + str(height)
+        body += ['<p>Hash: ', block_hash, '<br />\n']
+
+        if prev_block_hash is not None:
+            body += ['Previous Block: <a href="', dotdotblock,
+                     prev_block_hash, '">', prev_block_hash, '</a><br />\n']
+        if next_list:
+            body += ['Next Block: ']
+        for row in next_list:
+            hash = abe.store.hashout_hex(row[0])
+            body += ['<a href="', dotdotblock, hash, '">', hash, '</a><br />\n']
+
+        body += ['Height: ', str(height), '<br />\n',
+                 'Version: ', block_version, '<br />\n',
+                 'hashMerkleRoot: ', hashMerkleRoot, '<br />\n',
+                 'Time: ', str(nTime), ' (', format_time(nTime), ')<br />\n',
+                 'Difficulty: ', format_difficulty(calculate_difficulty(nBits)),
+                 ' (Bits: %x)' % (nBits,), '<br />\n',
+                 'Cumulative Difficulty: ', format_difficulty(
+                work_to_difficulty(block_chain_work)), '<br />\n'
+                 'Nonce: ', str(nNonce), '</p>\n',]
+
+        body += ['<h3>Transactions</h3>\n',
+                 '<p>Watch this space...</p>']
+
     def show_block_number(abe, symbol, height, page):
         chain = abe.lookup_chain(symbol)
 
-        body = page['body'] = [
-            '<h1>', chain['name'], ' Block ', height, '</h1>']
-
-        sql = """
-            SELECT block_hash, block_height, block_nTime
-              FROM chain_summary
-             WHERE chain_id = ?""" + ("" if hi is None else """
-               AND block_height <= ?""") + """
-             ORDER BY block_height DESC LIMIT ?
-        """
+        page['body'] = [
+            '<h1>', chain['name'], ' Block ', height, '</h1>\n']
+        abe._show_block('chain_id = ? AND block_height = ? AND in_longest = 1',
+                        (chain['id'], height), page, '../block/')
 
     def show_block(abe, block_hash, page):
-        body = page['body'] = [
-            '<h1>Block</h1>',
-            '<p>Watch this space...</p>']
+        page['body'] = ['<h1>Block</h1>\n']
+        abe._show_block('block_hash = ?', (abe.store.hashin_hex(block_hash),),
+                        page, '')
 
     def show_tx(abe, tx_hash, page):
         body = page['body'] = [
@@ -1292,6 +1355,10 @@ def get_int_param(page, name):
     vals = page['params'].get(name)
     return vals and int(vals[0])
 
+def format_time(nTime):
+    import time
+    return time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(int(nTime)))
+
 def format_satoshis(satoshis):
     if satoshis is None:
         return ''
@@ -1302,6 +1369,14 @@ def format_satoshis(satoshis):
     return (str(integer) +
             ('.' + (('0' * LOG10COIN) + str(frac))[-LOG10COIN:])
             .rstrip('0').rstrip('.'))
+
+def format_difficulty(diff):
+    idiff = int(diff)
+    ret = '.' + str(int(round((diff - idiff) * 1000)))
+    while idiff > 999:
+        ret = (' %03d' % (idiff % 1000,)) + ret
+        idiff = idiff / 1000
+    return str(idiff) + ret
 
 def serve(store):
     args = store.args
