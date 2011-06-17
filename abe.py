@@ -1486,7 +1486,6 @@ class Abe:
                 balance[chain_id] = 0
             balance[chain_id] += value
 
-        print "dbhash=", dbhash # cae888e1fca6236c3ef25cf044650577943dc2d6
         txout = []
         txin = []
         rows = abe.store.selectall("""
@@ -1519,7 +1518,6 @@ class Abe:
                     "tx_hash": tx_hash,
                     "value": value,
                     })
-            print 'txin', repr(txin[-1])
         rows = abe.store.selectall("""
             SELECT
                 cc.chain_id,
@@ -1549,7 +1547,6 @@ class Abe:
                     "tx_hash": tx_hash,
                     "value": value,
                     })
-            print 'txout', repr(txin[-1])
 
         if (not chain_ids):
             body += ['<p>Address not seen on the network.</p>']
