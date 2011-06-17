@@ -1207,7 +1207,7 @@ class Abe:
         def to_html(row):
             (hash, height, nTime, num_tx, value_out, nBits) = row
             import time
-            return ['<tr><td><a href="block/', store.hashout_hex(hash),
+            return ['<tr><td><a href="block/', abe.store.hashout_hex(hash),
                     '">', height, '</a></td><td>',
                     time.strftime('%Y-%m-%d %H:%M:%S',
                                   time.gmtime(int(nTime))),
