@@ -29,11 +29,12 @@ from cgi import escape
 from BCDataStream import *
 from deserialize import parse_Block
 from util import determine_db_dir
+import base58
 
 ABE_APPNAME = "ABE"
 ABE_VERSION = '0.1.1'
 ABE_URL = 'https://github.com/jtobey/bitcoin-abe'
-SCHEMA_VERSION = "5"
+SCHEMA_VERSION = "6"
 EMAIL_ADDRESS = "John.Tobey@gmail.com"
 
 # XXX This should probably be a property of chain, or even a query param.
@@ -411,6 +412,7 @@ class DataStore(object):
     pubkey_id     NUMERIC(26),
     UNIQUE (tx_id, txout_pos)
 )""",
+"""CREATE INDEX x_txout_pubkey ON txout (pubkey_id)""",
 
 # A transaction in-point.
 """CREATE TABLE txin (
@@ -1075,6 +1077,7 @@ class Abe:
             "body": body,
             "env": env,
             "dotdot": '',  # XXX
+            "params": {},
             }
         if 'QUERY_STRING' in env:
             page['params'] = urlparse.parse_qs(env['QUERY_STRING'])
@@ -1152,29 +1155,35 @@ class Abe:
             return False
         return True
 
-    def lookup_chain(abe, symbol):
-        fields = ["id", "name", "code3", "address_version", "last_block_id"]
-        sql = """
-            SELECT chain_""" + ", chain_".join(fields) + """
-              FROM chain
-             WHERE """
-        row = None
-        if symbol is None:
-            row = abe.store.selectrow(sql + "chain_id = ?", (DEFAULT_CHAIN_ID,))
-        if row is None:
-            row = abe.store.selectrow(sql + "chain_name = ?", (symbol,))
-        #if row is None:
-        #    row = abe.store.selectrow(sql + "chain_code3 = ?", (symbol,))
+    def _chain_fields(abe):
+        return ["id", "name", "code3", "address_version", "last_block_id"]
+
+    def _row_to_chain(abe, row):
         if row is None:
             raise NoSuchChainError(symbol)
         chain = {}
+        fields = abe._chain_fields()
         for i in range(len(fields)):
             chain[fields[i]] = row[i]
         chain['address_version'] = abe.store.binout(chain['address_version'])
         return chain
 
+    def chain_lookup_by_name(abe, symbol):
+        if symbol is None:
+            return abe.chain_lookup_by_id(DEFAULT_CHAIN_ID)
+        return abe._row_to_chain(abe.store.selectrow("""
+            SELECT chain_""" + ", chain_".join(abe._chain_fields()) + """
+              FROM chain
+             WHERE chain_name = ?""", (symbol,)))
+
+    def chain_lookup_by_id(abe, chain_id):
+        return abe._row_to_chain(abe.store.selectrow("""
+            SELECT chain_""" + ", chain_".join(abe._chain_fields()) + """
+              FROM chain
+             WHERE chain_id = ?""", (chain_id,)))
+
     def show_chain(abe, symbol, page, well_formed):
-        chain = abe.lookup_chain(symbol)
+        chain = abe.chain_lookup_by_name(symbol)
 
         if symbol is None:
             symbol = chain['name']
@@ -1430,7 +1439,7 @@ class Abe:
         body += '</table>\n'
 
     def show_block_number(abe, symbol, height, page):
-        chain = abe.lookup_chain(symbol)
+        chain = abe.chain_lookup_by_name(symbol)
 
         page['body'] = [
             '<h1>', chain['name'], ' Block ', height, '</h1>\n']
@@ -1439,8 +1448,22 @@ class Abe:
 
     def show_block(abe, block_hash, page):
         page['body'] = ['<h1>Block</h1>\n']
-        abe._show_block('block_hash = ?', (abe.store.hashin_hex(block_hash),),
-                        page, '', None) # XXX
+        dbhash = abe.store.hashin_hex(block_hash)
+        # XXX arbitrary choice: minimum chain_id.
+        row = abe.store.selectrow(
+            """
+            SELECT MIN(cc.chain_id), cc.block_id, b.block_height
+              FROM chain_candidate cc JOIN block b USING (block_id)
+             WHERE b.block_hash = ?
+             GROUP BY cc.block_id, b.block_height""",
+            (dbhash,))
+        if row is not None:
+            chain_id, block_id, height = row
+            page['body'][-1] = ['<h1>Block ', height, '</h1>\n']
+            abe._show_block('block_id = ?', (block_id,), page, '',
+                            abe.chain_lookup_by_id(chain_id))
+        else:
+            abe._show_block('block_hash = ?', (dbhash,), page, '', None)
 
     def show_tx(abe, tx_hash, page):
         body = page['body'] = [
@@ -1448,9 +1471,97 @@ class Abe:
             '<p>Watch this space...</p>']
 
     def show_address(abe, address, page):
-        body = page['body'] = [
-            '<h1>Address ', address, '</h1>',
-            '<p>Watch this space...</p>']
+        dbhash = abe.store.binin(base58.bc_address_to_hash_160(address))
+        page['body'] = [
+            '<h1>Address ', address, '</h1>']
+        body = page['body']
+
+        chains = {}
+        balance = {}
+        chain_ids = []
+        def adj_balance(chain_id, value):
+            if chain_id not in balance:
+                chain_ids.append(chain_id)
+                chains[chain_id] = abe.chain_lookup_by_id(chain_id)
+                balance[chain_id] = 0
+            balance[chain_id] += value
+
+        txout = []
+        txin = []
+        abe.store.sql("""
+            SELECT
+                cc.chain_id,
+                b.block_height,
+                b.block_nTime,
+                tx.tx_hash,
+                prevout.txout_value
+              FROM chain_candidate cc
+              JOIN block b USING (block_id)
+              JOIN block_tx USING (block_id)
+              JOIN tx USING (tx_id)
+              JOIN txin USING (tx_id)
+              JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
+              JOIN pubkey USING (pubkey_id)
+             WHERE pubkey_hash = ?
+               AND cc.in_longest = 1
+             ORDER BY cc.chain_id, b.block_height, block_tx.tx_pos""",
+                      (dbhash,))
+        for row in abe.store.cursor:
+            (chain_id, height, nTime, tx_hash, value) = (
+                int(row[0]), int(row[1]), int(row[2]),
+                abe.store.hashout_hex(row[3]), int(row[4]))
+            adj_balance(chain_id, -value)
+            txin.append({
+                    "chain_id": chain_id,
+                    "height": height,
+                    "nTime": nTime,
+                    "tx_hash": tx_hash,
+                    "value": value,
+                    })
+        abe.store.sql("""
+            SELECT
+                cc.chain_id,
+                b.block_height,
+                b.block_nTime,
+                tx.tx_hash,
+                txout.txout_value
+              FROM chain_candidate cc
+              JOIN block b USING (block_id)
+              JOIN block_tx USING (block_id)
+              JOIN tx USING (tx_id)
+              JOIN txout USING (tx_id)
+              JOIN pubkey USING (pubkey_id)
+             WHERE pubkey_hash = ?
+               AND cc.in_longest = 1
+             ORDER BY cc.chain_id, b.block_height, block_tx.tx_pos""",
+                      (dbhash,))
+        for row in abe.store.cursor:
+            (chain_id, height, nTime, tx_hash, value) = (
+                int(row[0]), int(row[1]), int(row[2]),
+                abe.store.hashout_hex(row[3]), int(row[4]))
+            adj_balance(chain_id, value)
+            txout.append({
+                    "chain_id": chain_id,
+                    "height": height,
+                    "nTime": nTime,
+                    "tx_hash": tx_hash,
+                    "value": value,
+                    })
+
+        if (not chain_ids):
+            body += ['<p>Address not seen on the network.</p>']
+            return
+
+        body += ['<p>Balance: ']
+        for chain_id in chain_ids:
+            chain = chains[chain_id]
+            if chain_id != chain_ids[0]:
+                body += [', ']
+            body += [format_satoshis(balance[chain_id], chain),
+                     ' ', chain['code3']]
+        body += ['<br /></p>\n']
+        body += ['<h3>Transactions</h3>\n'
+                 '<p>Watch this space...</p>']
 
 def get_int_param(page, name):
     vals = page['params'].get(name)
