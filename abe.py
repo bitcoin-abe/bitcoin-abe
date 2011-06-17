@@ -1048,7 +1048,7 @@ class Abe:
             if match:
                 return chain, 'b', match.group(1), True, dotdot + '../'
 
-            match = re.match("/(block|tx|address)/([0-9a-fA-F]+)\\Z", pi)
+            match = re.match("/(block|tx|address)/(\\w+)\\Z", pi)
             if match:
                 return (chain, match.group(1), match.group(2), True,
                         dotdot + '../')
@@ -1074,6 +1074,7 @@ class Abe:
             "title": [ABE_APPNAME, " ", ABE_VERSION],
             "body": body,
             "env": env,
+            "dotdot": '',  # XXX
             }
         if 'QUERY_STRING' in env:
             page['params'] = urlparse.parse_qs(env['QUERY_STRING'])
@@ -1169,6 +1170,7 @@ class Abe:
         chain = {}
         for i in range(len(fields)):
             chain[fields[i]] = row[i]
+        chain['address_version'] = abe.store.binout(chain['address_version'])
         return chain
 
     def show_chain(abe, symbol, page, well_formed):
@@ -1219,7 +1221,7 @@ class Abe:
                     '">', height, '</a>'
                     '</td><td>', format_time(int(nTime)),
                     '</td><td>', num_tx,
-                    '</td><td>', format_satoshis(int(value_out)),
+                    '</td><td>', format_satoshis(int(value_out), chain),
                     '</td><td>', calculate_difficulty(int(nBits)),
                     '</td></tr>\n']
 
@@ -1266,7 +1268,9 @@ class Abe:
                  map(to_html, rows), '</table>\n<p>', nav, '</p>\n']
         return True
 
-    def _show_block(abe, where, bind, page, dotdotblock):
+    def _show_block(abe, where, bind, page, dotdotblock, chain):
+        address_version = (BITCOIN_ADDRESS_VERSION if chain is None  # XXX
+                           else chain['address_version'])
         body = page['body']
         sql = """
             SELECT
@@ -1325,8 +1329,105 @@ class Abe:
                 work_to_difficulty(block_chain_work)), '<br />\n'
                  'Nonce: ', str(nNonce), '</p>\n',]
 
-        body += ['<h3>Transactions</h3>\n',
-                 '<p>Watch this space...</p>']
+        body += ['<h3>Transactions</h3>\n']
+
+        tx_ids = []
+        txs = {}
+        block_out = 0
+        block_in = 0
+        abe.store.sql("""
+            SELECT tx_id, tx_hash, tx_size, txout_value, pubkey_hash
+              FROM txout_detail
+             WHERE block_id = ?
+             ORDER BY tx_pos, txout_pos
+        """, (block_id,))
+        for row in abe.store.cursor:
+            tx_id, tx_hash_hex, tx_size, txout_value, pubkey_hash = (
+                row[0], abe.store.hashout_hex(row[1]), int(row[2]),
+                int(row[3]), abe.store.binout(row[4]))
+            tx = txs.get(tx_id)
+            if tx is None:
+                tx_ids.append(tx_id)
+                txs[tx_id] = {
+                    "hash": tx_hash_hex,
+                    "total_out": 0,
+                    "total_in": 0,
+                    "out": [],
+                    "in": [],
+                    "size": tx_size,
+                    }
+                tx = txs[tx_id]
+            tx['total_out'] += txout_value
+            block_out += txout_value
+            tx['out'].append({
+                    "value": txout_value,
+                    "address": hash_to_address(address_version, pubkey_hash),
+                    })
+        abe.store.sql("""
+            SELECT tx_id, txin_value, pubkey_hash
+              FROM txin_detail
+             WHERE block_id = ?
+             ORDER BY tx_pos, txin_pos
+        """, (block_id,))
+        for row in abe.store.cursor:
+            tx_id, txin_value, pubkey_hash = (
+                row[0], 0 if row[1] is None else int(row[1]),
+                abe.store.binout(row[2]))
+            tx = txs.get(tx_id)
+            if tx is None:
+                # Strange, inputs but no outputs?
+                tx_ids.append(tx_id)
+                #row2 = abe.store.selectrow("""
+                #    SELECT tx_hash, tx_size FROM tx WHERE tx_id = ?""",
+                #                           (tx_id,))
+                txs[tx_id] = {
+                    "hash": "AssertionFailedTxInputNoOutput",
+                    "total_out": 0,
+                    "total_in": 0,
+                    "out": [],
+                    "in": [],
+                    "size": -1,
+                    }
+                tx = txs[tx_id]
+            tx['total_in'] += txin_value
+            block_in += txin_value
+            tx['in'].append({
+                    "value": txin_value,
+                    "address": hash_to_address(address_version, pubkey_hash),
+                    })
+
+        body += ['<table><tr><th>Transaction</th><th>Fee</th>'
+                 '<th>Size (kB)</th><th>From (amount)</th><th>To (amount)</th>'
+                 '</tr>\n']
+        for tx_id in tx_ids:
+            tx = txs[tx_id]
+            is_coinbase = (tx_id == tx_ids[0])
+            if is_coinbase:
+                fees = 0
+            else:
+                fees = tx['total_in'] - tx['total_out']
+            body += ['<tr><td><a href="../tx/' + tx['hash'] + '">',
+                     tx['hash'][:10], '...</a>'
+                     '</td><td>', format_satoshis(fees, chain),
+                     '</td><td>', tx['size'] / 1000.0,
+                     '</td><td>']
+            if is_coinbase:
+                gen = block_out - block_in
+                fees = tx['total_out'] - gen
+                body += ['Generation: ', format_satoshis(gen, chain),
+                         ' + ', format_satoshis(fees, chain), ' total fees']
+            else:
+                for txin in tx['in']:
+                    body += ['<a href="', page['dotdot'], 'address/',
+                             txin['address'], '">', txin['address'], '</a>: ',
+                             format_satoshis(txin['value'], chain), '<br />']
+            body += ['</td><td>']
+            for txout in tx['out']:
+                body += ['<a href="', page['dotdot'], 'address/',
+                         txout['address'], '">', txout['address'], '</a>: ',
+                         format_satoshis(txout['value'], chain), '<br />']
+            body += ['</td></tr>\n']
+        body += '</table>\n'
 
     def show_block_number(abe, symbol, height, page):
         chain = abe.lookup_chain(symbol)
@@ -1334,12 +1435,12 @@ class Abe:
         page['body'] = [
             '<h1>', chain['name'], ' Block ', height, '</h1>\n']
         abe._show_block('chain_id = ? AND block_height = ? AND in_longest = 1',
-                        (chain['id'], height), page, '../block/')
+                        (chain['id'], height), page, '../block/', chain)
 
     def show_block(abe, block_hash, page):
         page['body'] = ['<h1>Block</h1>\n']
         abe._show_block('block_hash = ?', (abe.store.hashin_hex(block_hash),),
-                        page, '')
+                        page, '', None) # XXX
 
     def show_tx(abe, tx_hash, page):
         body = page['body'] = [
@@ -1359,11 +1460,12 @@ def format_time(nTime):
     import time
     return time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(int(nTime)))
 
-def format_satoshis(satoshis):
+def format_satoshis(satoshis, chain):
+    # XXX Should find COIN and LOG10COIN from chain.
     if satoshis is None:
         return ''
     if satoshis < 0:
-        return '-' + format_satoshis(-satoshis)
+        return '-' + format_satoshis(-satoshis, chain)
     integer = satoshis / COIN
     frac = satoshis % COIN
     return (str(integer) +
@@ -1377,6 +1479,18 @@ def format_difficulty(diff):
         ret = (' %03d' % (idiff % 1000,)) + ret
         idiff = idiff / 1000
     return str(idiff) + ret
+
+def hash_to_address(version, hash):
+    if hash is None:
+        return 'UNKNOWN'
+    kh = version + hash
+    n = int(binascii.hexlify(kh + (SHA256.new(SHA256.new(kh).digest()).digest()[:4])), 16)
+    a = ''
+    while (n >= 1):
+        a = ('123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+             [n % 58][:1] + a)
+        n /= 58
+    return ('1' if version == '\0' else '') + a
 
 def serve(store):
     args = store.args
