@@ -59,8 +59,8 @@ NAMECOIN_ADDRESS_VERSION = "\x34"
 
 DEFAULT_CHAIN_ID = NAMECOIN_CHAIN_ID
 
-WORK_BITS = 304
-CHAIN_WORK_ZERO = "\0" * (WORK_BITS / 8)
+WORK_BITS = 304  # XXX more than necessary.
+
 GENESIS_HASH_PREV = "\0" * 32
 
 SCRIPT_ADDRESS_RE = re.compile("\x76\xa9\x14(.{20})\x88\xac", re.DOTALL)
@@ -154,43 +154,73 @@ class DataStore(object):
         elif store.module.paramstyle != 'qmark':
             warnings.warn("Database parameter style is " +
                           "%s, trying qmark" % module.paramstyle)
+            pass
 
+        # Binary I/O with the database.
+        # Hashes are a special type; since the protocol treats them as
+        # 256-bit integers and represents them as little endian, we
+        # have to reverse them in hex to satisfy human expectations.
         def identity(x):
             return x
-        binin = identity
-        binout = identity
-        hashin = identity
-        hashout = identity
+        def to_hex(x):
+            return None if x is None else binascii.hexlify(x)
+        def from_hex(x):
+            return None if x is None else binascii.unhexlify(x)
+        def to_hex_rev(x):
+            return None if x is None else binascii.hexlify(x[::-1])
+        def from_hex_rev(x):
+            return None if x is None else binascii.unhexlify(x)[::-1]
 
-        if store.args.binary_type == "buffer":
+        if store.args.binary_type is None:
+            binin       = identity
+            binin_hex   = from_hex
+            binout      = identity
+            binout_hex  = to_hex
+            hashin      = identity
+            hashin_hex  = from_hex_rev
+            hashout     = identity
+            hashout_hex = to_hex_rev
+
+        elif store.args.binary_type == "buffer":
             def to_buffer(x):
                 return None if x is None else buffer(x)
-            binin = to_buffer
-            hashin = to_buffer
+            binin       = to_buffer
+            binin_hex   = lambda x: to_buffer(from_hex(x))
+            binout      = identity
+            binout_hex  = to_hex
+            hashin      = to_buffer
+            hashin_hex  = lambda x: to_buffer(from_hex_rev(x))
+            hashout     = identity
+            hashout_hex = to_hex_rev
+
         elif store.args.binary_type == "hex":
             sqlfn = store.sql_binary_as_hex(sqlfn)
-            def binin(x):
-                return None if x is None else binascii.hexlify(x)
-            def binout(x):
-                return None if x is None else binascii.unhexlify(x)
-            def hashin(x):
-                if x is None:
-                    return None
-                # Could optimize based on fixed lengths?
-                return binascii.hexlify(''.join(reversed(x)))
-            def hashout(x):
-                if x is None:
-                    return None
-                return ''.join(reversed(binascii.unhexlify(x)))
-        elif store.args.binary_type is not None:
+            binin       = to_hex
+            binin_hex   = identity
+            binout      = from_hex
+            binout_hex  = identity
+            hashin      = to_hex_rev
+            hashin_hex  = identity
+            hashout     = from_hex_rev
+            hashout_hex = identity
+
+        else:
             raise Exception("Unsupported binary-type %s"
                             % store.args.binary_type)
 
         store.sqlfn = sqlfn
-        store.binin = binin
-        store.binout = binout
-        store.hashin = hashin
-        store.hashout = hashout
+        store.binin       = binin
+        store.binin_hex   = binin_hex
+        store.binout      = binout
+        store.binout_hex  = binout_hex
+        store.hashin      = hashin
+        store.hashin_hex  = hashin_hex
+        store.hashout     = hashout
+        store.hashout_hex = hashout_hex
+
+        # Might reimplement these someday...
+        store.binout_int = lambda x: int(binout_hex(x), 16)
+        store.binin_int = lambda x, bits: binin_hex(("%%0%dx" % (bits / 4)) % x)
 
     def sql(store, stmt, params=()):
         store.sqlfn(store, stmt, params)
@@ -530,13 +560,13 @@ GROUP BY
         store.sql(ins_policy, (NAMECOIN_POLICY_ID, "Namecoin policy"))
         store.sql(ins_chain,
                   (BITCOIN_CHAIN_ID, BITCOIN_MAGIC_ID, BITCOIN_POLICY_ID,
-                   'Bitcoin', 'BTC', BITCOIN_ADDRESS_VERSION))
+                   'Bitcoin', 'BTC', store.binin(BITCOIN_ADDRESS_VERSION)))
         store.sql(ins_chain,
                   (TESTNET_CHAIN_ID, TESTNET_MAGIC_ID, TESTNET_POLICY_ID,
-                   'Testnet', 'BC0', TESTNET_ADDRESS_VERSION))
+                   'Testnet', 'BC0', store.binin(TESTNET_ADDRESS_VERSION)))
         store.sql(ins_chain,
                   (NAMECOIN_CHAIN_ID, NAMECOIN_MAGIC_ID, NAMECOIN_POLICY_ID,
-                   'Namecoin', 'NMC', NAMECOIN_ADDRESS_VERSION))
+                   'Namecoin', 'NMC', store.binin(NAMECOIN_ADDRESS_VERSION)))
 
         store.sql("""
             INSERT INTO config (
@@ -561,7 +591,7 @@ GROUP BY
              WHERE block_hash=?""", (store.hashin(hash),))
         if row is None:
             return (None, None, None)
-        return (row[0], row[1], store.binout(row[2]))
+        return (row[0], row[1], store.binout_int(row[2]))
 
     def import_block(store, b):
 
@@ -581,14 +611,13 @@ GROUP BY
         hashPrev = b['hashPrev']
         is_genesis = hashPrev == GENESIS_HASH_PREV
         if is_genesis:
-            prev_block_id, prev_height, prev_chain_work = (None, -1,
-                                                           CHAIN_WORK_ZERO)
+            prev_block_id, prev_height, prev_work = (None, -1, 0)
         else:
-            prev_block_id, prev_height, prev_chain_work = store.find_prev(
-                hashPrev)
+            prev_block_id, prev_height, prev_work = store.find_prev(hashPrev)
+
         b['prev_block_id'] = prev_block_id
         b['height'] = None if prev_height is None else prev_height + 1
-        b['chain_work'] = calculate_work(prev_chain_work, b['nBits'])
+        b['chain_work'] = calculate_work(prev_work, b['nBits'])
 
         # Insert the block table row.
         store.sql("""
@@ -600,7 +629,8 @@ GROUP BY
                   (block_id, store.hashin(b['hash']), b['version'],
                    store.hashin(b['hashMerkleRoot']), b['nTime'],
                    b['nBits'], b['nNonce'], b['height'],
-                   prev_block_id, store.binin(b['chain_work'])))
+                   prev_block_id, store.binin_int(b['chain_work'],
+                                                  WORK_BITS)))
 
         # List the block's transactions in block_tx.
         for tx_pos in xrange(len(b['transactions'])):
@@ -724,14 +754,14 @@ GROUP BY
         if b['chain_work'] is None:
             in_longest = 0
         else:
-            (top_block_id, top_height, work) = store.find_top(b['block_id'])
+            (top_block_id, top_height, dbwork) = store.find_top(b['block_id'])
             row = store.selectrow("""
                 SELECT b.block_id, b.block_height
                   FROM block b, chain c
                  WHERE b.block_id = c.chain_last_block_id
                    AND c.chain_id = ?
                    AND b.block_chain_work < ?""",
-                      (chain_id, store.binin(work)))
+                      (chain_id, dbwork))
             if row:
                 in_longest = 1
                 (loser_id, loser_height) = row
@@ -778,12 +808,11 @@ GROUP BY
     def find_top(store, block_id):
         next_blocks = store.find_next_blocks(block_id)
         if not next_blocks:
-            height, work = store.selectrow("""
+            height, dbwork = store.selectrow("""
                 SELECT block_height, block_chain_work
                   FROM block
                  WHERE block_id = ?""", (block_id,))
-            # XXX should do work=store.binout(work) ??
-            return (block_id, height, work)
+            return (block_id, height, dbwork)
         best = (0, 0, 0)
         for next_id in next_blocks:
             ret = store.find_top(next_id)
@@ -835,7 +864,7 @@ GROUP BY
         return store._pubkey_id(pubkey_hash, pubkey)
 
     def _pubkey_id(store, pubkey_hash, pubkey):
-        dbhash = store.binin(pubkey_hash)
+        dbhash = store.binin(pubkey_hash)  # binin, not hashin for 160-bit
         row = store.selectrow("""
             SELECT pubkey_id
               FROM pubkey
@@ -956,12 +985,8 @@ def calculate_difficulty(nBits):
 def calculate_work(prev_work, nBits):
     if prev_work is None:
         return None
-    old = int(binascii.hexlify(prev_work), 16)
     # XXX will this round using the same rules as C++ Bitcoin?
-    new = int((1L << 256) / (calculate_target(nBits) + 1))
-    s = "%x" % (old + new)
-    s = ("0" * ((WORK_BITS / 4) - len(s))) + s
-    return binascii.unhexlify(s)
+    return prev_work + int((1 << 256) / (calculate_target(nBits) + 1))
 
 def make_store(args):
     store = DataStore(args)
@@ -1182,8 +1207,8 @@ class Abe:
         def to_html(row):
             (hash, height, nTime, num_tx, value_out, nBits) = row
             import time
-            return ['<tr><td><a href="block/', hash, '">', height,
-                    '</a></td><td>',
+            return ['<tr><td><a href="block/', store.hashout_hex(hash),
+                    '">', height, '</a></td><td>',
                     time.strftime('%Y-%m-%d %H:%M:%S',
                                   time.gmtime(int(nTime))),
                     '</td><td>', num_tx,
