@@ -1486,9 +1486,10 @@ class Abe:
                 balance[chain_id] = 0
             balance[chain_id] += value
 
+        print "dbhash=", dbhash # cae888e1fca6236c3ef25cf044650577943dc2d6
         txout = []
         txin = []
-        abe.store.sql("""
+        rows = abe.store.selectall("""
             SELECT
                 cc.chain_id,
                 b.block_height,
@@ -1506,7 +1507,7 @@ class Abe:
                AND cc.in_longest = 1
              ORDER BY cc.chain_id, b.block_height, block_tx.tx_pos""",
                       (dbhash,))
-        for row in abe.store.cursor:
+        for row in rows:
             (chain_id, height, nTime, tx_hash, value) = (
                 int(row[0]), int(row[1]), int(row[2]),
                 abe.store.hashout_hex(row[3]), int(row[4]))
@@ -1518,7 +1519,8 @@ class Abe:
                     "tx_hash": tx_hash,
                     "value": value,
                     })
-        abe.store.sql("""
+            print 'txin', repr(txin[-1])
+        rows = abe.store.selectall("""
             SELECT
                 cc.chain_id,
                 b.block_height,
@@ -1535,7 +1537,7 @@ class Abe:
                AND cc.in_longest = 1
              ORDER BY cc.chain_id, b.block_height, block_tx.tx_pos""",
                       (dbhash,))
-        for row in abe.store.cursor:
+        for row in rows:
             (chain_id, height, nTime, tx_hash, value) = (
                 int(row[0]), int(row[1]), int(row[2]),
                 abe.store.hashout_hex(row[3]), int(row[4]))
@@ -1547,6 +1549,7 @@ class Abe:
                     "tx_hash": tx_hash,
                     "value": value,
                     })
+            print 'txout', repr(txin[-1])
 
         if (not chain_ids):
             body += ['<p>Address not seen on the network.</p>']
