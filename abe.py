@@ -32,10 +32,13 @@ from util import determine_db_dir
 import base58
 
 ABE_APPNAME = "ABE"
-ABE_VERSION = '0.1.1'
+ABE_VERSION = '0.2'
 ABE_URL = 'https://github.com/jtobey/bitcoin-abe'
 SCHEMA_VERSION = "6"
-EMAIL_ADDRESS = "John.Tobey@gmail.com"
+
+COPYRIGHT_YEARS = '2011'
+COPYRIGHT = "John Tobey"
+COPYRIGHT_URL = "mailto:John.Tobey@gmail.com"
 
 # XXX This should probably be a property of chain, or even a query param.
 LOG10COIN = 8
@@ -1014,9 +1017,9 @@ class Abe:
         abe.htdocs = os.path.join(os.path.split(__file__)[0], 'htdocs')
         abe.footer = ['<p style="font-size: smaller; font-style: italic">',
                       '<a href="', ABE_URL, '">', ABE_APPNAME, '</a> ',
-                      ABE_VERSION, ', ',
-                      'questions to <a href="mailto:', escape(EMAIL_ADDRESS),
-                      '">', escape(EMAIL_ADDRESS), '</a></p>\n']
+                      ABE_VERSION, ' &#9400; ', COPYRIGHT_YEARS,
+                      ' <a href="', escape(COPYRIGHT_URL), '">',
+                      escape(COPYRIGHT), '</a></p>\n']
 
     def parse_pi(abe, pi):
         """
@@ -1073,7 +1076,7 @@ class Abe:
         status = '200 OK'
         body = []
         page = {
-            "title": [ABE_APPNAME, " ", ABE_VERSION],
+            "title": [escape(ABE_APPNAME), " ", ABE_VERSION],
             "body": body,
             "env": env,
             "dotdot": '',  # XXX
@@ -1124,7 +1127,12 @@ class Abe:
         start_response(status, [('Content-type', 'application/xhtml+xml'),
                                 ('Cache-Control', 'max-age=30')])
         def flatten(l):
-            return ''.join(map(flatten, l)) if isinstance(l, list) else str(l)
+            if isinstance(l, list):
+                return ''.join(map(flatten, l))
+            if l is None:
+                raise Error('NoneType in HTML conversion')
+            return str(l)
+
         return map(flatten,
                    ['<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"\n'
                     '  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">\n'
@@ -1136,7 +1144,10 @@ class Abe:
                     '<link rel="shortcut icon" href="',
                     page['dotdot'], 'favicon.ico" />\n'
                     '<title>', page['title'], '</title>\n</head>\n',
-                    '<body>\n', page['body'], abe.footer,
+                    '<body>\n',
+                    '<h1><a href="', page['dotdot'] or '/', '"><img src="',
+                    page['dotdot'], 'logo32.png', '" alt="ABE logo" /></a>',
+                    page['title'], '</h1>\n', page['body'], abe.footer,
                     '</body></html>'])
 
     def handle(abe, page, chain, objtype, objid, well_formed, dotdot):
@@ -1187,11 +1198,9 @@ class Abe:
 
         if symbol is None:
             symbol = chain['name']
-
         if symbol is not None:
-            page['title'] = escape(symbol)
-            page['body'] += [
-                '<h1>', escape(symbol), '</h1>\n']
+            page['title'] = symbol
+
         body = page['body']
 
         count = get_int_param(page, 'count') or 20
@@ -1316,7 +1325,7 @@ class Abe:
              ORDER BY cc.in_longest DESC""",
                                   (block_id,))
 
-        page['title'] = 'Block ' + str(height)
+        page['title'] = ['Block ', height]
         body += ['<p>Hash: ', block_hash, '<br />\n']
 
         if prev_block_hash is not None:
@@ -1328,15 +1337,15 @@ class Abe:
             hash = abe.store.hashout_hex(row[0])
             body += ['<a href="', dotdotblock, hash, '">', hash, '</a><br />\n']
 
-        body += ['Height: ', str(height), '<br />\n',
+        body += ['Height: ', height, '<br />\n',
                  'Version: ', block_version, '<br />\n',
                  'Transaction Root: ', hashMerkleRoot, '<br />\n',
-                 'Time: ', str(nTime), ' (', format_time(nTime), ')<br />\n',
+                 'Time: ', nTime, ' (', format_time(nTime), ')<br />\n',
                  'Difficulty: ', format_difficulty(calculate_difficulty(nBits)),
                  ' (Bits: %x)' % (nBits,), '<br />\n',
                  'Cumulative Difficulty: ', format_difficulty(
                 work_to_difficulty(block_chain_work)), '<br />\n'
-                 'Nonce: ', str(nNonce), '</p>\n',]
+                 'Nonce: ', nNonce, '</p>\n',]
 
         body += ['<h3>Transactions</h3>\n']
 
@@ -1441,14 +1450,12 @@ class Abe:
     def show_block_number(abe, symbol, height, page):
         chain = abe.chain_lookup_by_name(symbol)
 
-        page['body'] = [
-            '<h1>', chain['name'], ' ', chain['code3'] or 'Block', ' ',
-            height, '</h1>\n']
+        page['title'] = [escape(chain['name']), ' Block ', height]
         abe._show_block('chain_id = ? AND block_height = ? AND in_longest = 1',
                         (chain['id'], height), page, '../block/', chain)
 
     def show_block(abe, block_hash, page):
-        page['body'] = ['<h1>Block</h1>\n']
+        page['title'] = 'Block'
         dbhash = abe.store.hashin_hex(block_hash)
         # XXX arbitrary choice: minimum chain_id.
         row = abe.store.selectrow(
@@ -1463,19 +1470,18 @@ class Abe:
         else:
             chain_id, block_id, height = row
             chain = abe.chain_lookup_by_id(chain_id)
-            page['body'][-1] = ['<h1>', chain['code3'] or 'Block', ' ',
-                                height, '</h1>\n']
+            page['title'] = [escape(chain['name']), ' ', height]
             abe._show_block('block_id = ?', (block_id,), page, '', chain)
 
     def show_tx(abe, tx_hash, page):
+        page['title'] = 'Transaction'
         body = page['body'] = [
-            '<h1>Transaction</h1>',
             '<p>Watch this space...</p>']
 
     def show_address(abe, address, page):
-        dbhash = abe.store.binin(base58.bc_address_to_hash_160(address))
-        page['title'] = 'Address ' + address
-        page['body'] = ['<h1>', page['title'], '</h1>']
+        binaddr = base58.bc_address_to_hash_160(address)
+        dbhash = abe.store.binin(binaddr)
+        page['title'] = 'Address ' + escape(address)
         body = page['body']
 
         chains = {}
@@ -1573,6 +1579,11 @@ class Abe:
                 body += [', ']
             body += [format_satoshis(balance[chain_id], chain),
                      ' ', escape(chain['code3'])]
+            other = hash_to_address(chain['address_version'], binaddr)
+            if other != address:
+                body[-1] = ['<a href="', page['dotdot'], 'chain/',
+                            escape(chain['name']), '/address/', other,
+                            '">', body[-1], '</a>']
             balance[chain_id] = 0  # Reset for history traversal.
 
         body += ['<br /></p>\n']
@@ -1652,14 +1663,8 @@ def format_difficulty(diff):
 def hash_to_address(version, hash):
     if hash is None:
         return 'UNKNOWN'
-    kh = version + hash
-    n = int(binascii.hexlify(kh + (SHA256.new(SHA256.new(kh).digest()).digest()[:4])), 16)
-    a = ''
-    while (n >= 1):
-        a = ('123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
-             [n % 58][:1] + a)
-        n /= 58
-    return ('1' if version == '\0' else '') + a
+    vh = version + hash
+    return base58.b58encode(vh + doubleSha256(vh)[:4])
 
 def serve(store):
     args = store.args
