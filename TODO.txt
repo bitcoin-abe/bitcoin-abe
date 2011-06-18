@@ -1,0 +1,51 @@
+* Finish the transaction details page.
+
+* Create a block/tx/address search tool.
+
+* Test on Oracle.
+
+* Speed up SQL using materialized views or, where not available, other
+  denormalization techniques.
+
+* Test on MySQL.
+
+* Use SEQUENCEs where available for synthetic identifiers.
+
+* Provide a fast load mode with constraints disabled.
+
+* Test on Apache/FastCGI.
+
+* Report address format errors, etc.
+
+* Create "short links" as on http://blockexplorer.com.
+
+* Abstract inline SQL into the DataStore class.
+
+* Break abe.py into modules.
+
+* Write upgrade scripts in Python for robustness.
+
+* Make a "home page" with explanatory text and links to chains.
+
+* Highlight any objects that are not in the main chain as such.
+
+* Store and report block size, address type, raw objects, etc.
+
+* Perhaps create an "SQL script" DataStore subclass that outputs flat
+  SQL INSERTs.
+
+* Perhaps provide a postgres-bytea binary type.
+
+* Perhaps compress scriptPubKey by representing as a pubkey_id and
+  address type.
+
+* Tools/API like http://blockexplorer.com/q.
+
+* Context-sensitive help as on http://blockexplorer.com.
+
+* Simplify the process of adding new chains.
+
+* Defend against corrupt or differently formatted block files, though
+  yet unseen.
+
+* Import transactions from the pool.

@@ -1074,10 +1074,9 @@ class Abe:
         import urlparse
         pi = env['PATH_INFO']
         status = '200 OK'
-        body = []
         page = {
             "title": [escape(ABE_APPNAME), " ", ABE_VERSION],
-            "body": body,
+            "body": [],
             "env": env,
             "dotdot": '',  # XXX
             "params": {},
@@ -1095,8 +1094,9 @@ class Abe:
             found = abe.handle(page, *args)
         except NoSuchChainError, e:
             if args[3]:  # well_formed
-                body += ['<p class="error">'
-                         'Sorry, I don\'t know about that chain!</p>\n']
+                page['body'] += [
+                    '<p class="error">'
+                    'Sorry, I don\'t know about that chain!</p>\n']
             else:
                 found = False
 
@@ -1474,8 +1474,49 @@ class Abe:
             abe._show_block('block_id = ?', (block_id,), page, '', chain)
 
     def show_tx(abe, tx_hash, page):
-        page['title'] = 'Transaction'
-        body = page['body'] = [
+        page['title'] = ['Transaction ', tx_hash[:10], '...', tx_hash[-4:]]
+        body = page['body']
+
+        row = abe.store.selectrow("""
+            SELECT tx_id, tx_version, tx_lockTime, tx_size
+              FROM tx
+             WHERE tx_hash = ?
+        """, (abe.store.hashin_hex(tx_hash),))
+        if row is None:
+            body += ['<p class="error">Block not found.</p>']
+            return
+        tx_id, tx_version, tx_lockTime, tx_size = (
+            int(row[0]), int(row[1]), int(row[2]), int(row[3]))
+
+        body += ['<p>']
+        chain_name = None
+        chains = set()
+        for row in abe.store.selectall("""
+            SELECT c.chain_name, c.chain_code3, c.chain_address_version,
+                   cc.in_longest,
+                   b.block_nTime, b.block_height, b.block_hash
+              FROM chain c
+              JOIN chain_candidate cc USING (chain_id)
+              JOIN block b USING (block_id)
+              JOIN block_tx USING (block_id)
+             WHERE block_tx.tx_id = ?
+             ORDER BY c.chain_id, cc.in_longest DESC, b.block_hash
+        """, (tx_id,)):
+            (name, chain_code3, address_version, in_longest,
+             nTime, height, blk_hash) = (
+                row[0], row[1], abe.store.binout(row[2]), int(row[3]),
+                int(row[4]), int(row[5]), abe.store.hashout_hex(row[6]))
+            if not chains:
+                chain_name = name
+            chains.add(name)
+            body += ['Appeared in <a href="../block/', blk_hash,
+                     '">', escape(name), ' ',
+                     height if in_longest else [blk_hash[:10], '...',
+                                                blk_hash[-4:]],
+                     '</a> (', format_time(nTime), ')<br />\n']
+
+        body += '</p>'
+        body += [
             '<p>Watch this space...</p>']
 
     def show_address(abe, address, page):
