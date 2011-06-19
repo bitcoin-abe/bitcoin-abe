@@ -1,5 +1,3 @@
-* Finish the transaction details page.
-
 * Create a block/tx/address search tool.
 
 * Test on Oracle.

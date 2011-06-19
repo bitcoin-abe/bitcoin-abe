@@ -15,5 +15,5 @@ See `abe.py --help` for examples of how to persist the data, greatly
 reducing start time.
 
 Forum thread: https://forum.bitcoin.org/index.php?topic=16141.0
-Donations: 1PWC7PNHL1SgvZaN7xEtygenKjWobWsCuf
-NJ3MSELK1cWnqUa6xhF2wUYAnz3RSrWXcK
+Donations appreciated: 1PWC7PNHL1SgvZaN7xEtygenKjWobWsCuf (BTC)
+NJ3MSELK1cWnqUa6xhF2wUYAnz3RSrWXcK (NMC)
