@@ -18,6 +18,89 @@ def add_block_total_seconds(store):
     store.sql("ALTER TABLE block ADD block_total_seconds NUMERIC(20)")
 def add_block_satoshi_seconds(store):
     store.sql("ALTER TABLE block ADD block_satoshi_seconds NUMERIC(28)")
+def add_satoshi_seconds_destroyed(store):
+    store.sql("ALTER TABLE block_tx ADD satoshi_seconds_destroyed NUMERIC(28)")
+
+def create_block_txin(store):
+    store.sql(
+"""CREATE TABLE block_txin (
+    block_id      NUMERIC(14),
+    txin_id       NUMERIC(26),
+    out_block_id  NUMERIC(14),
+    PRIMARY KEY (block_id, txin_id)
+)""")
+
+def index_block_tx_tx(store):
+    store.sql("CREATE INDEX x_block_tx_tx ON block_tx (tx_id)")
+
+def init_block_txin(store):
+    print "Initializing block_txin."
+
+    print "...loading block_id chains"
+    stats = {}
+    for row in store.selectall("""
+        SELECT cc.chain_id, cc.in_longest, b.prev_block_id, b.block_id,
+               b.block_height
+          FROM chain_candidate cc
+          JOIN block b USING (block_id)"""):
+        (chain_id, in_longest, prev_id, block_id, height) = row
+
+        if chain_id not in stats:
+            stats[chain_id] = {}
+
+        stats[chain_id][block_id] = {
+            "in_longest": int(in_longest),
+            "height": int(height),
+            "prev_id": prev_id}
+
+    print "...finding output blocks"
+    ancestry = {}
+    for row in store.selectall("""
+        SELECT cc.chain_id, bt.block_id, txin.txin_id, obt.block_id
+          FROM chain_candidate cc
+          JOIN block_tx bt USING (block_id)
+          JOIN txin USING (tx_id)
+          JOIN txout USING (txout_id)
+          JOIN block_tx obt ON (txout.tx_id = obt.tx_id)"""):
+        (chain_id, block_id, txin_id, oblock_id) = row
+        bstats = stats[chain_id][block_id]
+        ostats = stats[chain_id][oblock_id]
+
+        sys.stdout.write('\r' + str(chain_id) + ":" + str(block_id) + "  ")
+
+        # If oblock is an ancestor of block, insert into block_txin.
+        if bstats['in_longest']:
+            if not ostats['in_longest']:
+                continue
+        elif block_id <> oblock_id:
+            if not (block_id, oblock_id) in ancestry:
+                id = bstats['prev_id']
+                is_ancestor = False
+                while (True):
+                    print (str(block_id) + ": looking for output block "
+                           + str(oblock_id) + ":" + str(id))
+                    if id == oblock_id:
+                        is_ancestor = True
+                        break
+                    if id is None:
+                        break
+                    s = stats[chain_id][id]
+                    if s['in_longest']:
+                        is_ancestor = (
+                            ostats['in_longest'] and
+                            ostats['height'] <= s['height'])
+                        break
+                    id = s['prev_id']
+
+                ancestry[(block_id, oblock_id)] = is_ancestor
+
+            if not ancestry[(block_id, oblock_id)]:
+                continue
+        store.sql("INSERT INTO block_txin (block_id, txin_id, out_block_id)"
+                  " VALUES (?, ?, ?)",
+                  (block_id, txin_id, oblock_id))
+
+    print('done.')
 
 def init_block_value_in(store):
     print "Calculating block_value_in."
@@ -44,69 +127,106 @@ def init_block_value_out(store):
         store.sql("UPDATE block SET block_value_out = ? WHERE block_id = ?",
                   (int(row[1]), row[0]))
 
-def init_block_satoshi_seconds(store):
-    print "Calculating satoshi-seconds."
+def init_block_totals(store):
+    print "Calculating block total generated and age."
     last_chain_id = None
-    chain_nTime = 0
     stats = None
     for row in store.selectall("""
-        SELECT cc.chain_id, b.prev_block_id,
-               b.block_id, b.block_nTime, b.block_value_in, b.block_value_out,
-               SUM(ob.block_nTime * txout.txout_value)
+        SELECT cc.chain_id, b.prev_block_id, b.block_id,
+               b.block_value_out - b.block_value_in, b.nTime
           FROM chain_candidate cc
           JOIN block b USING (block_id)
-          JOIN block_tx USING (block_id)
-          JOIN txin USING (tx_id)
-          LEFT JOIN txout USING (txout_id)
-          LEFT JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
-          LEFT JOIN block ob ON (obt.block_id = ob.block_id)
          WHERE b.block_height IS NOT NULL
-         GROUP BY cc.chain_id, b.prev_block_id, b.block_height,
-               b.block_id, b.block_nTime, b.block_value_in, b.block_value_out
-         ORDER BY cc.chain_id, b.block_height
-    """):
-        chain_id, prev_id, block_id, nTime, value_in, value_out, tv_in = row
+         ORDER BY cc.chain_id, b.block_height"""):
+
+        chain_id, prev_id, block_id, generated, nTime = row
+        generated = int(generated)
         nTime = int(nTime)
-        value_in = int(value_in)
-        value_out = int(value_out)
-        tv_in = int(tv_in or 0)
-        generation_fee = value_out - value_in
-
-        if chain_id == last_chain_id:
-            if prev_id is None:
-                raise Error('Unattached block ' + block_id + ' has height')
-            ostats = stats[prev_id]
-            ss_created = ostats['satoshis'] * (nTime - ostats['nTime'])
-            ss_destroyed = nTime * value_in - tv_in
+        if chain_id != last_chain_id:
+            stats = {}
+        if prev_id is None:
             stats[block_id] = {
-                "satoshis": ostats['satoshis'] + generation_fee,
-                "ss": ostats['ss'] + ss_created - ss_destroyed,
-                "nTime": nTime,
-                }
+                "chain_start": nTime,
+                "satoshis": generated}
         else:
-            if prev_id is not None:
-                raise Error('Can not find chain ' + chain_id + ' genesis block')
-            chain_nTime = nTime
-            stats = {block_id: {
-                        "satoshis": generation_fee,
-                        "ss": 0,
-                        "nTime": nTime}}
-            last_chain_id = chain_id
+            stats[block_id] = {
+                "chain_start": stats[prev_id]['chain_start'],
+                "satoshis": generated + stats[prev_id]['satoshis']}
 
+        store.sql("UPDATE block SET block_total_seconds = ?,"
+                  " block_total_satoshis = ?"
+                  " WHERE block_id = ?",
+                  (stats[block_id]['satoshis'],
+                   nTime - stats[block_id]['chain_start'], block_id))
+
+def init_satoshi_seconds_destroyed(store):
+    print "Calculating satoshi-seconds destroyed."
+    cur = store.conn.cursor()
+    cur.execute("""
+        SELECT bt.block_id, bt.tx_id,
+               SUM(txout.txout_value * (b.block_nTime - ob.block_nTime))
+          FROM block b
+          JOIN block_tx bt USING (block_id)
+          JOIN txin USING (tx_id)
+          JOIN txout USING (txout_id)
+          JOIN block_txin bti ON (
+                   bti.block_id = bt.block_id AND
+                   bti.txin_id = txin.txin_id)
+          JOIN block ob ON (bti.out_block_id = ob.block_id)""")
+    for row in cur:
+        block_id, tx_id, destroyed = row
+        store.sql("UPDATE block_tx SET satoshi_seconds_destroyed = ?"
+                  " WHERE block_id = ? AND tx_id = ?",
+                  (destroyed, block_id, tx_id))
+
+def set_0_satoshi_seconds_destroyed(store):
+    print "Setting NULL to 0 in satoshi_seconds_destroyed."
+    cur = store.conn.cursor()
+    cur.execute("""
+        SELECT bt.block_id, bt.tx_id
+          FROM block_tx bt
+          JOIN block b USING (block_id)
+         WHERE b.block_height IS NOT NULL
+           AND bt.satoshi_seconds_destroyed IS NULL""")
+    for row in cur:
+        store.sql("""
+            UPDATE block_tx bt SET satoshi_seconds_destroyed = 0
+             WHERE block_id = ? AND tx_id = ?""", row)
+
+def init_block_satoshi_seconds(store):
+    print "Calculating satoshi-seconds."
+    cur = store.conn.cursor()
+    stats = {}
+    cur.execute("""
+        SELECT b.block_id, b.block_total_satoshis, b.block_nTime,
+               b.prev_block_id, SUM(bt.satoshi_seconds_destroyed)
+          FROM block b
+          JOIN block_tx bt USING (block_id)
+         ORDER BY block_height""")
+    for row in cur:
+        block_id, satoshis, nTime, prev_id, destroyed = row
+        satoshis = int(satoshis)
+        destroyed = int(destroyed)
+        if prev_id is None:
+            ss = 0
+        else:
+            created = (stats[prev_id]['satoshis']
+                       * (nTime - stats[prev_id]['nTime']))
+            stats[block_id] = {
+                "satoshis": satoshis,
+                "ss": stats[prev_id]['ss'] + created - destroyed,
+                "nTime": nTime}
         store.sql("""
             UPDATE block
-               SET block_total_satoshis = ?,
-                   block_total_seconds = ?,
-                   block_satoshi_seconds = ?
+               SET block_satoshi_seconds = ?
              WHERE block_id = ?""",
-                  (stats[block_id]['satoshis'], nTime - chain_nTime,
-                   stats[block_id]['ss'], block_id))
+                  (stats[block_id]['ss'], block_id))
 
 def index_block_nTime(store):
     print "Indexing block_nTime."
     store.sql("CREATE INDEX x_block_nTime ON block (block_nTime)")
 
-def reload_chain_summary(store):
+def replace_chain_summary(store):
     store.sql("DROP VIEW chain_summary")
     store.sql(store._view['chain_summary'])
 
@@ -127,16 +247,23 @@ def main(argv):
     args.schema_version_check = False
     store = abe.DataStore(args)
     run_upgrades(store, [
-            ('6',   add_block_value_in),
-            ('6.1', add_block_value_out),
-            ('6.2', add_block_total_satoshis),
-            ('6.3', add_block_total_seconds),
-            ('6.4', add_block_satoshi_seconds),
-            ('6.5', init_block_value_in),
-            ('6.6', init_block_value_out),
-            ('6.7', init_block_satoshi_seconds),
-            ('6.8', index_block_nTime),
-            ('6.9', reload_chain_summary),
+            ('6', index_block_nTime),
+            ('6.1',   add_block_value_in),
+            ('6.2', add_block_value_out),
+            ('6.3', add_block_total_satoshis),
+            ('6.4', add_block_total_seconds),
+            ('6.5', add_block_satoshi_seconds),
+            ('6.6', add_satoshi_seconds_destroyed),
+            ('6.7', create_block_txin),
+            ('6.8', index_block_tx_tx),
+            ('6.9', init_block_txin),
+            ('6.10', init_block_value_in),
+            ('6.11', init_block_value_out),
+            ('6.12', init_block_totals),
+            ('6.13', init_satoshi_seconds_destroyed),
+            ('6.14', set_0_satoshi_seconds_destroyed),
+            ('6.15', init_block_satoshi_seconds),
+            ('6.16', replace_chain_summary),
             ('7', None)
             ])
     sv = store.config['schema_version']
