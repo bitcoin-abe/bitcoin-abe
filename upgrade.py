@@ -4,8 +4,6 @@
 
 import os
 import sys
-# Find modules in parent directory.
-sys.path.append(os.path.join(os.path.split(__file__)[0], '..'))
 import abe
 
 def add_block_value_in(store):
@@ -133,7 +131,7 @@ def init_block_totals(store):
     stats = None
     for row in store.selectall("""
         SELECT cc.chain_id, b.prev_block_id, b.block_id,
-               b.block_value_out - b.block_value_in, b.nTime
+               b.block_value_out - b.block_value_in, b.block_nTime
           FROM chain_candidate cc
           JOIN block b USING (block_id)
          WHERE b.block_height IS NOT NULL
@@ -142,8 +140,11 @@ def init_block_totals(store):
         chain_id, prev_id, block_id, generated, nTime = row
         generated = int(generated)
         nTime = int(nTime)
+
         if chain_id != last_chain_id:
             stats = {}
+            last_chain_id = chain_id
+
         if prev_id is None:
             stats[block_id] = {
                 "chain_start": nTime,
@@ -156,8 +157,8 @@ def init_block_totals(store):
         store.sql("UPDATE block SET block_total_seconds = ?,"
                   " block_total_satoshis = ?"
                   " WHERE block_id = ?",
-                  (stats[block_id]['satoshis'],
-                   nTime - stats[block_id]['chain_start'], block_id))
+                  (nTime - stats[block_id]['chain_start'],
+                   stats[block_id]['satoshis'], block_id))
 
 def init_satoshi_seconds_destroyed(store):
     print "Calculating satoshi-seconds destroyed."
@@ -172,7 +173,8 @@ def init_satoshi_seconds_destroyed(store):
           JOIN block_txin bti ON (
                    bti.block_id = bt.block_id AND
                    bti.txin_id = txin.txin_id)
-          JOIN block ob ON (bti.out_block_id = ob.block_id)""")
+          JOIN block ob ON (bti.out_block_id = ob.block_id)
+         GROUP BY bt.block_id, bt.tx_id""")
     for row in cur:
         block_id, tx_id, destroyed = row
         store.sql("UPDATE block_tx SET satoshi_seconds_destroyed = ?"
