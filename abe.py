@@ -34,7 +34,7 @@ import base58
 ABE_APPNAME = "ABE"
 ABE_VERSION = '0.2'
 ABE_URL = 'https://github.com/jtobey/bitcoin-abe'
-SCHEMA_VERSION = "6"
+SCHEMA_VERSION = "7"
 
 COPYRIGHT_YEARS = '2011'
 COPYRIGHT = "John Tobey"
@@ -121,23 +121,7 @@ class DataStore(object):
 
         # Read the CONFIG record if present.
         try:
-            store.cursor.execute("""
-                SELECT schema_version, binary_type
-                  FROM config
-                 WHERE config_id = 1""")
-            row = store.cursor.fetchone()
-            if row is None:
-                # Select was successful but no row matched?  Strange.
-                (sv, btype) = ('unknown', args.binary_type)
-            else:
-                (sv, btype) = row
-            if sv != SCHEMA_VERSION:
-                raise Exception(
-                    "Database schema version (%s) does not match software"
-                    " (%s).  Please upgrade or rebuild your database."
-                    % (sv, SCHEMA_VERSION))
-            store.initialized = True
-            args.binary_type = btype
+            store.config = store._read_config()
         except store.module.DatabaseError:
             try:
                 store.rollback()
@@ -146,7 +130,31 @@ class DataStore(object):
             store.initialized = False
 
         store._set_sql_flavour()
-        store._read_datadirs()
+        store._read_datadir_table()
+        store._view = store._views()
+
+    def _read_config(store):
+        store.cursor.execute("""
+            SELECT schema_version, binary_type
+              FROM config
+             WHERE config_id = 1""")
+        row = store.cursor.fetchone()
+        if row is None:
+            # Select was successful but no row matched?  Strange.
+            (sv, btype) = ('unknown', args.binary_type)
+        else:
+            (sv, btype) = row
+        if sv != SCHEMA_VERSION and store.args.schema_version_check:
+            raise Exception(
+                "Database schema version (%s) does not match software"
+                " (%s).  Please upgrade or rebuild your database."
+                % (sv, SCHEMA_VERSION))
+        store.initialized = True
+        store.args.binary_type = btype
+        return {
+            "schema_version": sv,
+            "binary_type": btype,
+            }
 
     # Accommodate SQL quirks.
     def _set_sql_flavour(store):
@@ -258,7 +266,7 @@ class DataStore(object):
         store.sql(stmt, params)
         return store.cursor.fetchall()
 
-    def _read_datadirs(store):
+    def _read_datadir_table(store):
         store.datadirs = {}
         if store.initialized:
             for row in store.selectall("""
@@ -286,6 +294,114 @@ class DataStore(object):
 
     def close(store):
         store.conn.close()
+
+    def _views(store):
+        return {
+            "chain_summary":
+# XXX I could do a lot with MATERIALIZED views.
+"""CREATE VIEW chain_summary AS SELECT
+    cc.chain_id,
+    cc.in_longest,
+    b.block_id,
+    b.block_hash,
+    b.block_version,
+    b.block_hashMerkleRoot,
+    b.block_nTime,
+    b.block_nBits,
+    b.block_nNonce,
+    b.block_height,
+    b.prev_block_id,
+    prev.block_hash prev_block_hash,
+    b.block_chain_work,
+    COUNT(DISTINCT block_tx.tx_id) num_tx,
+    b.block_value_in,
+    b.block_value_out,
+    b.block_total_satoshis,
+    b.block_total_seconds,
+    b.block_satoshi_seconds
+FROM chain_candidate cc
+JOIN block b ON (cc.block_id = b.block_id)
+LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)
+JOIN block_tx on (block_tx.block_id = b.block_id)
+JOIN txout USING (tx_id)
+GROUP BY
+    cc.chain_id,
+    cc.in_longest,
+    b.block_id,
+    b.block_hash,
+    b.block_version,
+    b.block_hashMerkleRoot,
+    b.block_nTime,
+    b.block_nBits,
+    b.block_nNonce,
+    b.block_height,
+    b.prev_block_id,
+    prev.block_hash,
+    b.block_chain_work,
+    b.block_value_in,
+    b.block_value_out,
+    b.block_total_satoshis,
+    b.block_total_seconds,
+    b.block_satoshi_seconds""",
+
+            "txout_detail":
+"""CREATE VIEW txout_detail AS SELECT
+    cc.chain_id,
+    cc.in_longest,
+    block_id,
+    b.block_hash,
+    b.block_height,
+    block_tx.tx_pos,
+    tx.tx_id,
+    tx.tx_hash,
+    tx.tx_lockTime,
+    tx.tx_version,
+    tx.tx_size,
+    txout.txout_id,
+    txout.txout_pos,
+    txout.txout_value,
+    txout.txout_scriptPubKey,
+    pubkey.pubkey_id,
+    pubkey.pubkey_hash,
+    pubkey.pubkey
+  FROM chain_candidate cc
+  JOIN block b using (block_id)
+  JOIN block_tx USING (block_id)
+  JOIN tx    ON (tx.tx_id = block_tx.tx_id)
+  JOIN txout ON (tx.tx_id = txout.tx_id)
+  LEFT JOIN pubkey USING (pubkey_id)""",
+
+            "txin_detail":
+"""CREATE VIEW txin_detail AS SELECT
+    cc.chain_id,
+    cc.in_longest,
+    block_id,
+    b.block_hash,
+    b.block_height,
+    block_tx.tx_pos,
+    tx.tx_id,
+    tx.tx_hash,
+    tx.tx_lockTime,
+    tx.tx_version,
+    tx.tx_size,
+    txin.txin_id,
+    txin.txin_pos,
+    txin.txout_id prevout_id,
+    txin.txin_scriptSig,
+    txin.txin_sequence,
+    prevout.txout_value txin_value,
+    pubkey.pubkey_id,
+    pubkey.pubkey_hash,
+    pubkey.pubkey
+  FROM chain_candidate cc
+  JOIN block b using (block_id)
+  JOIN block_tx USING (block_id)
+  JOIN tx    ON (tx.tx_id = block_tx.tx_id)
+  JOIN txin  ON (tx.tx_id = txin.tx_id)
+  LEFT JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
+  LEFT JOIN pubkey
+      ON (prevout.pubkey_id = pubkey.pubkey_id)""",
+            }
 
     def initialize_if_needed(store):
         """
@@ -334,6 +450,11 @@ class DataStore(object):
     block_height  NUMERIC(14),
     prev_block_id NUMERIC(14) NULL,
     block_chain_work BIT(""" + str(WORK_BITS) + """),
+    block_value_in NUMERIC(30),
+    block_value_out NUMERIC(30),
+    block_total_satoshis NUMERIC(26),
+    block_total_seconds NUMERIC(20),
+    block_satoshi_seconds NUMERIC(28),
     FOREIGN KEY (prev_block_id)
         REFERENCES block (block_id)
 )""",
@@ -449,98 +570,9 @@ class DataStore(object):
     pubkey        BIT(520)    UNIQUE NULL
 )""",
 
-# XXX I could do a lot with MATERIALIZED views.
-"""CREATE VIEW chain_summary AS SELECT
-    cc.chain_id,
-    cc.in_longest,
-    b.block_id,
-    b.block_hash,
-    b.block_version,
-    b.block_hashMerkleRoot,
-    b.block_nTime,
-    b.block_nBits,
-    b.block_nNonce,
-    b.block_height,
-    b.prev_block_id,
-    prev.block_hash prev_block_hash,
-    b.block_chain_work,
-    COUNT(DISTINCT block_tx.tx_id) num_tx,
-    SUM(txout.txout_value) value_out
-FROM chain_candidate cc
-JOIN block b ON (cc.block_id = b.block_id)
-LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)
-JOIN block_tx on (block_tx.block_id = b.block_id)
-JOIN txout USING (tx_id)
-GROUP BY
-    cc.chain_id,
-    cc.in_longest,
-    b.block_id,
-    b.block_hash,
-    b.block_version,
-    b.block_hashMerkleRoot,
-    b.block_nTime,
-    b.block_nBits,
-    b.block_nNonce,
-    b.block_height,
-    b.prev_block_id,
-    prev.block_hash,
-    b.block_chain_work""",
-
-"""CREATE VIEW txout_detail AS SELECT
-    cc.chain_id,
-    cc.in_longest,
-    block_id,
-    b.block_hash,
-    b.block_height,
-    block_tx.tx_pos,
-    tx.tx_id,
-    tx.tx_hash,
-    tx.tx_lockTime,
-    tx.tx_version,
-    tx.tx_size,
-    txout.txout_id,
-    txout.txout_pos,
-    txout.txout_value,
-    txout.txout_scriptPubKey,
-    pubkey.pubkey_id,
-    pubkey.pubkey_hash,
-    pubkey.pubkey
-  FROM chain_candidate cc
-  JOIN block b using (block_id)
-  JOIN block_tx USING (block_id)
-  JOIN tx    ON (tx.tx_id = block_tx.tx_id)
-  JOIN txout ON (tx.tx_id = txout.tx_id)
-  LEFT JOIN pubkey USING (pubkey_id)""",
-
-"""CREATE VIEW txin_detail AS SELECT
-    cc.chain_id,
-    cc.in_longest,
-    block_id,
-    b.block_hash,
-    b.block_height,
-    block_tx.tx_pos,
-    tx.tx_id,
-    tx.tx_hash,
-    tx.tx_lockTime,
-    tx.tx_version,
-    tx.tx_size,
-    txin.txin_id,
-    txin.txin_pos,
-    txin.txout_id prevout_id,
-    txin.txin_scriptSig,
-    txin.txin_sequence,
-    prevout.txout_value txin_value,
-    pubkey.pubkey_id,
-    pubkey.pubkey_hash,
-    pubkey.pubkey
-  FROM chain_candidate cc
-  JOIN block b using (block_id)
-  JOIN block_tx USING (block_id)
-  JOIN tx    ON (tx.tx_id = block_tx.tx_id)
-  JOIN txin  ON (tx.tx_id = txin.tx_id)
-  LEFT JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
-  LEFT JOIN pubkey
-      ON (prevout.pubkey_id = pubkey.pubkey_id)""",
+store._view('chain_summary'),
+store._view('txout_detail'),
+store._view('txin_detail'),
 ):
             try:
                 store.sql(stmt)
@@ -1227,8 +1259,10 @@ class Abe:
             return True
 
         rows = abe.store.selectall("""
-            SELECT block_hash, block_height, block_nTime, num_tx, value_out,
-                   block_nBits
+            SELECT block_hash, block_height, block_nTime, num_tx,
+                   block_nBits, block_value_out,
+                   block_total_seconds, block_satoshi_seconds,
+                   block_total_satoshis
               FROM chain_summary
              WHERE chain_id = ?
                AND block_height BETWEEN ? AND ?
@@ -1272,21 +1306,38 @@ class Abe:
                 nav += [' <a href="', page['dotdot'], 'chain/', escape(name),
                         '/">', escape(name), '</a>']
 
-        def to_html(row):
-            (hash, height, nTime, num_tx, value_out, nBits) = row
-            return ['<tr><td><a href="block/', abe.store.hashout_hex(hash),
-                    '">', height, '</a>'
-                    '</td><td>', format_time(int(nTime)),
-                    '</td><td>', num_tx,
-                    '</td><td>', format_satoshis(int(value_out), chain),
-                    '</td><td>', calculate_difficulty(int(nBits)),
-                    '</td></tr>\n']
-
         body += ['<p>', nav, '</p>\n',
                  '<table><tr><th>Block</th><th>Approx. Time</th>',
                  '<th>Transactions</th><th>Value Out</th>',
-                 '<th>Difficulty</th></tr>\n',
-                 map(to_html, rows), '</table>\n<p>', nav, '</p>\n']
+                 '<th>Difficulty</th><th>Outstanding</th>',
+                 '<th>Average Age</th><th>Chain Age</th></tr>\n']
+        for row in rows:
+            (hash, height, nTime, num_tx, nBits, value_out,
+             seconds, satoshi_seconds, satoshis) = row
+            nTime = int(nTime)
+            value_out = int(value_out)
+            seconds = int(seconds)
+            satoshis = int(satoshis)
+            satoshi_seconds = int(satoshi_seconds)
+
+            if satoshis == 0:
+                sloth = '&nbsp;'
+            else:
+                sloth = '%5g' % (satoshi_seconds / satoshis / 86400.0)
+
+            body += [
+                '<tr><td><a href="block/', abe.store.hashout_hex(hash),
+                '">', height, '</a>'
+                '</td><td>', format_time(int(nTime)),
+                '</td><td>', num_tx,
+                '</td><td>', format_satoshis(value_out, chain),
+                '</td><td>', calculate_difficulty(int(nBits)),
+                '</td><td>', format_satoshis(satoshis, chain),
+                '</td><td>', sloth,
+                '</td><td>', '%5g' % (seconds / 86400.0),
+                '</td></tr>\n']
+
+        body += ['</table>\n<p>', nav, '</p>\n']
         return True
 
     def _show_block(abe, where, bind, page, dotdotblock, chain):
@@ -1304,7 +1355,9 @@ class Abe:
                 block_nNonce,
                 block_height,
                 prev_block_hash,
-                block_chain_work
+                block_chain_work,
+                block_value_in,
+                block_value_out
               FROM chain_summary
              WHERE """ + where
         row = abe.store.selectrow(sql, bind)
@@ -1313,11 +1366,11 @@ class Abe:
             return
         (block_id, block_hash, block_version, hashMerkleRoot,
          nTime, nBits, nNonce, height,
-         prev_block_hash, block_chain_work) = (
+         prev_block_hash, block_chain_work, value_in, value_out) = (
             row[0], abe.store.hashout_hex(row[1]), row[2],
             abe.store.hashout_hex(row[3]), row[4], int(row[5]), row[6],
             row[7], abe.store.hashout_hex(row[8]),
-            abe.store.binout_int(row[9]))
+            abe.store.binout_int(row[9]), int(row[10]), int(row[11]))
 
         next_list = abe.store.selectall("""
             SELECT DISTINCT n.block_hash, cc.in_longest
@@ -1343,13 +1396,16 @@ class Abe:
 
         body += ['Height: ', height, '<br />\n',
                  'Version: ', block_version, '<br />\n',
-                 'Transaction Root: ', hashMerkleRoot, '<br />\n',
+                 'Transaction Merkle Root: ', hashMerkleRoot, '<br />\n',
                  'Time: ', nTime, ' (', format_time(nTime), ')<br />\n',
                  'Difficulty: ', format_difficulty(calculate_difficulty(nBits)),
                  ' (Bits: %x)' % (nBits,), '<br />\n',
                  'Cumulative Difficulty: ', format_difficulty(
-                work_to_difficulty(block_chain_work)), '<br />\n'
-                 'Nonce: ', nNonce, '</p>\n',]
+                work_to_difficulty(block_chain_work)), '<br />\n',
+                 'Nonce: ', nNonce, '<br />\n',
+                 'Value in: ', format_satoshis(value_in, chain), '<br />\n',
+                 'Value out: ', format_satoshis(value_out, chain), '<br />\n',
+                 '</p>\n',]
 
         body += ['<h3>Transactions</h3>\n']
 
@@ -1894,6 +1950,9 @@ def parse_argv(argv):
     parser.add_argument("--no-serve", dest="serve", default=True,
                         action="store_false",
                         help="Exit without handling HTTP or FastCGI requests.")
+    parser.add_argument("--no-schema-version-check",
+                        dest="schema_version_check", default=True,
+                        action="store_false")
                         
     args = parser.parse_args(argv)
 
