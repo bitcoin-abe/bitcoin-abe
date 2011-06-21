@@ -28,7 +28,7 @@ def init_cc_block_height(store):
         SELECT block_height
           FROM block b
          WHERE b.block_id = cc.block_id)
-"""
+""")
 
 def index_cc_block_height(store):
     store.sql(
@@ -227,18 +227,24 @@ def init_block_satoshi_seconds(store):
     stats = {}
     cur.execute("""
         SELECT b.block_id, b.block_total_satoshis, b.block_nTime,
-               b.prev_block_id, SUM(bt.satoshi_seconds_destroyed)
+               b.prev_block_id, SUM(bt.satoshi_seconds_destroyed),
+               b.block_height
           FROM block b
           JOIN block_tx bt USING (block_id)
          GROUP BY b.block_id, b.block_total_satoshis, b.block_nTime,
-               b.prev_block_id
+               b.prev_block_id, b.block_height
          ORDER BY b.block_height""")
     for row in cur:
-        block_id, satoshis, nTime, prev_id, destroyed = row
+        block_id, satoshis, nTime, prev_id, destroyed, height = row
         satoshis = int(satoshis)
         destroyed = int(destroyed)
+        if height is None:
+            continue
         if prev_id is None:
-            ss = 0
+            stats[block_id] = {
+                "satoshis": 0,
+                "ss": 0,
+                "nTime": nTime}
         else:
             created = (stats[prev_id]['satoshis']
                        * (nTime - stats[prev_id]['nTime']))
@@ -277,26 +283,29 @@ def main(argv):
     args.schema_version_check = False
     store = abe.DataStore(args)
     run_upgrades(store, [
-                XXX,
-            ('6', index_block_nTime),
-            ('6.1',   add_block_value_in),
-            ('6.2', add_block_value_out),
-            ('6.3', add_block_total_satoshis),
-            ('6.4', add_block_total_seconds),
-            ('6.5', add_block_satoshi_seconds),
-            ('6.6', add_satoshi_seconds_destroyed),
-            ('6.7', create_block_txin),
-            ('6.8', index_block_tx_tx),
-            ('6.9', init_block_txin),
-            ('6.10', init_block_value_in),
-            ('6.11', init_block_value_out),
-            ('6.12', init_block_totals),
-            ('6.13', init_satoshi_seconds_destroyed),
-            ('6.14', set_0_satoshi_seconds_destroyed),
-            ('6.15', init_block_satoshi_seconds),
-            ('6.16', replace_chain_summary),
-            ('7', None)
-            ])
+                ('6', add_block_value_in),
+                ('6.1', add_block_value_out),
+                ('6.2', add_block_total_satoshis),
+                ('6.3', add_block_total_seconds),
+                ('6.4', add_block_satoshi_seconds),
+                ('6.5', add_satoshi_seconds_destroyed),
+                ('6.6', add_cc_block_height),
+                ('6.7', init_cc_block_height),
+                ('6.8', index_cc_block_height),
+                ('6.9', index_cc_block),
+                ('6.10', create_block_txin),
+                ('6.11', index_block_tx_tx),
+                ('6.12', init_block_txin),
+                ('6.13', init_block_value_in),
+                ('6.14', init_block_value_out),
+                ('6.15', init_block_totals),
+                ('6.16', init_satoshi_seconds_destroyed),
+                ('6.17', set_0_satoshi_seconds_destroyed),
+                ('6.18', init_block_satoshi_seconds),
+                ('6.19', index_block_nTime),
+                ('6.20', replace_chain_summary),
+                ('7', None)
+                ])
     sv = store.config['schema_version']
     if sv != '7':
         sys.stderr.write('Can not upgrade from schema version ' + sv + '\n')

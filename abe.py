@@ -995,7 +995,7 @@ store._view('txin_detail'),
                 txout_id = None
             else:
                 txout_id, value = store.lookup_txout(
-                    txin['prevout_hash'], txin['prevout_n']))
+                    txin['prevout_hash'], txin['prevout_n'])
                 tx['value_in'] += value
 
             store.sql("""
