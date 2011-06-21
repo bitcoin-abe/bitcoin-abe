@@ -308,20 +308,22 @@ class DataStore(object):
     b.block_nTime,
     b.block_nBits,
     b.block_nNonce,
-    b.block_height,
+    cc.block_height,
     b.prev_block_id,
     prev.block_hash prev_block_hash,
     b.block_chain_work,
-    COUNT(DISTINCT block_tx.tx_id) num_tx,
+    COUNT(DISTINCT bt.tx_id) num_tx,
     b.block_value_in,
     b.block_value_out,
     b.block_total_satoshis,
     b.block_total_seconds,
-    b.block_satoshi_seconds
+    b.block_satoshi_seconds,
+    b.block_total_ss,
+    SUM(bt.satoshi_seconds_destroyed) ss_destroyed
 FROM chain_candidate cc
 JOIN block b ON (cc.block_id = b.block_id)
 LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)
-JOIN block_tx on (block_tx.block_id = b.block_id)
+JOIN block_tx bt ON (bt.block_id = b.block_id)
 JOIN txout USING (tx_id)
 GROUP BY
     cc.chain_id,
@@ -341,7 +343,8 @@ GROUP BY
     b.block_value_out,
     b.block_total_satoshis,
     b.block_total_seconds,
-    b.block_satoshi_seconds""",
+    b.block_satoshi_seconds,
+    b.block_total_ss""",
 
             "txout_detail":
 """CREATE VIEW txout_detail AS SELECT
@@ -455,6 +458,7 @@ GROUP BY
     block_satoshi_seconds NUMERIC(28),
     block_ss_created NUMERIC(28),
     block_ss_destroyed NUMERIC(28),
+    block_total_ss NUMERIC(28),
     FOREIGN KEY (prev_block_id)
         REFERENCES block (block_id)
 )""",
@@ -689,18 +693,19 @@ store._view('txin_detail'),
         row = store.selectrow("""
             SELECT block_id, block_height, block_chain_work,
                    block_total_satoshis, block_total_seconds,
-                   block_satoshi_seconds, block_nTime
+                   block_satoshi_seconds, block_total_ss, block_nTime
               FROM block
              WHERE block_hash=?""", (store.hashin(hash),))
         if row is None:
-            return (None, None, None, None, None, None, None)
+            return (None, None, None, None, None, None, None, None)
         (id, height, chain_work, satoshis, seconds, satoshi_seconds,
-         nTime) = row
+         total_ss, nTime) = row
         return (id, None if height is None else int(height),
                 store.binout_int(chain_work),
                 None if satoshis is None else int(satoshis),
                 None if seconds is None else int(seconds),
                 None if satoshi_seconds is None else int(satoshi_seconds),
+                None if total_ss is None else int(total_ss),
                 int(nTime))
 
     def import_block(store, b):
@@ -725,8 +730,8 @@ store._view('txin_detail'),
         hashPrev = b['hashPrev']
         is_genesis = hashPrev == GENESIS_HASH_PREV
         (prev_block_id, prev_height, prev_work, prev_satoshis,
-         prev_seconds, prev_ss, prev_nTime) = (
-            (None, -1, 0, 0, 0, 0, b['nTime'])
+         prev_seconds, prev_ss, prev_total_ss, prev_nTime) = (
+            (None, -1, 0, 0, 0, 0, 0, b['nTime'])
             if is_genesis else
             store.find_prev(hashPrev))
 
@@ -734,7 +739,7 @@ store._view('txin_detail'),
         b['height'] = None if prev_height is None else prev_height + 1
         b['chain_work'] = calculate_work(prev_work, b['nBits'])
 
-        store._block[block_id] = {
+        store._blocks[block_id] = {
             "prev_id": prev_block_id,
             "height": b['height'],
             "in_longest_chains": set()}
@@ -762,8 +767,11 @@ store._view('txin_detail'),
                 block_nTime, block_nBits, block_nNonce, block_height,
                 prev_block_id, block_chain_work, block_value_in,
                 block_value_out, block_total_satoshis,
-                block_total_seconds, block_satoshi_seconds
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)""",  # XXX NULL
+                block_total_seconds, block_satoshi_seconds,
+                block_total_ss
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL
+            )""",  # XXX NULLs
             (block_id, store.hashin(b['hash']), b['version'],
              store.hashin(b['hashMerkleRoot']), b['nTime'],
              b['nBits'], b['nNonce'], b['height'], prev_block_id,
@@ -781,10 +789,9 @@ store._view('txin_detail'),
             tx = b['transactions'][tx_pos]
             store.sql("""
                 INSERT INTO block_tx
-                    (block_id, tx_id, tx_pos, satoshi_seconds_destroyed)
-                VALUES (?, ?, ?, ?)""",
-                      (block_id, tx['tx_id'], tx_pos,
-                       bt_ss_destroyed[tx['tx_id']]))
+                    (block_id, tx_id, tx_pos)
+                VALUES (?, ?, ?)""",
+                      (block_id, tx['tx_id'], tx_pos))
             print "block_tx", block_id, tx['tx_id']
 
         ss_destroyed = 0
@@ -798,7 +805,7 @@ store._view('txin_detail'),
                   JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
                   JOIN block b ON (obt.block_id = b.block_id)
                  WHERE bti.block_id = ? AND txin.tx_id = ?""",
-                                            (b['nTime'], block_id, tx_id)))[0]
+                                            (b['nTime'], block_id, tx_id))[0])
             ss_destroyed += destroyed
             store.sql("""
                 UPDATE block_tx
@@ -806,12 +813,18 @@ store._view('txin_detail'),
                  WHERE block_id = ?
                    AND tx_id = ?""",
                       (destroyed, block_id, tx_id))
-        b['ss'] = (prev_ss + (prev_satoshis * (b['nTime'] - prev_nTime)) -
-                   ss_destroyed)
 
-        store.sql("""
-            UPDATE block SET block_satoshi_seconds = ? WHERE block_id = ?""",
-                  (b['ss'], block_id))
+        if prev_satoshis is not None:
+            ss_created = prev_satoshis * (b['nTime'] - prev_nTime)
+            b['ss'] = prev_ss + ss_created - ss_destroyed
+            b['total_ss'] = prev_total_ss + ss_created
+
+            store.sql("""
+                UPDATE block
+                   SET block_satoshi_seconds = ?,
+                       block_total_ss = ?
+                 WHERE block_id = ?""",
+                      (b['ss'], b['total_ss'], block_id))
 
         # Store the inverse hashPrev relationship or mark the block as
         # an orphan.
@@ -825,7 +838,7 @@ store._view('txin_detail'),
 
         for row in store.selectall("""
             SELECT block_id FROM orphan_block WHERE block_hashPrev = ?""",
-                                   (store.hashin(b['hash']))):
+                                   (store.hashin(b['hash']),)):
             (orphan_id,) = row
             store.sql("UPDATE block SET prev_block_id = ? WHERE block_id = ?",
                       (block_id, orphan_id))
@@ -1034,7 +1047,8 @@ store._view('txin_detail'),
                  WHERE b.block_id = c.chain_last_block_id
                    AND c.chain_id = ?
                    AND b.block_chain_work < ?""",
-                      (chain_id, store.binin_int(b['top']['chain_work'])))
+                      (chain_id, store.binin_int(b['top']['chain_work'],
+                                                 WORK_BITS)))
             if row:
                 # New longest chain.
                 in_longest = 1
@@ -1081,11 +1095,11 @@ store._view('txin_detail'),
             store.sql("""
                 UPDATE chain
                    SET chain_last_block_id = ?
-                 WHERE chain_id = ?""", (b['top_id'], chain_id))
+                 WHERE chain_id = ?""", (b['top']['block_id'], chain_id))
 
     def find_next_blocks(store, block_id):
         ret = []
-        for row in store.sql(
+        for row in store.selectall(
             "SELECT next_block_id FROM block_next WHERE block_id = ?",
             (block_id,)):
             ret.append(row[0])
@@ -1366,6 +1380,8 @@ class Abe:
             else:
                 found = False
 
+        abe.store.rollback()  # Close imlicitly opened transaction.
+
         if not found:
             try:
                 # Serve static content.
@@ -1434,12 +1450,13 @@ class Abe:
         body += [
             '<table>\n',
             '<tr><th>Chain</th><th>Block</th><th>Started</th>\n',
-            '<th>Age (days)</th><th>Avg Coin Age</th><th>% BTCDD</th>',
+            '<th>Age (days)</th><th>Avg Coin Age</th><th>% CoinDD</th>',
             '</tr>\n']
         for row in abe.store.selectall("""
             SELECT c.chain_name, b.block_height, b.block_nTime,
                    b.block_total_seconds, b.block_total_satoshis,
-                   b.block_satoshi_seconds, b.block_hash
+                   b.block_satoshi_seconds, b.block_hash,
+                   b.block_total_ss
               FROM chain c
               LEFT JOIN block b ON (c.chain_last_block_id = b.block_id)
              ORDER BY c.chain_name
@@ -1450,9 +1467,9 @@ class Abe:
                 escape(name), '</a></td>']
 
             if row[1] is not None:
-                height, nTime, seconds, satoshis, ss, hash = (
+                height, nTime, seconds, satoshis, ss, hash, total_ss = (
                     int(row[1]), int(row[2]), int(row[3]), int(row[4]),
-                    int(row[5]), abe.store.hashout_hex(row[6]))
+                    int(row[5]), abe.store.hashout_hex(row[6]), int(row[7]))
 
                 started = nTime - seconds
                 import time
@@ -1466,7 +1483,7 @@ class Abe:
                     percent_destroyed = '&nbsp;'
                 else:
                     percent_destroyed = '%5g' % (
-                        100.0 - (100.0 * ss / satoshis / chain_age)) + '%'
+                        100.0 - (100.0 * ss / total_ss)) + '%'
 
                 body += [
                     '<td><a href="block/', hash, '">', height, '</a></td>',
@@ -1542,7 +1559,7 @@ class Abe:
             SELECT block_hash, block_height, block_nTime, num_tx,
                    block_nBits, block_value_out,
                    block_total_seconds, block_satoshi_seconds,
-                   block_total_satoshis
+                   block_total_satoshis, ss_destroyed, block_total_ss
               FROM chain_summary
              WHERE chain_id = ?
                AND block_height BETWEEN ? AND ?
@@ -1586,20 +1603,27 @@ class Abe:
                 nav += [' <a href="', page['dotdot'], 'chain/', escape(name),
                         '/">', escape(name), '</a>']
 
+        extra = False
+        #extra = True
         body += ['<p>', nav, '</p>\n',
                  '<table><tr><th>Block</th><th>Approx. Time</th>',
                  '<th>Transactions</th><th>Value Out</th>',
                  '<th>Difficulty</th><th>Outstanding</th>',
                  '<th>Average Age</th><th>Chain Age</th>',
-                 '<th>% BTCDD</th></tr>\n']
+                 '<th>% CoinDD</th>',
+                 ['<th>Satoshi-seconds</th>',
+                  '<th>Total ss</th>']
+                 if extra else '',
+                 '</tr>\n']
         for row in rows:
             (hash, height, nTime, num_tx, nBits, value_out,
-             seconds, ss, satoshis) = row
+             seconds, ss, satoshis, destroyed, total_ss) = row
             nTime = int(nTime)
             value_out = int(value_out)
             seconds = int(seconds)
             satoshis = int(satoshis)
             ss = int(ss)
+            total_ss = int(total_ss)
 
             if satoshis == 0:
                 avg_age = '&nbsp;'
@@ -1610,7 +1634,7 @@ class Abe:
                 percent_destroyed = '&nbsp;'
             else:
                 percent_destroyed = '%5g' % (
-                    100.0 - (100.0 * ss / satoshis / seconds)) + '%'
+                    100.0 - (100.0 * ss / total_ss)) + '%'
 
             body += [
                 '<tr><td><a href="block/', abe.store.hashout_hex(hash),
@@ -1623,6 +1647,8 @@ class Abe:
                 '</td><td>', avg_age,
                 '</td><td>', '%5g' % (seconds / 86400.0),
                 '</td><td>', percent_destroyed,
+                ['</td><td>', '%8g' % ss,
+                 '</td><td>', '%8g' % total_ss] if extra else '',
                 '</td></tr>\n']
 
         body += ['</table>\n<p>', nav, '</p>\n']

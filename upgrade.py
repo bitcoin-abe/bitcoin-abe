@@ -16,6 +16,8 @@ def add_block_total_seconds(store):
     store.sql("ALTER TABLE block ADD block_total_seconds NUMERIC(20)")
 def add_block_satoshi_seconds(store):
     store.sql("ALTER TABLE block ADD block_satoshi_seconds NUMERIC(28)")
+def add_block_total_ss(store):
+    store.sql("ALTER TABLE block ADD block_total_ss NUMERIC(28)")
 def add_satoshi_seconds_destroyed(store):
     store.sql("ALTER TABLE block_tx ADD satoshi_seconds_destroyed NUMERIC(28)")
 def add_cc_block_height(store):
@@ -242,8 +244,9 @@ def init_block_satoshi_seconds(store):
             continue
         if prev_id is None:
             stats[block_id] = {
-                "satoshis": 0,
+                "satoshis": satoshis,
                 "ss": 0,
+                "total_ss": 0,
                 "nTime": nTime}
         else:
             created = (stats[prev_id]['satoshis']
@@ -251,12 +254,15 @@ def init_block_satoshi_seconds(store):
             stats[block_id] = {
                 "satoshis": satoshis,
                 "ss": stats[prev_id]['ss'] + created - destroyed,
+                "total_ss": stats[prev_id]['total_ss'] + created,
                 "nTime": nTime}
         store.sql("""
             UPDATE block
-               SET block_satoshi_seconds = ?
+               SET block_satoshi_seconds = ?,
+                   block_total_ss = ?
              WHERE block_id = ?""",
-                  (stats[block_id]['ss'], block_id))
+                  (stats[block_id]['ss'], stats[block_id]['total_ss'],
+                   block_id))
 
 def index_block_nTime(store):
     print "Indexing block_nTime."
@@ -288,22 +294,23 @@ def main(argv):
                 ('6.2', add_block_total_satoshis),
                 ('6.3', add_block_total_seconds),
                 ('6.4', add_block_satoshi_seconds),
-                ('6.5', add_satoshi_seconds_destroyed),
-                ('6.6', add_cc_block_height),
-                ('6.7', init_cc_block_height),
-                ('6.8', index_cc_block_height),
-                ('6.9', index_cc_block),
-                ('6.10', create_block_txin),
-                ('6.11', index_block_tx_tx),
-                ('6.12', init_block_txin),
-                ('6.13', init_block_value_in),
-                ('6.14', init_block_value_out),
-                ('6.15', init_block_totals),
-                ('6.16', init_satoshi_seconds_destroyed),
-                ('6.17', set_0_satoshi_seconds_destroyed),
-                ('6.18', init_block_satoshi_seconds),
-                ('6.19', index_block_nTime),
-                ('6.20', replace_chain_summary),
+                ('6.5', add_block_total_ss),
+                ('6.6', add_satoshi_seconds_destroyed),
+                ('6.7', add_cc_block_height),
+                ('6.8', init_cc_block_height),
+                ('6.9', index_cc_block_height),
+                ('6.10', index_cc_block),
+                ('6.11', create_block_txin),
+                ('6.12', index_block_tx_tx),
+                ('6.13', init_block_txin),
+                ('6.14', init_block_value_in),
+                ('6.15', init_block_value_out),
+                ('6.16', init_block_totals),
+                ('6.17', init_satoshi_seconds_destroyed),
+                ('6.18', set_0_satoshi_seconds_destroyed),
+                ('6.19', init_block_satoshi_seconds),
+                ('6.20', index_block_nTime),
+                ('6.21', replace_chain_summary),
                 ('7', None)
                 ])
     sv = store.config['schema_version']
