@@ -18,6 +18,26 @@ def add_block_satoshi_seconds(store):
     store.sql("ALTER TABLE block ADD block_satoshi_seconds NUMERIC(28)")
 def add_satoshi_seconds_destroyed(store):
     store.sql("ALTER TABLE block_tx ADD satoshi_seconds_destroyed NUMERIC(28)")
+def add_cc_block_height(store):
+    store.sql("ALTER TABLE chain_candidate ADD block_height NUMERIC(14)")
+
+def init_cc_block_height(store):
+    store.sql(
+"""UPDATE chain_candidate cc
+    SET block_height = (
+        SELECT block_height
+          FROM block b
+         WHERE b.block_id = cc.block_id)
+"""
+
+def index_cc_block_height(store):
+    store.sql(
+"""CREATE INDEX x_cc_chain_block_height
+    ON chain_candidate (chain_id, block_height)""")
+
+def index_cc_block(store):
+    store.sql(
+"""CREATE INDEX x_cc_block ON chain_candidate (block_id)""")
 
 def create_block_txin(store):
     store.sql(
@@ -37,8 +57,8 @@ def init_block_txin(store):
     print "...loading block_id chains"
     stats = {}
     for row in store.selectall("""
-        SELECT cc.chain_id, cc.in_longest, b.prev_block_id, b.block_id,
-               b.block_height
+        SELECT cc.chain_id, cc.block_height, cc.in_longest,
+               b.prev_block_id, b.block_id,
           FROM chain_candidate cc
           JOIN block b USING (block_id)"""):
         (chain_id, in_longest, prev_id, block_id, height) = row
@@ -210,9 +230,9 @@ def init_block_satoshi_seconds(store):
                b.prev_block_id, SUM(bt.satoshi_seconds_destroyed)
           FROM block b
           JOIN block_tx bt USING (block_id)
-         ORDER BY b.block_height
          GROUP BY b.block_id, b.block_total_satoshis, b.block_nTime,
-               b.prev_block_id""")
+               b.prev_block_id
+         ORDER BY b.block_height""")
     for row in cur:
         block_id, satoshis, nTime, prev_id, destroyed = row
         satoshis = int(satoshis)
@@ -257,6 +277,7 @@ def main(argv):
     args.schema_version_check = False
     store = abe.DataStore(args)
     run_upgrades(store, [
+                XXX,
             ('6', index_block_nTime),
             ('6.1',   add_block_value_in),
             ('6.2', add_block_value_out),

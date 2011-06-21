@@ -130,6 +130,7 @@ class DataStore(object):
         store._set_sql_flavour()
         store._read_datadir_table()
         store._view = store._views()
+        store._blocks = {}
 
     def _read_config(store):
         store.cursor.execute("""
@@ -436,8 +437,6 @@ GROUP BY
 )""",
 
 # A block of the type used by Bitcoin.
-# XXX Should probably index block.block_height and chain_candidate.block_id,
-# though with indexable views we'd rather index chain_id+block_height.
 """CREATE TABLE block (
     block_id      NUMERIC(14) PRIMARY KEY,
     block_hash    BIT(256)    UNIQUE NOT NULL,
@@ -485,8 +484,12 @@ GROUP BY
     chain_id      NUMERIC(10),
     block_id      NUMERIC(14),
     in_longest    NUMERIC(1),
+    block_height  NUMERIC(14),
     PRIMARY KEY (chain_id, block_id)
 )""",
+"""CREATE INDEX x_cc_block ON chain_candidate (block_id)""",
+"""CREATE INDEX x_cc_chain_block_height
+    ON chain_candidate (chain_id, block_height)""",
 
 # An orphan block must remember its hashPrev.
 """CREATE TABLE orphan_block (
@@ -626,6 +629,54 @@ store._view('txin_detail'),
 
         store.commit()
 
+    def _get_block(store, block_id):
+        block = store._blocks.get(int(block_id))
+        if block is None:
+            row = store.selectrow("""
+                SELECT prev_block_id, block_height
+                  FROM block
+                 WHERE block_id = ?""", (block_id))
+            if row is None:
+                return None
+            prev_id, height = row
+            block = {"prev_id": prev_id, "height": height,
+                     "in_longest_chains": set()}
+            for row in store.selectall("""
+                SELECT chain_id
+                  FROM chain_candidate
+                 WHERE block_id = ? AND in_longest = 1"""):
+                (chain_id,) = row
+                block['in_longest_chains'].add(int(chain_id))
+            store._blocks[int(block_id)] = block
+        return block
+
+    def _set_block(store, block_id, prev_id, height):
+        if int(block_id) in store._blocks:
+            block = store._blocks[int(block_id)]
+            block['prev_id'] = prev_id
+            block['height'] = height
+
+    def _add_block_chain(store, block_id, chain_id):
+        if int(block_id) in store._blocks:
+            store._blocks[int(block_id)]['in_longest_chains'].add(int(chain_id))
+
+    def is_descended_from(store, block_id, ancestor_id):
+        if block_id == ancestor_id:
+            return True
+        block = store._get_block(block_id)
+        if block['prev_id'] == ancestor_id:
+            return True
+        ancestor = store._get_block(ancestor_id)
+        chains = ancestor['in_longest_chains']
+        while True:
+            if chains.intersection(block['in_longest_chains']):
+                return ancestor['height'] <= block['height']
+            if block['prev_id'] is None:
+                return None
+            block = store._get_block(block['prev_id'])
+            if block['prev_id'] == ancestor_id:
+                return True
+
     def contains_block(store, hash):
         return store.block_hash_to_id(hash)
 
@@ -683,20 +734,26 @@ store._view('txin_detail'),
         b['height'] = None if prev_height is None else prev_height + 1
         b['chain_work'] = calculate_work(prev_work, b['nBits'])
 
-        bt_ss_destroyed = {}
-        b['ss_destroyed'] = 0
-        for tx_pos in xrange(len(b['transactions'])):
-            tx = b['transactions'][tx_pos]
-            destroyed = int(store.selectrow("""
-                SELECT COALESCE(SUM(txout.txout_value * (? - b.block_nTime)), 0)
-                  FROM block_txin bti
-                  JOIN txin USING (txin_id)
-                  JOIN txout USING (txout_id)
-                  JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
-                  JOIN block b ON (obt.block_id = b.block_id)
-                 WHERE bti.block_id = ?""", (b['nTime'], block_id)))[0]
-            b['ss_destroyed'] += destroyed
-            bt_ss_destroyed[tx['tx_id']] = destroyed
+        store._block[block_id] = {
+            "prev_id": prev_block_id,
+            "height": b['height'],
+            "in_longest_chains": set()}
+
+        # Create rows in block_txin.
+        out_block_ids = {}
+        for row in store.selectall("""
+            SELECT txin.txin_id, obt.block_id
+              FROM block_tx bt
+              JOIN txin USING (tx_id)
+              JOIN txout USING (txout_id)
+              JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
+             WHERE bt.block_id = ?""", (block_id,)):
+            (txin_id, oblock_id) = row
+            if store.is_descended_from(block_id, oblock_id):
+                out_block_ids[txin_id] = oblock_id
+
+        b['seconds'] = prev_seconds + b['nTime'] - prev_nTime
+        b['satoshis'] = prev_satoshis + b['value_out'] - b['value_in']
 
         # Insert the block table row.
         store.sql(
@@ -704,21 +761,22 @@ store._view('txin_detail'),
                 block_id, block_hash, block_version, block_hashMerkleRoot,
                 block_nTime, block_nBits, block_nNonce, block_height,
                 prev_block_id, block_chain_work, block_value_in,
-                block_value_out, block_satoshis,
-                block_seconds, block_satoshi_seconds
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                block_value_out, block_total_satoshis,
+                block_total_seconds, block_satoshi_seconds
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)""",  # XXX NULL
             (block_id, store.hashin(b['hash']), b['version'],
              store.hashin(b['hashMerkleRoot']), b['nTime'],
              b['nBits'], b['nNonce'], b['height'], prev_block_id,
              store.binin_int(b['chain_work'], WORK_BITS),
-             b['value_in'], b['value_out'],
-             prev_satoshis + b['value_out'] - b['value_in'],
-             prev_seconds + b['nTime'] - prev_nTime,
-             prev_ss + (prev_satoshis * (b['nTime'] - prev_nTime)) -
-             b['ss_destroyed']))
+             b['value_in'], b['value_out'], b['satoshis'], b['seconds']))
+
+        for txin_id in out_block_ids:
+            store.sql("""
+                INSERT INTO block_txin (block_id, txin_id, out_block_id)
+                VALUES (?, ?, ?)""",
+                      (block_id, txin_id, out_block_ids[txin_id]))
 
         # List the block's transactions in block_tx.
-        # XXX Need to do block_txin too.
         for tx_pos in xrange(len(b['transactions'])):
             tx = b['transactions'][tx_pos]
             store.sql("""
@@ -728,6 +786,32 @@ store._view('txin_detail'),
                       (block_id, tx['tx_id'], tx_pos,
                        bt_ss_destroyed[tx['tx_id']]))
             print "block_tx", block_id, tx['tx_id']
+
+        ss_destroyed = 0
+        for tx_pos in xrange(len(b['transactions'])):
+            tx_id = b['transactions'][tx_pos]['tx_id']
+            destroyed = int(store.selectrow("""
+                SELECT COALESCE(SUM(txout.txout_value * (? - b.block_nTime)), 0)
+                  FROM block_txin bti
+                  JOIN txin USING (txin_id)
+                  JOIN txout USING (txout_id)
+                  JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
+                  JOIN block b ON (obt.block_id = b.block_id)
+                 WHERE bti.block_id = ? AND txin.tx_id = ?""",
+                                            (b['nTime'], block_id, tx_id)))[0]
+            ss_destroyed += destroyed
+            store.sql("""
+                UPDATE block_tx
+                   SET satoshi_seconds_destroyed = ?
+                 WHERE block_id = ?
+                   AND tx_id = ?""",
+                      (destroyed, block_id, tx_id))
+        b['ss'] = (prev_ss + (prev_satoshis * (b['nTime'] - prev_nTime)) -
+                   ss_destroyed)
+
+        store.sql("""
+            UPDATE block SET block_satoshi_seconds = ? WHERE block_id = ?""",
+                  (b['ss'], block_id))
 
         # Store the inverse hashPrev relationship or mark the block as
         # an orphan.
@@ -739,24 +823,99 @@ store._view('txin_detail'),
             store.sql("INSERT INTO orphan_block (block_id, block_hashPrev)" +
                       " VALUES (?, ?)", (block_id, store.hashin(b['hashPrev'])))
 
-        return block_id
-
-    def adopt_orphans(store, b):
-        orphans = store.find_orphans(b['hash'])
-        for orphan_id in orphans:
-            print "attaching orphan block", orphan_id
+        for row in store.selectall("""
+            SELECT block_id FROM orphan_block WHERE block_hashPrev = ?""",
+                                   (store.hashin(b['hash']))):
+            (orphan_id,) = row
+            store.sql("UPDATE block SET prev_block_id = ? WHERE block_id = ?",
+                      (block_id, orphan_id))
             store.sql("""
-                UPDATE block
-                   SET prev_block_id = ?
-                 WHERE block_id = ?""", (b['block_id'], orphan_id))
+                INSERT INTO block_next (block_id, next_block_id)
+                VALUES (?, ?)""", (block_id, orphan_id))
             store.sql("DELETE FROM orphan_block WHERE block_id = ?",
                       (orphan_id,))
 
-    def find_orphans(store, hash):
-        return map(lambda row: row[0], store.selectall("""
-            SELECT block_id
-              FROM orphan_block
-             WHERE block_hashPrev = ?""", (store.hashin(hash),)))
+        b['top'], new_work = store.adopt_orphans(b, 0)
+
+        return block_id
+
+    # Propagate cumulative values to descendant blocks.  Return info
+    # about the longest chain rooted at b.
+    def adopt_orphans(store, b, orphan_work):
+        block_id = b['block_id']
+        next_blocks = store.find_next_blocks(block_id)
+        if not next_blocks:
+            return b, orphan_work
+
+        height = None if b['height'] is None else b['height'] + 1
+        best = None
+        best_work = orphan_work
+
+        for row in store.selectall("""
+            SELECT bn.next_block_id, b.block_nBits,
+                   b.block_value_out - b.block_value_in, block_nTime
+              FROM block_next bn
+              JOIN block b ON (bn.next_block_id = b.block_id)
+             WHERE bn.block_id = ?""", (block_id,)):
+            next_id, nBits, generated, nTime = row
+            nBits = int(nBits)
+            generated = None if generated is None else int(generated)
+            nTime = int(nTime)
+            new_work = calculate_work(orphan_work, nBits)
+
+            if b['chain_work'] is None:
+                chain_work = None
+            else:
+                chain_work = b['chain_work'] + new_work - orphan_work
+
+            if b['seconds'] is None:
+                seconds = None
+            else:
+                seconds = b['seconds'] + nTime - b['nTime']
+
+            if b['satoshis'] is None or generated is None:
+                satoshis = None
+            else:
+                satoshis = b['satoshis'] + generated
+
+            if b['ss'] is None or b['satoshis'] is None or b['seconds'] is None:
+                ss = None
+            else:
+                destroyed = store.get_block_ss_destroyed(next_id, XXX)
+                ss = b['ss'] + b['satoshis'] * (nTime - b['nTime']) - destroyed
+
+            store.sql("""
+                UPDATE block
+                   SET block_height = ?,
+                       block_chain_work = ?,
+                       block_total_seconds = ?,
+                       block_total_satoshis = ?,
+                       block_satoshi_seconds = ?
+                 WHERE block_id = ?""",
+                      (height, chain_work, seconds, satoshis, ss, next_id))
+            store._set_block(next_id, block_id, height)
+
+            if height is not None:
+                store.sql("""
+                    UPDATE chain_candidate SET block_height = ?
+                     WHERE block_id = ?""",
+                    (height, next_id))
+
+            nb = {
+                "block_id": next_id,
+                "height": height,
+                "chain_work": chain_work,
+                "nTime": nTime,
+                "seconds": seconds,
+                "satoshis": satoshis,
+                "ss": ss}
+            ret, work = store.adopt_orphans(nb, new_work)
+
+            if work > best_work:
+                best = ret
+                best_work = work
+
+        return best, best_work
 
     def tx_find_id_and_value(store, tx):
         row = store.selectrow("""
@@ -867,9 +1026,6 @@ store._view('txin_detail'),
             in_longest = 0
         else:
             # Do we produce a chain longer than the current chain?
-            # First, see how far newly adopted orphan subchains go.
-            (top_block_id, top_height, dbwork) = store.find_top(b['block_id'])
-
             # Query whether the new block (or its tallest descendant)
             # beats the current chain_last_block_id.
             row = store.selectrow("""
@@ -878,70 +1034,62 @@ store._view('txin_detail'),
                  WHERE b.block_id = c.chain_last_block_id
                    AND c.chain_id = ?
                    AND b.block_chain_work < ?""",
-                      (chain_id, dbwork))
+                      (chain_id, store.binin_int(b['top']['chain_work'])))
             if row:
                 # New longest chain.
                 in_longest = 1
                 (loser_id, loser_height) = row
                 to_connect = []
                 to_disconnect = []
-                block_id = top_block_id
-                height = top_height
-                #print "start", top_height, loser_height
-                while loser_height > height:
+                winner_id = b['top']['block_id']
+                winner_height = b['top']['height']
+                #print "start", winner_height, loser_height
+                while loser_height > winner_height:
                     to_disconnect.insert(0, loser_id)
                     loser_id = store.get_prev_block_id(loser_id)
                     loser_height -= 1
-                while height > loser_height:
-                    to_connect.insert(0, block_id)
-                    block_id = store.get_prev_block_id(block_id)
-                    height -= 1
-                #print "tie", loser_height, top_height, loser_id, top_block_id
-                while loser_id <> block_id:
+                while winner_height > loser_height:
+                    to_connect.insert(0, winner_id)
+                    winner_id = store.get_prev_block_id(winner_id)
+                    winner_height -= 1
+                #print "tie", loser_height, loser_id, winner_id
+                loser_height = None
+                while loser_id <> winner_id:
                     to_disconnect.insert(0, loser_id)
                     loser_id = store.get_prev_block_id(loser_id)
-                    to_connect.insert(0, block_id)
-                    block_id = store.get_prev_block_id(block_id)
+                    to_connect.insert(0, winner_id)
+                    winner_id = store.get_prev_block_id(winner_id)
+                    winner_height -= 1
                 for block_id in to_disconnect:
                     store.disconnect_block(block_id, chain_id)
                 for block_id in to_connect:
                     store.connect_block(block_id, chain_id)
 
             elif b['hashPrev'] == GENESIS_HASH_PREV:
-                in_longest = 1  # XXX
+                in_longest = 1  # Assume only one genesis block per chain.  XXX
             else:
                 in_longest = 0
 
         store.sql("""
-            INSERT INTO chain_candidate (chain_id, block_id, in_longest)
-            VALUES (?, ?, ?)""",
-                  (chain_id, b['block_id'], in_longest))
+            INSERT INTO chain_candidate (
+                chain_id, block_id, in_longest, block_height
+            ) VALUES (?, ?, ?, ?)""",
+                  (chain_id, b['block_id'], in_longest, b['height']))
+        store._add_block_chain(b['block_id'], chain_id)
 
-        if in_longest:
+        if in_longest > 0:
             store.sql("""
                 UPDATE chain
                    SET chain_last_block_id = ?
-                 WHERE chain_id = ?""", (top_block_id, chain_id))
-
-    def find_top(store, block_id):
-        next_blocks = store.find_next_blocks(block_id)
-        if not next_blocks:
-            height, dbwork = store.selectrow("""
-                SELECT block_height, block_chain_work
-                  FROM block
-                 WHERE block_id = ?""", (block_id,))
-            return (block_id, height, dbwork)
-        best = (0, 0, 0)
-        for next_id in next_blocks:
-            ret = store.find_top(next_id)
-            if ret[2] > best[2]:
-                best = ret
-        return best
+                 WHERE chain_id = ?""", (b['top_id'], chain_id))
 
     def find_next_blocks(store, block_id):
-        store.sql("SELECT next_block_id FROM block_next WHERE block_id = ?",
-                  (block_id,))
-        return map(lambda row: row[0], store.cursor.fetchall())
+        ret = []
+        for row in store.sql(
+            "SELECT next_block_id FROM block_next WHERE block_id = ?",
+            (block_id,)):
+            ret.append(row[0])
+        return ret
 
     def get_prev_block_id(store, block_id):
         return store.selectrow(
