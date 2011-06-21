@@ -60,7 +60,7 @@ def init_block_txin(store):
     stats = {}
     for row in store.selectall("""
         SELECT cc.chain_id, cc.block_height, cc.in_longest,
-               b.prev_block_id, b.block_id,
+               b.prev_block_id, b.block_id
           FROM chain_candidate cc
           JOIN block b USING (block_id)"""):
         (chain_id, in_longest, prev_id, block_id, height) = row
@@ -156,8 +156,8 @@ def init_block_totals(store):
                b.block_value_out - b.block_value_in, b.block_nTime
           FROM chain_candidate cc
           JOIN block b USING (block_id)
-         WHERE b.block_height IS NOT NULL
-         ORDER BY cc.chain_id, b.block_height"""):
+         WHERE cc.block_height IS NOT NULL
+         ORDER BY cc.chain_id, cc.block_height"""):
 
         chain_id, prev_id, block_id, generated, nTime = row
         generated = int(generated)
