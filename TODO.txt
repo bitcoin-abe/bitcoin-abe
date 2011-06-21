@@ -1,5 +1,8 @@
 * Create a block/tx/address search tool.
 
+* Try indexing block.block_height and chain_candidate.block_id for a
+  faster chain summary page.
+
 * Test on Oracle.
 
 * Speed up SQL using materialized views or, where not available, other

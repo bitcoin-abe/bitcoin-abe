@@ -163,6 +163,7 @@ def init_block_totals(store):
 def init_satoshi_seconds_destroyed(store):
     print "Calculating satoshi-seconds destroyed."
     cur = store.conn.cursor()
+    count = 0
     cur.execute("""
         SELECT bt.block_id, bt.tx_id,
                SUM(txout.txout_value * (b.block_nTime - ob.block_nTime))
@@ -170,16 +171,21 @@ def init_satoshi_seconds_destroyed(store):
           JOIN block_tx bt USING (block_id)
           JOIN txin USING (tx_id)
           JOIN txout USING (txout_id)
+          JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
           JOIN block_txin bti ON (
                    bti.block_id = bt.block_id AND
-                   bti.txin_id = txin.txin_id)
+                   bti.txin_id = txin.txin_id AND
+                   obt.block_id = bti.out_block_id)
           JOIN block ob ON (bti.out_block_id = ob.block_id)
          GROUP BY bt.block_id, bt.tx_id""")
     for row in cur:
         block_id, tx_id, destroyed = row
+        sys.stdout.write("\rssd: " + str(count) + "   ")
+        count += 1
         store.sql("UPDATE block_tx SET satoshi_seconds_destroyed = ?"
                   " WHERE block_id = ? AND tx_id = ?",
                   (destroyed, block_id, tx_id))
+    print("done.")
 
 def set_0_satoshi_seconds_destroyed(store):
     print "Setting NULL to 0 in satoshi_seconds_destroyed."
@@ -204,7 +210,9 @@ def init_block_satoshi_seconds(store):
                b.prev_block_id, SUM(bt.satoshi_seconds_destroyed)
           FROM block b
           JOIN block_tx bt USING (block_id)
-         ORDER BY block_height""")
+         ORDER BY b.block_height
+         GROUP BY b.block_id, b.block_total_satoshis, b.block_nTime,
+               b.prev_block_id""")
     for row in cur:
         block_id, satoshis, nTime, prev_id, destroyed = row
         satoshis = int(satoshis)

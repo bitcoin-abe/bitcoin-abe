@@ -436,7 +436,8 @@ GROUP BY
 )""",
 
 # A block of the type used by Bitcoin.
-# XXX Should probably index block_height, better chain_id+block_height.
+# XXX Should probably index block.block_height and chain_candidate.block_id,
+# though with indexable views we'd rather index chain_id+block_height.
 """CREATE TABLE block (
     block_id      NUMERIC(14) PRIMARY KEY,
     block_hash    BIT(256)    UNIQUE NOT NULL,
@@ -658,44 +659,74 @@ store._view('txin_detail'),
         b['block_id'] = block_id
 
         # Import new transactions.
+        b['value_in'] = 0
+        b['value_out'] = 0
         for pos in xrange(len(b['transactions'])):
             tx = b['transactions'][pos]
             if 'hash' not in tx:
                 tx['hash'] = double_sha256(tx['tx'])
-            tx['tx_id'] = (store.tx_hash_to_id(tx['hash']) or
+            tx['tx_id'] = (store.tx_find_id_and_value(tx) or
                            store.import_tx(tx, pos == 0))
+            b['value_in'] += tx['value_in']
+            b['value_out'] += tx['value_out']
 
         # Look for the parent block.
         hashPrev = b['hashPrev']
         is_genesis = hashPrev == GENESIS_HASH_PREV
-        if is_genesis:
-            prev_block_id, prev_height, prev_work = (None, -1, 0)
-        else:
-            (prev_block_id, prev_height, prev_work, prev_satoshis,
-             prev_seconds, prev_ss, prev_nTime) = store.find_prev(hashPrev)
+        (prev_block_id, prev_height, prev_work, prev_satoshis,
+         prev_seconds, prev_ss, prev_nTime) = (
+            (None, -1, 0, 0, 0, 0, b['nTime'])
+            if is_genesis else
+            store.find_prev(hashPrev))
 
         b['prev_block_id'] = prev_block_id
         b['height'] = None if prev_height is None else prev_height + 1
         b['chain_work'] = calculate_work(prev_work, b['nBits'])
 
-        # Insert the block table row.
-        store.sql("""
-            INSERT INTO block (
-                block_id, block_hash, block_version, block_hashMerkleRoot,
-                block_nTime, block_nBits, block_nNonce, block_height,
-                prev_block_id, block_chain_work
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                  (block_id, store.hashin(b['hash']), b['version'],
-                   store.hashin(b['hashMerkleRoot']), b['nTime'],
-                   b['nBits'], b['nNonce'], b['height'],
-                   prev_block_id, store.binin_int(b['chain_work'],
-                                                  WORK_BITS)))
-
-        # List the block's transactions in block_tx.
+        bt_ss_destroyed = {}
+        b['ss_destroyed'] = 0
         for tx_pos in xrange(len(b['transactions'])):
             tx = b['transactions'][tx_pos]
-            store.sql("INSERT INTO block_tx (block_id, tx_id, tx_pos)" +
-                      " VALUES (?, ?, ?)", (block_id, tx['tx_id'], tx_pos))
+            destroyed = int(store.selectrow("""
+                SELECT COALESCE(SUM(txout.txout_value * (? - b.block_nTime)), 0)
+                  FROM block_txin bti
+                  JOIN txin USING (txin_id)
+                  JOIN txout USING (txout_id)
+                  JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
+                  JOIN block b ON (obt.block_id = b.block_id)
+                 WHERE bti.block_id = ?""", (b['nTime'], block_id)))[0]
+            b['ss_destroyed'] += destroyed
+            bt_ss_destroyed[tx['tx_id']] = destroyed
+
+        # Insert the block table row.
+        store.sql(
+            """INSERT INTO block (
+                block_id, block_hash, block_version, block_hashMerkleRoot,
+                block_nTime, block_nBits, block_nNonce, block_height,
+                prev_block_id, block_chain_work, block_value_in,
+                block_value_out, block_satoshis,
+                block_seconds, block_satoshi_seconds
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (block_id, store.hashin(b['hash']), b['version'],
+             store.hashin(b['hashMerkleRoot']), b['nTime'],
+             b['nBits'], b['nNonce'], b['height'], prev_block_id,
+             store.binin_int(b['chain_work'], WORK_BITS),
+             b['value_in'], b['value_out'],
+             prev_satoshis + b['value_out'] - b['value_in'],
+             prev_seconds + b['nTime'] - prev_nTime,
+             prev_ss + (prev_satoshis * (b['nTime'] - prev_nTime)) -
+             b['ss_destroyed']))
+
+        # List the block's transactions in block_tx.
+        # XXX Need to do block_txin too.
+        for tx_pos in xrange(len(b['transactions'])):
+            tx = b['transactions'][tx_pos]
+            store.sql("""
+                INSERT INTO block_tx
+                    (block_id, tx_id, tx_pos, satoshi_seconds_destroyed)
+                VALUES (?, ?, ?, ?)""",
+                      (block_id, tx['tx_id'], tx_pos,
+                       bt_ss_destroyed[tx['tx_id']]))
             print "block_tx", block_id, tx['tx_id']
 
         # Store the inverse hashPrev relationship or mark the block as
@@ -722,16 +753,31 @@ store._view('txin_detail'),
                       (orphan_id,))
 
     def find_orphans(store, hash):
-        store.sql("""
+        return map(lambda row: row[0], store.selectall("""
             SELECT block_id
               FROM orphan_block
-             WHERE block_hashPrev = ?""", (store.hashin(hash),))
-        return map(lambda row: row[0], store.cursor.fetchall())
+             WHERE block_hashPrev = ?""", (store.hashin(hash),)))
 
-    def tx_hash_to_id(store, hash):
-        row = store.selectrow("SELECT tx_id FROM tx WHERE tx_hash=?",
-                              (store.hashin(hash),))
-        return row[0] if row else row
+    def tx_find_id_and_value(store, tx):
+        row = store.selectrow("""
+            SELECT tx_id, SUM(txout.txout_value)
+              FROM tx
+              LEFT JOIN txout USING (tx_id)
+             WHERE tx_hash = ?
+             GROUP BY tx_id""",
+                              (store.hashin(tx['hash']),))
+        if row:
+            tx_id, value_out = row
+            (value_in,) = store.selectrow("""
+                SELECT SUM(prevout.txout_value)
+                  FROM txin
+                  JOIN txout prevout USING (txout_id)
+                 WHERE txin.tx_id = ?""", (tx_id,))
+            tx['value_in'] = 0 if value_in is None else int(value_in)
+            tx['value_out'] = 0 if value_out is None else int(value_out)
+            return tx_id
+
+        return None
 
     def import_tx(store, tx, is_coinbase):
         tx_id = store.new_id("tx")
@@ -742,8 +788,10 @@ store._view('txin_detail'),
                   (tx_id, dbhash, tx['version'], tx['lockTime'], len(tx['tx'])))
 
         # Import transaction outputs.
+        tx['value_out'] = 0
         for pos in xrange(len(tx['txOut'])):
             txout = tx['txOut'][pos]
+            tx['value_out'] += txout['value']
             txout_id = store.new_id("txout")
 
             pubkey_id = None
@@ -779,14 +827,18 @@ store._view('txin_detail'),
                       (dbhash, pos))
 
         # Import transaction inputs.
+        tx['value_in'] = 0
         for pos in xrange(len(tx['txIn'])):
             txin = tx['txIn'][pos]
             txin_id = store.new_id("txin")
+
             if is_coinbase:
                 txout_id = None
             else:
-                txout_id = store.lookup_txout_id(txin['prevout_hash'],
-                                                 txin['prevout_n'])
+                txout_id, value = store.lookup_txout(
+                    txin['prevout_hash'], txin['prevout_n']))
+                tx['value_in'] += value
+
             store.sql("""
                 INSERT INTO txin (
                     txin_id, tx_id, txin_pos, txout_id,
@@ -803,7 +855,8 @@ store._view('txin_detail'),
                            txin['prevout_n']))
 
         # XXX Could populate PUBKEY.PUBKEY with txin scripts...
-        # or leave that to an offline process.
+        # or leave that to an offline process.  Nothing in this program
+        # requires them.
         return tx_id
 
     # Called to indicate that the given block has the correct magic
@@ -813,7 +866,12 @@ store._view('txin_detail'),
         if b['chain_work'] is None:
             in_longest = 0
         else:
+            # Do we produce a chain longer than the current chain?
+            # First, see how far newly adopted orphan subchains go.
             (top_block_id, top_height, dbwork) = store.find_top(b['block_id'])
+
+            # Query whether the new block (or its tallest descendant)
+            # beats the current chain_last_block_id.
             row = store.selectrow("""
                 SELECT b.block_id, b.block_height
                   FROM block b, chain c
@@ -822,6 +880,7 @@ store._view('txin_detail'),
                    AND b.block_chain_work < ?""",
                       (chain_id, dbwork))
             if row:
+                # New longest chain.
                 in_longest = 1
                 (loser_id, loser_height) = row
                 to_connect = []
@@ -905,15 +964,15 @@ store._view('txin_detail'),
              WHERE block_id = ? AND chain_id = ?""",
                   (block_id, chain_id))
 
-    def lookup_txout_id(store, tx_hash, txout_pos):
+    def lookup_txout(store, tx_hash, txout_pos):
         row = store.selectrow("""
-            SELECT txout.txout_id
+            SELECT txout.txout_id, txout.txout_value
               FROM txout, tx
              WHERE txout.tx_id = tx.tx_id
                AND tx.tx_hash = ?
                AND txout.txout_pos = ?""",
                   (store.hashin(tx_hash), txout_pos))
-        return None if row is None else row[0]
+        return (None, 0) if row is None else (row[0], int(row[1]))
 
     def pubkey_hash_to_id(store, pubkey_hash):
         return store._pubkey_id(pubkey_hash, None)
@@ -1899,7 +1958,7 @@ class Abe:
                         elt = txin
                     else:
                         # Outs before ins in the same block.
-                        # XXX Bad if in depends on out in same block.
+                        # XXX Misleading if in depends on out in same block.
                         elt = txout
                 elif txout['nTime'] > txin['nTime']:
                     elt = txin
