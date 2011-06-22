@@ -2200,7 +2200,7 @@ def flatten(l):
     if isinstance(l, list):
         return ''.join(map(flatten, l))
     if l is None:
-        raise Error('NoneType in HTML conversion')
+        raise Exception('NoneType in HTML conversion')
     return str(l)
 
 def serve(store):
