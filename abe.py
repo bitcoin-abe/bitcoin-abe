@@ -1450,7 +1450,9 @@ class Abe:
         body += [
             '<table>\n',
             '<tr><th>Chain</th><th>Block</th><th>Started</th>\n',
-            '<th>Age (days)</th><th>Avg Coin Age</th><th>% CoinDD</th>',
+            '<th>Age (days)</th><th>Avg Coin Age</th><th>',
+            '% <a href="https://en.bitcoin.it/wiki/Bitcoin_Days_Destroyed">',
+            'CoinDD</a></th>',
             '</tr>\n']
         for row in abe.store.selectall("""
             SELECT c.chain_name, b.block_height, b.block_nTime,
@@ -1610,7 +1612,9 @@ class Abe:
                  '<th>Transactions</th><th>Value Out</th>',
                  '<th>Difficulty</th><th>Outstanding</th>',
                  '<th>Average Age</th><th>Chain Age</th>',
-                 '<th>% CoinDD</th>',
+                 '<th>% ',
+                 '<a href="https://en.bitcoin.it/wiki/Bitcoin_Days_Destroyed">',
+                 'CoinDD</a></th>',
                  ['<th>Satoshi-seconds</th>',
                   '<th>Total ss</th>']
                  if extra else '',
