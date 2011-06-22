@@ -1423,7 +1423,7 @@ class Abe:
                     '<body>\n',
                     '<h1><a href="', page['dotdot'] or '/', '"><img src="',
                     page['dotdot'], 'logo32.png', '" alt="ABE logo" /></a> ',
-                    page['title'], '</h1>\n', page['body'],
+                    page.get('h1') or page['title'], '</h1>\n', page['body'],
                     abe.footer % page, '</body></html>'])
 
     def handle(abe, page, chain, objtype, objid, well_formed, dotdot):
@@ -1596,14 +1596,7 @@ class Abe:
             if c != count:
                 nav += ['</a>']
 
-        for row in abe.store.selectall("""
-            SELECT DISTINCT c.chain_name
-              FROM chain c join chain_candidate cc USING (chain_id)
-             WHERE cc.in_longest = 1"""):
-            (name,) = row
-            if name != chain['name']:
-                nav += [' <a href="', page['dotdot'], 'chain/', escape(name),
-                        '/">', escape(name), '</a>']
+        nav += [' <a href="', page['dotdot'], '">Chains</a>']
 
         extra = False
         #extra = True
@@ -1699,8 +1692,13 @@ class Abe:
              ORDER BY cc.in_longest DESC""",
                                   (block_id,))
 
-        page['title'] = ['Block' if chain is None else escape(chain['name']),
-                         ' ', height]
+        if chain is None:
+            page['title'] = ['Block ', height]
+        else:
+            page['title'] = [escape(chain['name']), ' ', height]
+            page['h1'] = ['<a href="', page['dotdot'], 'chain/',
+                          escape(chain['name']), '/?hi=', height, '">',
+                          escape(chain['name']), '</a> ', height]
         body += ['<p>Hash: ', block_hash, '<br />\n']
 
         if prev_block_hash is not None:
