@@ -335,7 +335,7 @@ GROUP BY
     b.block_nTime,
     b.block_nBits,
     b.block_nNonce,
-    b.block_height,
+    cc.block_height,
     b.prev_block_id,
     prev.block_hash,
     b.block_chain_work,
