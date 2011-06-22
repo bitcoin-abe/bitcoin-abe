@@ -1,7 +1,6 @@
 * Create a block/tx/address search tool.
 
-* Try indexing block.block_height and chain_candidate.block_id for a
-  faster chain summary page.
+* Add an abe.py --upgrade option to run upgrades automatically.
 
 * Test on Oracle.
 
@@ -20,13 +19,11 @@
 
 * Create "short links" as on http://blockexplorer.com.
 
+* Cache SQL portability transformations.
+
 * Abstract inline SQL into the DataStore class.
 
 * Break abe.py into modules.
-
-* Write upgrade scripts in Python for robustness.
-
-* Make a "home page" with explanatory text and links to chains.
 
 * Highlight any objects that are not in the main chain as such.
 
@@ -35,7 +32,7 @@
 * Perhaps create an "SQL script" DataStore subclass that outputs flat
   SQL INSERTs.
 
-* Perhaps provide a postgres-bytea binary type.
+* Perhaps provide a postgresql-bytea binary type.
 
 * Perhaps compress scriptPubKey by representing as a pubkey_id and
   address type.
@@ -48,5 +45,7 @@
 
 * Defend against corrupt or differently formatted block files, though
   yet unseen.
+
+* Present Namecoin name operations.
 
 * Import transactions from the pool.
