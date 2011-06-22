@@ -63,7 +63,7 @@ def init_block_txin(store):
                b.prev_block_id, b.block_id
           FROM chain_candidate cc
           JOIN block b USING (block_id)"""):
-        (chain_id, in_longest, prev_id, block_id, height) = row
+        (chain_id, height, in_longest, prev_id, block_id) = row
 
         if chain_id not in stats:
             stats[chain_id] = {}
