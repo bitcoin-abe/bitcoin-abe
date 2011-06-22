@@ -1310,8 +1310,8 @@ class Abe:
 
         Return a 5-tuple: chain identifier, command
         (b|block|tx|address|chain|world), object identifier (e.g., block
-        hash), relative URL to application root (e.g., "../"), and a
-        flag indicating that the command is explicit.
+        hash), a flag indicating that the command is explicit, and
+        relative URL to application root (e.g., "../").
         """
         chain = None
         well_formed = None
@@ -1348,7 +1348,7 @@ class Abe:
             if pi == "/":
                 return chain, 'chain', chain, well_formed, dotdot
 
-            return None, None, None, False, None
+            return None, None, None, False, dotdot
 
     def __call__(abe, env, start_response):
         import urlparse
