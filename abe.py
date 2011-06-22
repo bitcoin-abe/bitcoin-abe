@@ -1296,6 +1296,9 @@ class Abe:
             '1PWC7PNHL1SgvZaN7xEtygenKjWobWsCuf">BTC</a>' +
             ' <a href="%(dotdot)saddress/' +
             'NJ3MSELK1cWnqUa6xhF2wUYAnz3RSrWXcK">NMC</a></p>\n')
+        import logging
+        abe.log = logging
+        abe.log.info('Abe initialized.')
 
     def parse_pi(abe, pi):
         """
@@ -1501,7 +1504,7 @@ class Abe:
 
     def _row_to_chain(abe, row):
         if row is None:
-            raise NoSuchChainError(symbol)
+            raise NoSuchChainError()
         chain = {}
         fields = abe._chain_fields()
         for i in range(len(fields)):
