@@ -1206,7 +1206,7 @@ store._view('txin_detail'),
             offset = ds.read_cursor
             magic = ds.read_bytes(4)  # XXX should scan past invalid data.
             length = ds.read_int32()
-            if ds.read_cursor + length >= len(ds.input):
+            if ds.read_cursor + length > len(ds.input):
                 ds.read_cursor = offset
                 break
 
