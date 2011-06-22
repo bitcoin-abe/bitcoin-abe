@@ -1422,7 +1422,7 @@ class Abe:
                     '<title>', page['title'], '</title>\n</head>\n',
                     '<body>\n',
                     '<h1><a href="', page['dotdot'] or '/', '"><img src="',
-                    page['dotdot'], 'logo32.png', '" alt="ABE logo" /></a>',
+                    page['dotdot'], 'logo32.png', '" alt="ABE logo" /></a> ',
                     page['title'], '</h1>\n', page['body'],
                     abe.footer % page, '</body></html>'])
 
