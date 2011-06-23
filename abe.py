@@ -34,7 +34,7 @@ import base58
 ABE_APPNAME = "ABE"
 ABE_VERSION = '0.2'
 ABE_URL = 'https://github.com/jtobey/bitcoin-abe'
-SCHEMA_VERSION = "7"
+SCHEMA_VERSION = "8"
 
 COPYRIGHT_YEARS = '2011'
 COPYRIGHT = "John Tobey"
@@ -120,6 +120,7 @@ class DataStore(object):
         # Read the CONFIG record if present.
         try:
             store.config = store._read_config()
+            store.initialized = True
         except store.module.DatabaseError:
             try:
                 store.rollback()
@@ -128,9 +129,21 @@ class DataStore(object):
             store.initialized = False
 
         store._set_sql_flavour()
-        store._read_datadir_table()
         store._view = store._views()
         store._blocks = {}
+
+        sv = store.config['schema_version']
+        if sv != SCHEMA_VERSION:
+            if args.upgrade:
+                import upgrade
+                upgrade.upgrade_schema(store)
+            else:
+                raise Exception(
+                    "Database schema version (%s) does not match software"
+                    " (%s).  Please run with --upgrade to convert database."
+                    % (sv, SCHEMA_VERSION))
+
+        store._read_datadir_table()
 
     def _read_config(store):
         store.cursor.execute("""
@@ -143,12 +156,6 @@ class DataStore(object):
             (sv, btype) = ('unknown', args.binary_type)
         else:
             (sv, btype) = row
-        if sv != SCHEMA_VERSION and store.args.schema_version_check:
-            raise Exception(
-                "Database schema version (%s) does not match software"
-                " (%s).  Please upgrade or rebuild your database."
-                % (sv, SCHEMA_VERSION))
-        store.initialized = True
         store.args.binary_type = btype
         return {
             "schema_version": sv,
@@ -157,12 +164,12 @@ class DataStore(object):
 
     # Accommodate SQL quirks.
     def _set_sql_flavour(store):
-        def sqlfn(store, stmt, params=()):
-            #print "want to execute", stmt, params
-            store.cursor.execute(stmt, params)
+        def identity(x):
+            return x
+        transform = identity
 
         if store.module.paramstyle in ('format', 'pyformat'):
-            sqlfn = store.qmark_to_format(sqlfn)
+            transform = store.qmark_to_format(transform)
         elif store.module.paramstyle != 'qmark':
             warnings.warn("Database parameter style is " +
                           "%s, trying qmark" % module.paramstyle)
@@ -172,8 +179,6 @@ class DataStore(object):
         # Hashes are a special type; since the protocol treats them as
         # 256-bit integers and represents them as little endian, we
         # have to reverse them in hex to satisfy human expectations.
-        def identity(x):
-            return x
         def to_hex(x):
             return None if x is None else binascii.hexlify(x)
         def from_hex(x):
@@ -206,7 +211,7 @@ class DataStore(object):
             hashout_hex = to_hex_rev
 
         elif store.args.binary_type == "hex":
-            sqlfn = store.sql_binary_as_hex(sqlfn)
+            transform = store.sql_binary_as_hex(transform)
             binin       = to_hex
             binin_hex   = identity
             binout      = from_hex
@@ -220,7 +225,9 @@ class DataStore(object):
             raise Exception("Unsupported binary-type %s"
                             % store.args.binary_type)
 
-        store.sqlfn = sqlfn
+        store.sql_transform = transform
+        store._sql_cache = {}
+
         store.binin       = binin
         store.binin_hex   = binin_hex
         store.binout      = binout
@@ -235,13 +242,17 @@ class DataStore(object):
         store.binin_int = lambda x, bits: binin_hex(("%%0%dx" % (bits / 4)) % x)
 
     def sql(store, stmt, params=()):
-        store.sqlfn(store, stmt, params)
+        cached = store._sql_cache.get(stmt)
+        if cached is None:
+            cached = store.sql_transform(stmt)
+            store._sql_cache[stmt] = cached
+        store.cursor.execute(cached, params)
 
     # Convert standard placeholders to Python "format" style.
     def qmark_to_format(store, fn):
-        def ret(store, stmt, params=()):
-            # Simplify by assuming no literals contain "?".
-            fn(store, stmt.replace("?", "%s"), params)
+        def ret(stmt):
+            # XXX Simplified by assuming no literals contain "?".
+            return fn(stmt.replace("?", "%s"))
         return ret
 
     # Convert the standard BIT type to a hex string for databases
@@ -249,12 +260,12 @@ class DataStore(object):
     def sql_binary_as_hex(store, fn):
         patt = re.compile("BIT((?: VARYING)?)\\(([0-9]+)\\)")
         def fixup(match):
-            # This assumes no string literals match.
+            # XXX This assumes no string literals match.
             return (("VARCHAR(" if match.group(1) else "CHAR(") +
                     str(int(match.group(2)) / 4) + ")")
-        def ret(store, stmt, params=()):
-            # This assumes no string literals match.
-            fn(store, patt.sub(fixup, stmt).replace("X'", "'"), params)
+        def ret(stmt):
+            # XXX This assumes no string literals match.
+            return fn(patt.sub(fixup, stmt).replace("X'", "'"))
         return ret
 
     def selectrow(store, stmt, params=()):
@@ -319,7 +330,7 @@ class DataStore(object):
     b.block_total_seconds,
     b.block_satoshi_seconds,
     b.block_total_ss,
-    SUM(bt.satoshi_seconds_destroyed) ss_destroyed
+    SUM(bt.satoshi_seconds_destroyed) block_ss_destroyed
 FROM chain_candidate cc
 JOIN block b ON (cc.block_id = b.block_id)
 LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)
@@ -456,8 +467,6 @@ GROUP BY
     block_total_satoshis NUMERIC(26),
     block_total_seconds NUMERIC(20),
     block_satoshi_seconds NUMERIC(28),
-    block_ss_created NUMERIC(28),
-    block_ss_destroyed NUMERIC(28),
     block_total_ss NUMERIC(28),
     FOREIGN KEY (prev_block_id)
         REFERENCES block (block_id)
@@ -533,6 +542,7 @@ GROUP BY
     FOREIGN KEY (tx_id)
         REFERENCES tx (tx_id)
 )""",
+"""CREATE INDEX x_block_tx_tx ON block_tx (tx_id)""",
 
 # A transaction out-point.
 """CREATE TABLE txout (
@@ -634,12 +644,13 @@ store._view('txin_detail'),
         store.commit()
 
     def _get_block(store, block_id):
-        block = store._blocks.get(int(block_id))
+        block_id = int(block_id)
+        block = store._blocks.get(block_id)
         if block is None:
             row = store.selectrow("""
                 SELECT prev_block_id, block_height
                   FROM block
-                 WHERE block_id = ?""", (block_id))
+                 WHERE block_id = ?""", (block_id,))
             if row is None:
                 return None
             prev_id, height = row
@@ -648,23 +659,29 @@ store._view('txin_detail'),
             for row in store.selectall("""
                 SELECT chain_id
                   FROM chain_candidate
-                 WHERE block_id = ? AND in_longest = 1"""):
+                 WHERE block_id = ? AND in_longest = 1""", (block_id,)):
                 (chain_id,) = row
                 block['in_longest_chains'].add(int(chain_id))
-            store._blocks[int(block_id)] = block
+            store._blocks[block_id] = block
         return block
 
     def _set_block(store, block_id, prev_id, height):
-        if int(block_id) in store._blocks:
-            block = store._blocks[int(block_id)]
+        block_id = int(block_id)
+        if block_id in store._blocks:
+            block = store._blocks[block_id]
             block['prev_id'] = prev_id
             block['height'] = height
 
     def _add_block_chain(store, block_id, chain_id):
-        if int(block_id) in store._blocks:
-            store._blocks[int(block_id)]['in_longest_chains'].add(int(chain_id))
+        block_id = int(block_id)
+        if block_id in store._blocks:
+            store._blocks[block_id]['in_longest_chains'].add(int(chain_id))
 
     def is_descended_from(store, block_id, ancestor_id):
+#        ret = store._is_descended_from(block_id, ancestor_id)
+#        print block_id, "is" + ('' if ret else ' NOT'), "descended from", ancestor_id
+#        return ret
+#    def _is_descended_from(store, block_id, ancestor_id):
         if block_id == ancestor_id:
             return True
         block = store._get_block(block_id)
@@ -744,19 +761,6 @@ store._view('txin_detail'),
             "height": b['height'],
             "in_longest_chains": set()}
 
-        # Create rows in block_txin.
-        out_block_ids = {}
-        for row in store.selectall("""
-            SELECT txin.txin_id, obt.block_id
-              FROM block_tx bt
-              JOIN txin USING (tx_id)
-              JOIN txout USING (txout_id)
-              JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
-             WHERE bt.block_id = ?""", (block_id,)):
-            (txin_id, oblock_id) = row
-            if store.is_descended_from(block_id, oblock_id):
-                out_block_ids[txin_id] = oblock_id
-
         b['seconds'] = prev_seconds + b['nTime'] - prev_nTime
         b['satoshis'] = prev_satoshis + b['value_out'] - b['value_in']
 
@@ -778,12 +782,6 @@ store._view('txin_detail'),
              store.binin_int(b['chain_work'], WORK_BITS),
              b['value_in'], b['value_out'], b['satoshis'], b['seconds']))
 
-        for txin_id in out_block_ids:
-            store.sql("""
-                INSERT INTO block_txin (block_id, txin_id, out_block_id)
-                VALUES (?, ?, ?)""",
-                      (block_id, txin_id, out_block_ids[txin_id]))
-
         # List the block's transactions in block_tx.
         for tx_pos in xrange(len(b['transactions'])):
             tx = b['transactions'][tx_pos]
@@ -793,6 +791,21 @@ store._view('txin_detail'),
                 VALUES (?, ?, ?)""",
                       (block_id, tx['tx_id'], tx_pos))
             print "block_tx", block_id, tx['tx_id']
+
+        # Create rows in block_txin.
+        for row in store.selectall("""
+            SELECT txin.txin_id, obt.block_id
+              FROM block_tx bt
+              JOIN txin USING (tx_id)
+              JOIN txout USING (txout_id)
+              JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
+             WHERE bt.block_id = ?""", (block_id,)):
+            (txin_id, oblock_id) = row
+            if store.is_descended_from(block_id, oblock_id):
+                store.sql("""
+                    INSERT INTO block_txin (block_id, txin_id, out_block_id)
+                    VALUES (?, ?, ?)""",
+                          (block_id, txin_id, oblock_id))
 
         ss_destroyed = 0
         for tx_pos in xrange(len(b['transactions'])):
@@ -1296,6 +1309,7 @@ class Abe:
             '1PWC7PNHL1SgvZaN7xEtygenKjWobWsCuf">BTC</a>' +
             ' <a href="%(dotdot)saddress/' +
             'NJ3MSELK1cWnqUa6xhF2wUYAnz3RSrWXcK">NMC</a></p>\n')
+        abe.debug = abe.args.debug
         import logging
         abe.log = logging
         abe.log.info('Abe initialized.')
@@ -1564,7 +1578,7 @@ class Abe:
             SELECT block_hash, block_height, block_nTime, num_tx,
                    block_nBits, block_value_out,
                    block_total_seconds, block_satoshi_seconds,
-                   block_total_satoshis, ss_destroyed, block_total_ss
+                   block_total_satoshis, block_ss_destroyed, block_total_ss
               FROM chain_summary
              WHERE chain_id = ?
                AND block_height BETWEEN ? AND ?
@@ -1671,7 +1685,13 @@ class Abe:
                 prev_block_hash,
                 block_chain_work,
                 block_value_in,
-                block_value_out
+                block_value_out,
+                block_total_satoshis,
+                block_total_seconds,
+                block_satoshi_seconds,
+                block_total_ss,
+                block_ss_destroyed,
+                num_tx
               FROM chain_summary
              WHERE """ + where
         row = abe.store.selectrow(sql, bind)
@@ -1680,11 +1700,19 @@ class Abe:
             return
         (block_id, block_hash, block_version, hashMerkleRoot,
          nTime, nBits, nNonce, height,
-         prev_block_hash, block_chain_work, value_in, value_out) = (
+         prev_block_hash, block_chain_work, value_in, value_out,
+         satoshis, seconds, ss, total_ss, destroyed, num_tx) = (
             row[0], abe.store.hashout_hex(row[1]), row[2],
             abe.store.hashout_hex(row[3]), row[4], int(row[5]), row[6],
             row[7], abe.store.hashout_hex(row[8]),
-            abe.store.binout_int(row[9]), int(row[10]), int(row[11]))
+            abe.store.binout_int(row[9]), int(row[10]), int(row[11]),
+            None if row[12] is None else int(row[12]),
+            None if row[13] is None else int(row[13]),
+            None if row[14] is None else int(row[14]),
+            None if row[15] is None else int(row[15]),
+            None if row[16] is None else int(row[16]),
+            int(row[17]),
+            )
 
         next_list = abe.store.selectall("""
             SELECT DISTINCT n.block_hash, cc.in_longest
@@ -1713,6 +1741,8 @@ class Abe:
             hash = abe.store.hashout_hex(row[0])
             body += ['<a href="', dotdotblock, hash, '">', hash, '</a><br />\n']
 
+        
+
         body += ['Height: ', height, '<br />\n',
                  'Version: ', block_version, '<br />\n',
                  'Transaction Merkle Root: ', hashMerkleRoot, '<br />\n',
@@ -1722,8 +1752,25 @@ class Abe:
                  'Cumulative Difficulty: ', format_difficulty(
                 work_to_difficulty(block_chain_work)), '<br />\n',
                  'Nonce: ', nNonce, '<br />\n',
-                 'Value in: ', format_satoshis(value_in, chain), '<br />\n',
+                 'Transactions: ', num_tx, '<br />\n',
                  'Value out: ', format_satoshis(value_out, chain), '<br />\n',
+
+                 ['Average Coin Age: %6g' % (ss / 86400.0 / satoshis,),
+                  ' days<br />\n']
+                 if satoshis and (ss is not None) else '',
+
+                 '' if destroyed is None else
+                 ['Coin-days Destroyed: ',
+                  format_satoshis(int(destroyed / 86400.0), chain), '<br />\n'],
+
+                 ['Cumulative Coin-days Destroyed: %6g%%<br />\n' %
+                  (100 * (1 - float(ss) / total_ss),)]
+                 if total_ss else '',
+
+                 ['sat=',satoshis,';sec=',seconds,';ss=',ss,
+                  ';total_ss=',total_ss,';destroyed=',destroyed]
+                 if abe.debug else '',
+
                  '</p>\n',]
 
         body += ['<h3>Transactions</h3>\n']
@@ -2269,9 +2316,13 @@ def parse_argv(argv):
     parser.add_argument("--no-serve", dest="serve", default=True,
                         action="store_false",
                         help="Exit without handling HTTP or FastCGI requests.")
-    parser.add_argument("--no-schema-version-check",
-                        dest="schema_version_check", default=True,
-                        action="store_false")
+    parser.add_argument("--upgrade", dest="upgrade", default=False,
+                        action="store_true",
+                        help="Automatically upgrade database objects to"
+                        " match software version.")
+    parser.add_argument("--debug", dest="debug", default=False,
+                        action="store_true",
+                        help="Turn on miscellaneous output.")
                         
     args = parser.parse_args(argv)
 

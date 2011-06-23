@@ -1,7 +1,5 @@
 * Create a block/tx/address search tool.
 
-* Add an abe.py --upgrade option to run upgrades automatically.
-
 * Make Avg Coin Age and % CoinDD reflect time elapsed since the last
   block.
 
@@ -21,8 +19,6 @@
 * Report address format errors, etc.
 
 * Create "short links" as on http://blockexplorer.com.
-
-* Cache SQL portability transformations.
 
 * Abstract inline SQL into the DataStore class.
 
