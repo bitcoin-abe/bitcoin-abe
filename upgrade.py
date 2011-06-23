@@ -77,10 +77,7 @@ def init_block_txin(store):
           FROM block_tx bt
           JOIN txin USING (tx_id)
           JOIN txout USING (txout_id)
-          JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
-          LEFT JOIN block_txin bti ON
-               (bt.block_id = bti.block_id AND bti.txin_id = txin.txin_id)
-         WHERE bti.block_id IS NULL"""))
+          JOIN block_tx obt ON (txout.tx_id = obt.tx_id)"""))
     for row in cur:
         (block_id, txin_id, oblock_id) = row
 
@@ -97,7 +94,7 @@ def init_block_txin(store):
                     store.commit()
                     print "commit %d" % (count,)
         tried += 1
-        if tried % 1000 == 1:
+        if tried % 1000 == 0:
             sys.stdout.write('\r%d/%d ' % (added, tried))
             sys.stdout.flush()
 
@@ -260,6 +257,14 @@ def replace_chain_summary(store):
     store.sql("DROP VIEW chain_summary")
     store.sql(store._view['chain_summary'])
 
+def drop_block_ss_columns(store):
+    """Drop columns that may have been added in error."""
+    for c in ['created', 'destroyed']:
+        try:
+            store.sql("ALTER TABLE block DROP COLUMN block_ss_" + c)
+        except:
+            pass
+
 def run_upgrades(store, upgrades):
     for i in xrange(len(upgrades) - 1):
         vers, func = upgrades[i]
@@ -301,6 +306,7 @@ upgrades = [
     ('7.3',  init_satoshi_seconds_destroyed),
     ('7.4',  set_0_satoshi_seconds_destroyed),
     ('7.5',  init_block_satoshi_seconds),
+    ('7.6',  drop_block_ss_columns),
     ('8', None)
 ]
 
