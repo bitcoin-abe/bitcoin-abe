@@ -1447,7 +1447,7 @@ class Abe:
 
                 started = nTime - seconds
                 chain_age = now - started
-                since_block = now = nTime
+                since_block = now - nTime
 
                 if satoshis == 0:
                     avg_age = '&nbsp;'
@@ -1458,9 +1458,9 @@ class Abe:
                 if chain_age <= 0:
                     percent_destroyed = '&nbsp;'
                 else:
-                    ss_since_block = since_block * satoshis
+                    more = since_block * satoshis
                     percent_destroyed = '%5g' % (
-                        100.0 - (100.0 * ss / total_ss)) + '%'
+                        100.0 - (100.0 * (ss + more) / (total_ss + more))) + '%'
 
                 body += [
                     '<td><a href="block/', hash, '">', height, '</a></td>',
