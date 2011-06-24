@@ -1508,7 +1508,7 @@ class Abe:
 
         cmd = wsgiref.util.shift_path_info(page['env'])
         if cmd == 'b':
-            return show_block_number(abe, chain, page)
+            return abe.show_block_number(chain, page)
         if cmd == '':
             #print "removing /"
             # Tolerate trailing slash.
