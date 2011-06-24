@@ -1,8 +1,5 @@
 * Create a block/tx/address search tool.
 
-* Make Avg Coin Age and % CoinDD reflect time elapsed since the last
-  block.
-
 * Test on Oracle.
 
 * Speed up SQL using materialized views or, where not available, other
