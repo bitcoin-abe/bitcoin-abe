@@ -45,3 +45,7 @@
 * Present Namecoin name operations.
 
 * Import transactions from the pool.
+
+* Perhaps add coin tracking features: allow the administrator to
+  specify "interesting" transactions and addresses, then add a
+  hyperlink from objects linked to them.
