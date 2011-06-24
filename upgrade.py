@@ -54,7 +54,7 @@ def index_block_tx_tx(store):
     try:
         store.sql("DROP INDEX x_block_tx_tx")
     except:
-        pass
+        store.rollback()
     store.sql("CREATE INDEX x_block_tx_tx ON block_tx (tx_id)")
 
 def init_block_txin(store):
@@ -183,7 +183,7 @@ def init_satoshi_seconds_destroyed(store):
               JOIN block ob ON (bti.out_block_id = ob.block_id)
              WHERE bt.block_id >= ?
                AND bt.block_id < ?
-             GROUP BY bt.block_id, bt.tx_id""", (start, start + step)))
+             GROUP BY bt.block_id, bt.tx_id"""), (start, start + step))
         for row in cur:
             block_id, tx_id, destroyed = row
             sys.stdout.write("\rssd: " + str(count) + "   ")
@@ -263,7 +263,7 @@ def drop_block_ss_columns(store):
         try:
             store.sql("ALTER TABLE block DROP COLUMN block_ss_" + c)
         except:
-            pass
+            store.rollback()
 
 def run_upgrades(store, upgrades):
     for i in xrange(len(upgrades) - 1):

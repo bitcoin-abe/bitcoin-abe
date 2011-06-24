@@ -24,6 +24,9 @@ from Crypto.Hash import SHA256
 from Crypto.Hash import RIPEMD
 import binascii
 from cgi import escape
+import posixpath
+import wsgiref.util
+import time
 
 # bitcointools -- modified deserialize.py to return raw transaction
 import BCDataStream
@@ -807,25 +810,9 @@ store._view('txin_detail'),
                     VALUES (?, ?, ?)""",
                           (block_id, txin_id, oblock_id))
 
-        ss_destroyed = 0
-        for tx_pos in xrange(len(b['transactions'])):
-            tx_id = b['transactions'][tx_pos]['tx_id']
-            destroyed = int(store.selectrow("""
-                SELECT COALESCE(SUM(txout.txout_value * (? - b.block_nTime)), 0)
-                  FROM block_txin bti
-                  JOIN txin USING (txin_id)
-                  JOIN txout USING (txout_id)
-                  JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
-                  JOIN block b ON (obt.block_id = b.block_id)
-                 WHERE bti.block_id = ? AND txin.tx_id = ?""",
-                                            (b['nTime'], block_id, tx_id))[0])
-            ss_destroyed += destroyed
-            store.sql("""
-                UPDATE block_tx
-                   SET satoshi_seconds_destroyed = ?
-                 WHERE block_id = ?
-                   AND tx_id = ?""",
-                      (destroyed, block_id, tx_id))
+        ss_destroyed = store._get_block_ss_destroyed(
+            block_id, b['nTime'],
+            map(lambda tx: tx['tx_id'], b['transactions']))
 
         if prev_satoshis is not None:
             ss_created = prev_satoshis * (b['nTime'] - prev_nTime)
@@ -864,6 +851,27 @@ store._view('txin_detail'),
         b['top'], new_work = store.adopt_orphans(b, 0)
 
         return block_id
+
+    def _get_block_ss_destroyed(store, block_id, nTime, tx_ids):
+        block_ss_destroyed = 0
+        for tx_id in tx_ids:
+            destroyed = int(store.selectrow("""
+                SELECT COALESCE(SUM(txout.txout_value * (? - b.block_nTime)), 0)
+                  FROM block_txin bti
+                  JOIN txin USING (txin_id)
+                  JOIN txout USING (txout_id)
+                  JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
+                  JOIN block b ON (obt.block_id = b.block_id)
+                 WHERE bti.block_id = ? AND txin.tx_id = ?""",
+                                            (nTime, block_id, tx_id))[0])
+            block_ss_destroyed += destroyed
+            store.sql("""
+                UPDATE block_tx
+                   SET satoshi_seconds_destroyed = ?
+                 WHERE block_id = ?
+                   AND tx_id = ?""",
+                      (destroyed, block_id, tx_id))
+        return block_ss_destroyed
 
     # Propagate cumulative values to descendant blocks.  Return info
     # about the longest chain rooted at b.
@@ -907,7 +915,14 @@ store._view('txin_detail'),
             if b['ss'] is None or b['satoshis'] is None or b['seconds'] is None:
                 ss = None
             else:
-                destroyed = store.get_block_ss_destroyed(next_id, XXX)
+                tx_ids = map(
+                    lambda row: row[0],
+                    store.selectall("""
+                        SELECT tx_id
+                          FROM block_tx
+                         WHERE block_id = ?""", (next_id,)))
+                destroyed = store._get_block_ss_destroyed(
+                    next_id, nTime, tx_ids)
                 ss = b['ss'] + b['satoshis'] * (nTime - b['nTime']) - destroyed
 
             store.sql("""
@@ -1293,6 +1308,12 @@ def make_store(args):
 class NoSuchChainError(Exception):
     """Thrown when a chain lookup fails"""
 
+class PageNotFound(Exception):
+    """Thrown when code wants to return 404 Not Found"""
+
+class Redirect(Exception):
+    """Thrown when code wants to redirect the request"""
+
 class Abe:
     def __init__(abe, store, args):
         abe.store = store
@@ -1313,115 +1334,61 @@ class Abe:
         import logging
         abe.log = logging
         abe.log.info('Abe initialized.')
-
-    def parse_pi(abe, pi):
-        """
-        Parse PATH_INFO.  Valid paths:
-
-        /chain/CHAIN/... (e.g., /chain/Bitcoin/b/100000 or /chain/Namecoin/)
-        /CHAIN/...  (well_formed is None, so invalid CHAIN gives status 404)
-        /b/NNNN
-        /block/HASH
-        /tx/HASH
-        /address/ADDRESS
-
-        Return a 5-tuple: chain identifier, command
-        (b|block|tx|address|chain|world), object identifier (e.g., block
-        hash), a flag indicating that the command is explicit, and
-        relative URL to application root (e.g., "../").
-        """
-        chain = None
-        well_formed = None
-        dotdot = ''
-
-        if pi == '/':
-            return chain, 'world', None, well_formed, dotdot
-
-        while True:
-            if chain is None:
-                match = re.match("/chain/([^/]+)(/.*)", pi, re.DOTALL)
-                if match:
-                    (chain, pi) = match.groups()
-                    dotdot += '../../'
-                    well_formed = True
-                    continue
-
-            match = re.match("/b/([0-9]+)\\Z", pi)
-            if match:
-                return chain, 'b', match.group(1), True, dotdot + '../'
-
-            match = re.match("/(block|tx|address)/(\\w+)\\Z", pi)
-            if match:
-                return (chain, match.group(1), match.group(2), True,
-                        dotdot + '../')
-
-            if chain is None:
-                match = re.match("/(\\w+)(/.*)", pi, re.DOTALL)
-                if match:
-                    (chain, pi) = match.groups()
-                    dotdot += '../'
-                    continue
-
-            if pi == "/":
-                return chain, 'chain', chain, well_formed, dotdot
-
-            return None, None, None, False, dotdot
+        abe.handlers = {
+            "": abe.show_world,
+            "chains": abe.show_world,
+            "chain": abe.show_chain,
+            "block": abe.show_block,
+            "tx": abe.show_tx,
+            "address": abe.show_address,
+            }
+        # Change this to map the htdocs directory somewhere other than
+        # the dynamic content root.  E.g., abe.static_path = '/static/'
+        abe.static_path = '/'
 
     def __call__(abe, env, start_response):
         import urlparse
-        pi = env['PATH_INFO']
+
         status = '200 OK'
         page = {
             "title": [escape(ABE_APPNAME), " ", ABE_VERSION],
             "body": [],
             "env": env,
-            "dotdot": '',  # XXX
             "params": {},
+            "dotdot": "../" * (env['PATH_INFO'].count('/') - 1),
+            "start_response": start_response,
             }
         if 'QUERY_STRING' in env:
             page['params'] = urlparse.parse_qs(env['QUERY_STRING'])
+
+        if fix_path_info(env):
+            print "fixed path_info"
+            return redirect(page)
 
         # Always be up-to-date, even if we means having to wait for a response!
         # XXX Could use threads, timers, or a cron job.
         abe.store.catch_up()
 
-        args = abe.parse_pi(pi)
-        found = True
+        obtype = wsgiref.util.shift_path_info(env)
+        handler = abe.handlers.get(obtype)
         try:
-            found = abe.handle(page, *args)
+            if handler is None:
+                return abe.serve_static(obtype + env['PATH_INFO'],
+                                        start_response)
+            handler(page)
+        except PageNotFound:
+            status = '404 Not Found'
+            page["body"] = ['<p class="error">Sorry, ', env['SCRIPT_NAME'],
+                            env['PATH_INFO'],
+                            ' does not exist on this server.</p>']
         except NoSuchChainError, e:
-            if args[3]:  # well_formed
-                page['body'] += [
-                    '<p class="error">'
-                    'Sorry, I don\'t know about that chain!</p>\n']
-            else:
-                found = False
+            page['body'] += [
+                '<p class="error">'
+                'Sorry, I don\'t know about that chain!</p>\n']
+        except Redirect:
+            return redirect(page)
 
         abe.store.rollback()  # Close imlicitly opened transaction.
-
-        if not found:
-            try:
-                # Serve static content.
-                # XXX Should check file modification time and handle
-                # HTTP if-modified-since.  Or just hope serious users
-                # will map our htdocs as static in their web server.
-                # Hmm, we could help them by mapping some path other
-                # than / to it.
-                # XXX is "+ pi" adequate for non-POSIX systems?
-                found = open(abe.htdocs + pi, "rb")
-                import mimetypes
-                (type, enc) = mimetypes.guess_type(pi)
-                if type is not None:
-                    # XXX Should do something with enc if not None.
-                    start_response(status, [('Content-type', type)])
-                    return found
-            except IOError:
-                pass
-
-        if not found:
-            status = '404 Not Found'
-            page["body"] = ['<p class="error">Sorry, ', pi,
-                            ' does not exist on this server.</p>']
 
         start_response(status, [('Content-type', 'application/xhtml+xml'),
                                 ('Cache-Control', 'max-age=30')])
@@ -1433,74 +1400,65 @@ class Abe:
                     ' xml:lang="en" lang="en">\n'
                     '<head>\n',
                     '<link rel="stylesheet" type="text/css" href="',
-                    page['dotdot'], 'abe.css" />\n'
+                    page['dotdot'], abe.static_path, 'abe.css" />\n'
                     '<link rel="shortcut icon" href="',
-                    page['dotdot'], 'favicon.ico" />\n'
+                    page['dotdot'], abe.static_path, 'favicon.ico" />\n'
                     '<title>', page['title'], '</title>\n</head>\n',
                     '<body>\n',
                     '<h1><a href="', page['dotdot'] or '/', '"><img src="',
-                    page['dotdot'], 'logo32.png', '" alt="ABE logo" /></a> ',
+                    page['dotdot'], abe.static_path, 'logo32.png',
+                    '" alt="ABE logo" /></a> ',
                     page.get('h1') or page['title'], '</h1>\n', page['body'],
                     abe.footer % page, '</body></html>'])
 
-    def handle(abe, page, chain, objtype, objid, well_formed, dotdot):
-        page['dotdot'] = dotdot
-        if objtype == 'b':
-            abe.show_block_number(chain, objid, page)
-        elif objtype == 'block':
-            abe.show_block(objid, page)
-        elif objtype == 'tx':
-            abe.show_tx(objid, page)
-        elif objtype == 'address':
-            abe.show_address(objid, page)
-        elif objtype == 'chain':
-            abe.show_chain(chain, page, well_formed)
-        elif objtype == 'world':
-            abe.show_world(page)
-        else:
-            return False
-        return True
-
     def show_world(abe, page):
-        page['title'] = 'Chains'
+        page['title'] = 'Currencies'
         body = page['body']
         body += [
             '<table>\n',
-            '<tr><th>Chain</th><th>Block</th><th>Started</th>\n',
-            '<th>Age (days)</th><th>Avg Coin Age</th><th>',
+            '<tr><th>Currency</th><th>Code</th><th>Block</th>',
+            '<th>Started</th><th>Age (days)</th><th>Coins Created</th>',
+            '<th>Avg Coin Age</th><th>',
             '% <a href="https://en.bitcoin.it/wiki/Bitcoin_Days_Destroyed">',
             'CoinDD</a></th>',
             '</tr>\n']
+        now = time.time()
+
         for row in abe.store.selectall("""
             SELECT c.chain_name, b.block_height, b.block_nTime,
                    b.block_total_seconds, b.block_total_satoshis,
                    b.block_satoshi_seconds, b.block_hash,
-                   b.block_total_ss
+                   b.block_total_ss, c.chain_id, c.chain_code3,
+                   c.chain_address_version, c.chain_last_block_id
               FROM chain c
               LEFT JOIN block b ON (c.chain_last_block_id = b.block_id)
              ORDER BY c.chain_name
         """):
             name = row[0]
+            chain = abe._row_to_chain((row[8], name, row[9], row[10], row[11]))
             body += [
                 '<tr><td><a href="chain/', escape(name), '/">',
-                escape(name), '</a></td>']
+                escape(name), '</a></td><td>', escape(chain['code3']), '</td>']
 
             if row[1] is not None:
-                height, nTime, seconds, satoshis, ss, hash, total_ss = (
+                (height, nTime, seconds, satoshis, ss, hash, total_ss) = (
                     int(row[1]), int(row[2]), int(row[3]), int(row[4]),
                     int(row[5]), abe.store.hashout_hex(row[6]), int(row[7]))
 
                 started = nTime - seconds
-                import time
-                chain_age = time.time() - started
+                chain_age = now - started
+                since_block = now = nTime
+
                 if satoshis == 0:
                     avg_age = '&nbsp;'
                 else:
-                    avg_age = '%5g' % (ss / satoshis / 86400.0)
+                    avg_age = '%5g' % ((float(ss) / satoshis + since_block)
+                                       / 86400.0)
 
                 if chain_age <= 0:
                     percent_destroyed = '&nbsp;'
                 else:
+                    ss_since_block = since_block * satoshis
                     percent_destroyed = '%5g' % (
                         100.0 - (100.0 * ss / total_ss)) + '%'
 
@@ -1508,6 +1466,7 @@ class Abe:
                     '<td><a href="block/', hash, '">', height, '</a></td>',
                     '<td>', format_time(started), '</td>',
                     '<td>', '%5g' % (chain_age / 86400.0), '</td>',
+                    '<td>', format_satoshis(satoshis, chain), '</td>',
                     '<td>', avg_age, '</td>',
                     '<td>', percent_destroyed, '</td>']
             body += ['</tr>\n']
@@ -1543,13 +1502,22 @@ class Abe:
               FROM chain
              WHERE chain_id = ?""", (chain_id,)))
 
-    def show_chain(abe, symbol, page, well_formed):
+    def show_chain(abe, page):
+        symbol = wsgiref.util.shift_path_info(page['env'])
         chain = abe.chain_lookup_by_name(symbol)
 
-        if symbol is None:
-            symbol = chain['name']
-        if symbol is not None:
-            page['title'] = symbol
+        cmd = wsgiref.util.shift_path_info(page['env'])
+        if cmd == 'b':
+            return show_block_number(abe, chain, page)
+        if cmd == '':
+            #print "removing /"
+            # Tolerate trailing slash.
+            page['env']['SCRIPT_NAME'] = page['env']['SCRIPT_NAME'][:-1]
+            raise Redirect()
+        if cmd is not None:
+            raise PageNotFound()
+
+        page['title'] = chain['name']
 
         body = page['body']
 
@@ -1651,7 +1619,8 @@ class Abe:
                     100.0 - (100.0 * ss / total_ss)) + '%'
 
             body += [
-                '<tr><td><a href="block/', abe.store.hashout_hex(hash),
+                '<tr><td><a href="', page['dotdot'], 'block/',
+                abe.store.hashout_hex(hash),
                 '">', height, '</a>'
                 '</td><td>', format_time(int(nTime)),
                 '</td><td>', num_tx,
@@ -1873,23 +1842,39 @@ class Abe:
             body += ['</td></tr>\n']
         body += '</table>\n'
 
-    def show_block_number(abe, symbol, height, page):
-        chain = abe.chain_lookup_by_name(symbol)
+    def show_block_number(abe, chain, page):
+        height = wsgiref.util.shift_path_info(page['env'])
+        try:
+            height = int(height)
+        except:
+            raise PageNotFound()
+        if height < 0 or page['env']['PATH_INFO'] != '':
+            raise PageNotFound()
 
         page['title'] = [escape(chain['name']), ' ', height]
         abe._show_block('chain_id = ? AND block_height = ? AND in_longest = 1',
                         (chain['id'], height), page, '../block/', chain)
 
-    def show_block(abe, block_hash, page):
+    def show_block(abe, page):
+        block_hash = wsgiref.util.shift_path_info(page['env'])
+        if block_hash in (None, '') or page['env']['PATH_INFO'] != '':
+            raise PageNotFound()
+
         page['title'] = 'Block'
+
+        # Try to show it as a block number, not a block hash.
+
         dbhash = abe.store.hashin_hex(block_hash)
-        # XXX arbitrary choice: minimum chain_id.
+
+        # XXX arbitrary choice: minimum chain_id.  Should support
+        # /chain/CHAIN/block/HASH URLs and try to keep "next block"
+        # links on the chain.
         row = abe.store.selectrow(
             """
-            SELECT MIN(cc.chain_id), cc.block_id, b.block_height
+            SELECT MIN(cc.chain_id), cc.block_id, cc.block_height
               FROM chain_candidate cc JOIN block b USING (block_id)
              WHERE b.block_hash = ?
-             GROUP BY cc.block_id, b.block_height""",
+             GROUP BY cc.block_id, cc.block_height""",
             (dbhash,))
         if row is None:
             abe._show_block('block_hash = ?', (dbhash,), page, '', None)
@@ -1899,7 +1884,11 @@ class Abe:
             page['title'] = [escape(chain['name']), ' ', height]
             abe._show_block('block_id = ?', (block_id,), page, '', chain)
 
-    def show_tx(abe, tx_hash, page):
+    def show_tx(abe, page):
+        tx_hash = wsgiref.util.shift_path_info(page['env'])
+        if tx_hash in (None, '') or page['env']['PATH_INFO'] != '':
+            raise PageNotFound()
+
         page['title'] = ['Transaction ', tx_hash[:10], '...', tx_hash[-4:]]
         body = page['body']
 
@@ -2060,7 +2049,11 @@ class Abe:
 
         body += ['</table>\n']
 
-    def show_address(abe, address, page):
+    def show_address(abe, page):
+        address = wsgiref.util.shift_path_info(page['env'])
+        if address in (None, '') or page['env']['PATH_INFO'] != '':
+            raise PageNotFound()
+
         binaddr = base58.bc_address_to_hash_160(address)
         dbhash = abe.store.binin(binaddr)
         page['title'] = 'Address ' + escape(address)
@@ -2068,13 +2061,21 @@ class Abe:
 
         chains = {}
         balance = {}
+        received = {}
+        sent = {}
         chain_ids = []
         def adj_balance(chain_id, value):
             if chain_id not in balance:
                 chain_ids.append(chain_id)
                 chains[chain_id] = abe.chain_lookup_by_id(chain_id)
                 balance[chain_id] = 0
+                received[chain_id] = 0
+                sent[chain_id] = 0
             balance[chain_id] += value
+            if value > 0:
+                received[chain_id] += value
+            else:
+                sent[chain_id] -= value
 
         txouts = []
         txins = []
@@ -2154,22 +2155,35 @@ class Abe:
             body += ['<p>Address not seen on the network.</p>']
             return
 
-        body += ['<p>Balance: ']
+        def format_amounts(amounts, link):
+            ret = []
+            for chain_id in chain_ids:
+                chain = chains[chain_id]
+                if chain_id != chain_ids[0]:
+                    ret += [', ']
+                ret += [format_satoshis(amounts[chain_id], chain),
+                        ' ', escape(chain['code3'])]
+                if link:
+                    other = hash_to_address(chain['address_version'], binaddr)
+                    if other != address:
+                        ret[-1] = ['<a href="', page['dotdot'], 'chain/',
+                                   escape(chain['name']), '/address/', other,
+                                   '">', ret[-1], '</a>']
+            return ret
+
+        body += ['<p>Balance: '] + format_amounts(balance, True)
+
         for chain_id in chain_ids:
-            chain = chains[chain_id]
-            if chain_id != chain_ids[0]:
-                body += [', ']
-            body += [format_satoshis(balance[chain_id], chain),
-                     ' ', escape(chain['code3'])]
-            other = hash_to_address(chain['address_version'], binaddr)
-            if other != address:
-                body[-1] = ['<a href="', page['dotdot'], 'chain/',
-                            escape(chain['name']), '/address/', other,
-                            '">', body[-1], '</a>']
             balance[chain_id] = 0  # Reset for history traversal.
 
-        body += ['<br /></p>\n']
-        body += ['<h3>Transactions</h3>\n'
+        body += ['<br />\n',
+                 'Transactions in: ', len(txins), '<br />\n',
+                 'Received: ', format_amounts(received, False), '<br />\n',
+                 'Transactions out: ', len(txouts), '<br />\n',
+                 'Sent: ', format_amounts(sent, False), '<br />\n']
+
+        body += ['</p>\n'
+                 '<h3>Transactions</h3>\n'
                  '<table>\n<tr><th>Transaction</th><th>Block</th>'
                  '<th>Approx. Time</th><th>Amount</th><th>Balance</th>'
                  '<th>Currency</th></tr>\n']
@@ -2214,6 +2228,28 @@ class Abe:
                      '</td></tr>\n']
         body += ['</table>\n']
 
+    def serve_static(abe, path, start_response):
+        path = '/' + path
+        slen = len(abe.static_path)
+        if path[:slen] != abe.static_path:
+            raise PageNotFound()
+        path = path[slen:]
+        try:
+            # Serve static content.
+            # XXX Should check file modification time and handle HTTP
+            # if-modified-since.  Or just hope serious users will map
+            # our htdocs as static in their web server.
+            # XXX is "+ pi" adequate for non-POSIX systems?
+            found = open(abe.htdocs + '/' + path, "rb")
+            import mimetypes
+            (type, enc) = mimetypes.guess_type(path)
+            # XXX Should do something with enc if not None.
+            # XXX Should set Content-length.
+            start_response('200 OK', [('Content-type', type or 'text/plain')])
+            return found
+        except IOError:
+            raise PageNotFound()
+
 def get_int_param(page, name):
     vals = page['params'].get(name)
     return vals and int(vals[0])
@@ -2254,6 +2290,26 @@ def flatten(l):
     if l is None:
         raise Exception('NoneType in HTML conversion')
     return str(l)
+
+def fix_path_info(env):
+    pi = env['PATH_INFO']
+    pi = posixpath.normpath(pi)
+    if pi[-1] != '/' and env['PATH_INFO'][-1] == '/':
+        pi += '/'
+    if pi == env['PATH_INFO']:
+        return False
+    env['PATH_INFO'] = pi
+    return True
+
+def redirect(page):
+    uri = wsgiref.util.request_uri(page['env'])
+    page['start_response'](
+        '301 Moved Permanently',
+        [('Location', uri),
+         ('Content-Type', 'text/html')])
+    return ('<html><head><title>Moved</title></head>\n'
+            '<body><h1>Moved</h1><p>This page has moved to'
+            '<a href="' + uri + '">' + uri + '</a></body></html>')
 
 def serve(store):
     args = store.args
