@@ -265,6 +265,33 @@ def drop_block_ss_columns(store):
         except:
             store.rollback()
 
+def add_fk(store, table, constraint, column, reference):
+    store.sql("ALTER TABLE " + table + " ADD CONSTRAINT " + constraint +
+              " FOREIGN KEY (" + column + ") REFERENCES " + references)
+
+def add_fk_block_txin_block_id(store):
+    store.sql("""
+        ALTER TABLE block_txin ADD CONSTRAINT fk1_block_txin
+            FOREIGN KEY (block_id) REFERENCES block (block_id)""")
+
+def add_fk_block_txin_tx_id(store):
+    store.sql("""
+        ALTER TABLE block_txin ADD CONSTRAINT fk2_block_txin
+            FOREIGN KEY (txin_id) REFERENCES txin (txin_id)""")
+
+def add_fk_block_txin_out_block_id(store):
+    store.sql("""
+        ALTER TABLE block_txin ADD CONSTRAINT fk3_block_txin
+            FOREIGN KEY (out_block_id) REFERENCES block (block_id)""")
+
+def add_chk_block_txin_out_block_id_nn(store):
+    store.sql("""
+        ALTER TABLE block_txin ADD CONSTRAINT chk3_block_txin
+            CHECK (out_block_id IS NOT NULL)""")
+
+def create_x_cc_block_id(store):
+    store.sql("CREATE INDEX x_cc_block_id ON chain_candidate (block_id)")
+
 def run_upgrades(store, upgrades):
     for i in xrange(len(upgrades) - 1):
         vers, func = upgrades[i]
@@ -307,7 +334,12 @@ upgrades = [
     ('7.4',  set_0_satoshi_seconds_destroyed),
     ('7.5',  init_block_satoshi_seconds),
     ('7.6',  drop_block_ss_columns),
-    ('8', None)
+    ('8',    add_fk_block_txin_block_id),
+    ('8.1',  add_fk_block_txin_tx_id),
+    ('8.2',  add_fk_block_txin_out_block_id),
+    ('8.3',  add_chk_block_txin_out_block_id_nn),
+    ('8.4',  create_x_cc_block_id),
+    ('9', None)
 ]
 
 def upgrade_schema(store):

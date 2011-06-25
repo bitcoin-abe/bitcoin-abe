@@ -1,5 +1,7 @@
 * Create a block/tx/address search tool.
 
+* Use explicit constraint names.
+
 * Test on Oracle.
 
 * Speed up SQL using materialized views or, where not available, other

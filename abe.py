@@ -37,7 +37,7 @@ import base58
 ABE_APPNAME = "ABE"
 ABE_VERSION = '0.2'
 ABE_URL = 'https://github.com/jtobey/bitcoin-abe'
-SCHEMA_VERSION = "8"
+SCHEMA_VERSION = "9"
 
 COPYRIGHT_YEARS = '2011'
 COPYRIGHT = "John Tobey"
@@ -506,6 +506,7 @@ GROUP BY
 """CREATE INDEX x_cc_block ON chain_candidate (block_id)""",
 """CREATE INDEX x_cc_chain_block_height
     ON chain_candidate (chain_id, block_height)""",
+"""CREATE INDEX x_cc_block_id ON chain_candidate (block_id)""",
 
 # An orphan block must remember its hashPrev.
 """CREATE TABLE orphan_block (
@@ -584,10 +585,13 @@ GROUP BY
     ON unlinked_txin (txout_tx_hash, txout_pos)""",
 
 """CREATE TABLE block_txin (
-    block_id      NUMERIC(14),
-    txin_id       NUMERIC(26),
-    out_block_id  NUMERIC(14),
-    PRIMARY KEY (block_id, txin_id)
+    block_id      NUMERIC(14) NOT NULL,
+    txin_id       NUMERIC(26) NOT NULL,
+    out_block_id  NUMERIC(14) NOT NULL,
+    PRIMARY KEY (block_id, txin_id),
+    FOREIGN KEY (block_id) REFERENCES block (block_id),
+    FOREIGN KEY (txin_id) REFERENCES txin (txin_id),
+    FOREIGN KEY (out_block_id) REFERENCES block (block_id)
 )""",
 
 # A public key for sending bitcoins.  PUBKEY_HASH is derivable from a
