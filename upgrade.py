@@ -292,6 +292,16 @@ def add_chk_block_txin_out_block_id_nn(store):
 def create_x_cc_block_id(store):
     store.sql("CREATE INDEX x_cc_block_id ON chain_candidate (block_id)")
 
+def reverse_binary_hashes(store):
+    if store.config['binary_type'] != 'hex':
+        raise Error(
+            'To support search by hash prefix, we have to reverse all values'
+            ' in block.block_hash, block.block_hashMerkleRoot, tx.tx_hash,'
+            ' orphan_block.block_hashPrev, and unlinked_txin.txout_tx_hash.'
+            ' This has not been automated. You may perform this step manually,'
+            ' then issue "UPDATE config SET schema_version = \'9.1\'" and'
+            ' rerun this program.')
+
 def drop_x_cc_block_id(store):
     """Redundant with x_cc_block"""
     store.sql("DROP INDEX x_cc_block_id")
@@ -347,8 +357,9 @@ upgrades = [
     ('8.2',  add_fk_block_txin_out_block_id),
     ('8.3',  add_chk_block_txin_out_block_id_nn),
     ('8.4',  create_x_cc_block_id),
-    ('9',    drop_x_cc_block_id),
-    ('9.1',  create_x_cc_block_height),
+    ('9',    reverse_binary_hashes),
+    ('9.1',  drop_x_cc_block_id),
+    ('9.2',  create_x_cc_block_height),
     ('10', None),
 ]
 

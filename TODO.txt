@@ -13,11 +13,11 @@
 
 * Use SEQUENCEs where available for synthetic identifiers.
 
+* Write a validation module to check db data.
+
 * Provide a fast load mode with constraints disabled.
 
 * Test on Apache/FastCGI.
-
-* Report address format errors, etc.
 
 * Abstract inline SQL into the DataStore class.
 
@@ -51,3 +51,6 @@
 * Perhaps add coin tracking features: allow the administrator to
   specify "interesting" transactions and addresses, then add a
   hyperlink from objects linked to them.
+
+* Perhaps track and report coin difficulty as proposed by casascius:
+  http://forum.bitcoin.org/index.php?topic=10755.0

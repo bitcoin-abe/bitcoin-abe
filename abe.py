@@ -74,6 +74,8 @@ SCRIPT_PUBKEY_RE = re.compile("\x41(.{65})\xac", re.DOTALL)
 
 ADDRESS_RE = re.compile(
     '[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{6,}\\Z')
+HEIGHT_RE = re.compile('(?:0|1[0-9]*)\\Z')
+HASH_PREFIX_RE = re.compile('[0-9a-fA-F]{6,64}\\Z')
 
 class DataStore(object):
 
@@ -185,6 +187,8 @@ class DataStore(object):
         # Hashes are a special type; since the protocol treats them as
         # 256-bit integers and represents them as little endian, we
         # have to reverse them in hex to satisfy human expectations.
+        def rev(x):
+            return x[::-1]
         def to_hex(x):
             return None if x is None else binascii.hexlify(x)
         def from_hex(x):
@@ -199,10 +203,10 @@ class DataStore(object):
             binin_hex   = from_hex
             binout      = identity
             binout_hex  = to_hex
-            hashin      = identity
-            hashin_hex  = from_hex_rev
-            hashout     = identity
-            hashout_hex = to_hex_rev
+            hashin      = rev
+            hashin_hex  = from_hex
+            hashout     = rev
+            hashout_hex = to_hex
 
         elif store.args.binary_type == "buffer":
             def to_buffer(x):
@@ -211,10 +215,10 @@ class DataStore(object):
             binin_hex   = lambda x: to_buffer(from_hex(x))
             binout      = identity
             binout_hex  = to_hex
-            hashin      = to_buffer
-            hashin_hex  = lambda x: to_buffer(from_hex_rev(x))
-            hashout     = identity
-            hashout_hex = to_hex_rev
+            hashin      = lambda x: to_buffer(rev(x))
+            hashin_hex  = lambda x: to_buffer(from_hex(x))
+            hashout     = rev
+            hashout_hex = to_hex
 
         elif store.args.binary_type == "hex":
             transform = store.sql_binary_as_hex(transform)
@@ -1871,6 +1875,10 @@ class Abe:
 
         page['title'] = 'Block'
 
+        if not HASH_PREFIX_RE.match(block_hash):
+            page['body'] += ['<p class="error">Not a valid block hash.</p>']
+            return
+
         # Try to show it as a block number, not a block hash.
 
         dbhash = abe.store.hashin_hex(block_hash)
@@ -1900,6 +1908,10 @@ class Abe:
 
         page['title'] = ['Transaction ', tx_hash[:10], '...', tx_hash[-4:]]
         body = page['body']
+
+        if not HASH_PREFIX_RE.match(tx_hash):
+            body += ['<p class="error">Not a valid transaction hash.</p>']
+            return
 
         row = abe.store.selectrow("""
             SELECT tx_id, tx_version, tx_lockTime, tx_size
@@ -2063,10 +2075,14 @@ class Abe:
         if address in (None, '') or page['env']['PATH_INFO'] != '':
             raise PageNotFound()
 
-        binaddr = base58.bc_address_to_hash_160(address)
-        dbhash = abe.store.binin(binaddr)
-        page['title'] = 'Address ' + escape(address)
         body = page['body']
+        page['title'] = 'Address ' + escape(address)
+        version, binaddr = decode_check_address(address)
+        if binaddr is None:
+            body += ['<p>Not a valid address.</p>']
+            return
+
+        dbhash = abe.store.binin(binaddr)
 
         chains = {}
         balance = {}
@@ -2245,7 +2261,8 @@ class Abe:
             '<form action="', page['dotdot'], 'search"><p>\n'
             '<input name="q" size="64" value="', escape(q), '" />'
             '<button type="submit">Search</button>\n'
-            '<br />Search does not yet support partial addresses or hashes.'
+            '<br />Search does not yet support partial addresses.'
+            ' Hash search requires at least the first six hex characters.'
             '</p></form>\n']
 
     def search(abe, page):
@@ -2256,30 +2273,28 @@ class Abe:
                 '<p>Please enter search terms.</p>\n', abe.search_form(page)]
             return
 
-        if re.match('[0-9]+\\Z', q):
-            results = abe.search_number(int(q))
-        elif re.match('[0-9a-fA-F]{64}\\Z', q):
-            results = abe.search_hash(q) or abe.search_general(q)
-        elif ADDRESS_RE.match(q):
-            results = abe.search_address(q) or abe.search_general(q)
-        else:
-            results = abe.search_general(q)
+        found = []
+        if HEIGHT_RE.match(q):      found += abe.search_number(int(q))
+        if ADDRESS_RE.match(q):     found += abe.search_address(q)
+        if HASH_PREFIX_RE.match(q): found += abe.search_hash_prefix(q)
+        found += abe.search_general(q)
 
-        if not results:
+        if not found:
             page['body'] = [
                 '<p>No results found.</p>\n', abe.search_form(page)]
             return
 
-        if len(results) == 1:
+        if len(found) == 1:
             # Undo shift_path_info.
-            page['env']['SCRIPT_NAME'] = posixpath.dirname(
-                page['env']['SCRIPT_NAME'])
-            page['env']['PATH_INFO'] = '/' + results[0]['uri']
+            sn = posixpath.dirname(page['env']['SCRIPT_NAME'])
+            if sn == '/': sn = ''
+            page['env']['SCRIPT_NAME'] = sn
+            page['env']['PATH_INFO'] = '/' + found[0]['uri']
             raise Redirect()
 
         body = page['body']
         body += ['<h3>Search Results</h3>\n<ul>\n']
-        for result in results:
+        for result in found:
             body += [
                 '<li><a href="', escape(result['uri']), '">',
                 escape(result['name']), '</a></li>\n']
@@ -2307,28 +2322,39 @@ class Abe:
              ORDER BY c.chain_name, cc.in_longest DESC
         """, (n,)))
 
-    def search_hash(abe, q):
-        dbhash = abe.store.hashin_hex(q)
+    def search_hash_prefix(abe, q):
+        lo = abe.store.hashin_hex(q + '0' * (64 - len(q)))
+        hi = abe.store.hashin_hex(q + 'f' * (64 - len(q)))
+        ret = []
         for t in ('tx', 'block'):
-            row = abe.store.selectrow(
-                "SELECT 1 FROM " + t + " WHERE " + t + "_hash = ?",
-                (dbhash,))
-            if row:
+            def process(row):
+                hash = abe.store.hashout_hex(row[0])
                 name = 'Transaction' if t == 'tx' else 'Block'
-                return ({ 'name': name + ' ' + q, 'uri': t + '/' + q },)
-        return ()
+                return {
+                    'name': name + ' ' + hash,
+                    'uri': t + '/' + hash,
+                    }
+            ret += map(process, abe.store.selectall(
+                "SELECT " + t + "_hash FROM " + t + " WHERE " + t +
+                "_hash BETWEEN ? AND ? LIMIT 100",
+                (lo, hi)))
+        return ret
 
     def search_address(abe, address):
+        try:
+            binaddr = base58.bc_address_to_hash_160(address)
+        except:
+            return ()
         return ({ 'name': 'Address ' + address, 'uri': 'address/' + address },)
 
     def search_general(abe, q):
         """Search for something that is not an address, hash, or block number.
         Currently, this is limited to chain names and currency codes."""
         def process(row):
-            (name,) = row
-            return { 'name': name, 'uri': 'chain/' + name }
+            (name, code3) = row
+            return { 'name': name + ' (' + code3 + ')', 'uri': 'chain/' + name }
         return map(process, abe.store.selectall("""
-            SELECT chain_name
+            SELECT chain_name, chain_code3
               FROM chain
              WHERE UPPER(chain_name) LIKE '%' || ? || '%'
                 OR UPPER(chain_code3) LIKE '%' || ? || '%'
@@ -2390,6 +2416,16 @@ def hash_to_address(version, hash):
     vh = version + hash
     return base58.b58encode(vh + double_sha256(vh)[:4])
 
+def decode_check_address(address):
+    if ADDRESS_RE.match(address):
+        bytes = base58.b58decode(address, 25)
+        if bytes is not None:
+            version = bytes[0]
+            hash = bytes[1:21]
+            if hash_to_address(version, hash) == address:
+                return version, hash
+    return None, None
+
 def flatten(l):
     if isinstance(l, list):
         return ''.join(map(flatten, l))
@@ -2408,6 +2444,7 @@ def fix_path_info(env):
     return True
 
 def redirect(page):
+    del(page['env']['QUERY_STRING'])
     uri = wsgiref.util.request_uri(page['env'])
     page['start_response'](
         '301 Moved Permanently',
