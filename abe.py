@@ -37,7 +37,7 @@ import base58
 ABE_APPNAME = "ABE"
 ABE_VERSION = '0.2'
 ABE_URL = 'https://github.com/jtobey/bitcoin-abe'
-SCHEMA_VERSION = "9"
+SCHEMA_VERSION = "10"
 
 COPYRIGHT_YEARS = '2011'
 COPYRIGHT = "John Tobey"
@@ -71,6 +71,9 @@ GENESIS_HASH_PREV = "\0" * 32
 
 SCRIPT_ADDRESS_RE = re.compile("\x76\xa9\x14(.{20})\x88\xac", re.DOTALL)
 SCRIPT_PUBKEY_RE = re.compile("\x41(.{65})\xac", re.DOTALL)
+
+ADDRESS_RE = re.compile(
+    '[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{6,}\\Z')
 
 class DataStore(object):
 
@@ -255,7 +258,7 @@ class DataStore(object):
     def qmark_to_format(store, fn):
         def ret(stmt):
             # XXX Simplified by assuming no literals contain "?".
-            return fn(stmt.replace("?", "%s"))
+            return fn(stmt.replace('%', '%%').replace("?", "%s"))
         return ret
 
     # Convert the standard BIT type to a hex string for databases
@@ -506,7 +509,7 @@ GROUP BY
 """CREATE INDEX x_cc_block ON chain_candidate (block_id)""",
 """CREATE INDEX x_cc_chain_block_height
     ON chain_candidate (chain_id, block_height)""",
-"""CREATE INDEX x_cc_block_id ON chain_candidate (block_id)""",
+"""CREATE INDEX x_cc_block_height ON chain_candidate (block_height)""",
 
 # An orphan block must remember its hashPrev.
 """CREATE TABLE orphan_block (
@@ -1345,6 +1348,7 @@ class Abe:
             "block": abe.show_block,
             "tx": abe.show_tx,
             "address": abe.show_address,
+            "search": abe.search,
             }
         # Change this to map the htdocs directory somewhere other than
         # the dynamic content root.  E.g., abe.static_path = '/static/'
@@ -1416,9 +1420,10 @@ class Abe:
                     abe.footer % page, '</body></html>'])
 
     def show_world(abe, page):
-        page['title'] = 'Currencies'
+        page['title'] = ABE_APPNAME + ' Search'
         body = page['body']
         body += [
+            abe.search_form(page),
             '<table>\n',
             '<tr><th>Currency</th><th>Code</th><th>Block</th>',
             '<th>Started</th><th>Age (days)</th><th>Coins Created</th>',
@@ -1585,7 +1590,7 @@ class Abe:
             if c != count:
                 nav += ['</a>']
 
-        nav += [' <a href="', page['dotdot'], '">Chains</a>']
+        nav += [' <a href="', page['dotdot'], '">Search</a>']
 
         extra = False
         #extra = True
@@ -2170,8 +2175,8 @@ class Abe:
                 if link:
                     other = hash_to_address(chain['address_version'], binaddr)
                     if other != address:
-                        ret[-1] = ['<a href="', page['dotdot'], 'chain/',
-                                   escape(chain['name']), '/address/', other,
+                        ret[-1] = ['<a href="', page['dotdot'],
+                                   'address/', other,
                                    '">', ret[-1], '</a>']
             return ret
 
@@ -2231,6 +2236,103 @@ class Abe:
                      '</td><td>', escape(chain['code3']),
                      '</td></tr>\n']
         body += ['</table>\n']
+
+    def search_form(abe, page):
+        q = (page['params'].get('q') or [''])[0]
+        return [
+            '<p>Search by address, block number, block or transaction hash,'
+            ' or chain name:</p>\n'
+            '<form action="', page['dotdot'], 'search"><p>\n'
+            '<input name="q" size="64" value="', escape(q), '" />'
+            '<button type="submit">Search</button>\n'
+            '<br />Search does not yet support partial addresses or hashes.'
+            '</p></form>\n']
+
+    def search(abe, page):
+        page['title'] = 'Search'
+        q = (page['params'].get('q') or [''])[0]
+        if q == '':
+            page['body'] = [
+                '<p>Please enter search terms.</p>\n', abe.search_form(page)]
+            return
+
+        if re.match('[0-9]+\\Z', q):
+            results = abe.search_number(int(q))
+        elif re.match('[0-9a-fA-F]{64}\\Z', q):
+            results = abe.search_hash(q) or abe.search_general(q)
+        elif ADDRESS_RE.match(q):
+            results = abe.search_address(q) or abe.search_general(q)
+        else:
+            results = abe.search_general(q)
+
+        if not results:
+            page['body'] = [
+                '<p>No results found.</p>\n', abe.search_form(page)]
+            return
+
+        if len(results) == 1:
+            # Undo shift_path_info.
+            page['env']['SCRIPT_NAME'] = posixpath.dirname(
+                page['env']['SCRIPT_NAME'])
+            page['env']['PATH_INFO'] = '/' + results[0]['uri']
+            raise Redirect()
+
+        body = page['body']
+        body += ['<h3>Search Results</h3>\n<ul>\n']
+        for result in results:
+            body += [
+                '<li><a href="', escape(result['uri']), '">',
+                escape(result['name']), '</a></li>\n']
+        body += ['</ul>\n']
+
+    def search_number(abe, n):
+        def process(row):
+            (chain_name, dbhash, in_longest) = row
+            hexhash = abe.store.hashout_hex(dbhash)
+            if in_longest == 1:
+                name = str(n)
+            else:
+                name = hexhash
+            return {
+                'name': chain_name + ' ' + name,
+                'uri': 'block/' + hexhash,
+                }
+
+        return map(process, abe.store.selectall("""
+            SELECT c.chain_name, b.block_hash, cc.in_longest
+              FROM chain c
+              JOIN chain_candidate cc USING (chain_id)
+              JOIN block b USING (block_id)
+             WHERE cc.block_height = ?
+             ORDER BY c.chain_name, cc.in_longest DESC
+        """, (n,)))
+
+    def search_hash(abe, q):
+        dbhash = abe.store.hashin_hex(q)
+        for t in ('tx', 'block'):
+            row = abe.store.selectrow(
+                "SELECT 1 FROM " + t + " WHERE " + t + "_hash = ?",
+                (dbhash,))
+            if row:
+                name = 'Transaction' if t == 'tx' else 'Block'
+                return ({ 'name': name + ' ' + q, 'uri': t + '/' + q },)
+        return ()
+
+    def search_address(abe, address):
+        return ({ 'name': 'Address ' + address, 'uri': 'address/' + address },)
+
+    def search_general(abe, q):
+        """Search for something that is not an address, hash, or block number.
+        Currently, this is limited to chain names and currency codes."""
+        def process(row):
+            (name,) = row
+            return { 'name': name, 'uri': 'chain/' + name }
+        return map(process, abe.store.selectall("""
+            SELECT chain_name
+              FROM chain
+             WHERE UPPER(chain_name) LIKE '%' || ? || '%'
+                OR UPPER(chain_code3) LIKE '%' || ? || '%'
+        """, (q.upper(), q.upper())))
 
     def serve_static(abe, path, start_response):
         path = '/' + path
@@ -2366,9 +2468,8 @@ def parse_argv(argv):
                         " database or driver. Most database software is"
                         " noncompliant regarding binary data. `hex' stores"
                         " bytes as hex strings. `buffer' passes them as"
-                        " Python buffer objects.")
-    parser.add_argument("--rescan", dest="rescan", default=False,
-                        action="store_true", help="Reimport blocks.")
+                        " Python buffer objects. Ignored for existing"
+                        " databases.")
     parser.add_argument("--port", dest="port", default=None, type=int,
                         help="TCP port on which to serve HTTP.")
     parser.add_argument("--host", dest="host", default=None,

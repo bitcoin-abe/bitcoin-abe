@@ -292,6 +292,14 @@ def add_chk_block_txin_out_block_id_nn(store):
 def create_x_cc_block_id(store):
     store.sql("CREATE INDEX x_cc_block_id ON chain_candidate (block_id)")
 
+def drop_x_cc_block_id(store):
+    """Redundant with x_cc_block"""
+    store.sql("DROP INDEX x_cc_block_id")
+
+def create_x_cc_block_height(store):
+    store.sql(
+        "CREATE INDEX x_cc_block_height ON chain_candidate (block_height)")
+
 def run_upgrades(store, upgrades):
     for i in xrange(len(upgrades) - 1):
         vers, func = upgrades[i]
@@ -339,7 +347,9 @@ upgrades = [
     ('8.2',  add_fk_block_txin_out_block_id),
     ('8.3',  add_chk_block_txin_out_block_id_nn),
     ('8.4',  create_x_cc_block_id),
-    ('9', None)
+    ('9',    drop_x_cc_block_id),
+    ('9.1',  create_x_cc_block_height),
+    ('10', None),
 ]
 
 def upgrade_schema(store):

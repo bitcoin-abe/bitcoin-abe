@@ -1,4 +1,6 @@
-* Create a block/tx/address search tool.
+* Support substring search.
+
+* Create "short links" as on http://blockexplorer.com.
 
 * Use explicit constraint names.
 
@@ -16,8 +18,6 @@
 * Test on Apache/FastCGI.
 
 * Report address format errors, etc.
-
-* Create "short links" as on http://blockexplorer.com.
 
 * Abstract inline SQL into the DataStore class.
 
