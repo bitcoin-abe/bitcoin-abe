@@ -658,8 +658,18 @@ store._view('txin_detail'),
         store.commit()
 
     def _get_block(store, block_id):
-        block_id = int(block_id)
-        block = store._blocks.get(block_id)
+        return store._blocks.get(int(block_id))
+
+    def _put_block(store, block_id, prev_id, height):
+        block = {
+            'prev_id': int(prev_id),
+            'height': int(height),
+            'in_longest_chains': set()}
+        store._blocks[int(block_id)] = block
+        return block
+
+    def _load_block(store, block_id):
+        block = store._get_block(block_id)
         if block is None:
             row = store.selectrow("""
                 SELECT prev_block_id, block_height
@@ -668,28 +678,30 @@ store._view('txin_detail'),
             if row is None:
                 return None
             prev_id, height = row
-            block = {"prev_id": prev_id, "height": height,
-                     "in_longest_chains": set()}
+            block = store._put_block(block_id, prev_id, height)
             for row in store.selectall("""
                 SELECT chain_id
                   FROM chain_candidate
                  WHERE block_id = ? AND in_longest = 1""", (block_id,)):
                 (chain_id,) = row
-                block['in_longest_chains'].add(int(chain_id))
-            store._blocks[block_id] = block
+                store._add_block_chain(block_id, chain_id)
         return block
 
-    def _set_block(store, block_id, prev_id, height):
-        block_id = int(block_id)
-        if block_id in store._blocks:
-            block = store._blocks[block_id]
-            block['prev_id'] = prev_id
-            block['height'] = height
+    def _update_block(store, block_id, prev_id, height):
+        block = store._get_block(block_id)
+        if block:
+            block['prev_id'] = int(prev_id)
+            block['height'] = int(height)
 
     def _add_block_chain(store, block_id, chain_id):
-        block_id = int(block_id)
-        if block_id in store._blocks:
-            store._blocks[block_id]['in_longest_chains'].add(int(chain_id))
+        block = store._get_block(block_id)
+        if block:
+            block['in_longest_chains'].add(int(chain_id))
+
+    def _remove_block_chain(store, block_id, chain_id):
+        block = store._get_block(block_id)
+        if block:
+            block['in_longest_chains'].remove(int(chain_id))
 
     def is_descended_from(store, block_id, ancestor_id):
 #        ret = store._is_descended_from(block_id, ancestor_id)
@@ -698,10 +710,10 @@ store._view('txin_detail'),
 #    def _is_descended_from(store, block_id, ancestor_id):
         if block_id == ancestor_id:
             return True
-        block = store._get_block(block_id)
+        block = store._load_block(block_id)
         if block['prev_id'] == ancestor_id:
             return True
-        ancestor = store._get_block(ancestor_id)
+        ancestor = store._load_block(ancestor_id)
         chains = ancestor['in_longest_chains']
         while True:
             #print "is_descended_from", ancestor_id, block
@@ -711,7 +723,7 @@ store._view('txin_detail'),
                 return False
             if block['prev_id'] is None:
                 return None
-            block = store._get_block(block['prev_id'])
+            block = store._load_block(block['prev_id'])
             if block['prev_id'] == ancestor_id:
                 return True
             if block['height'] <= ancestor['height']:
@@ -775,10 +787,7 @@ store._view('txin_detail'),
         b['height'] = None if prev_height is None else prev_height + 1
         b['chain_work'] = calculate_work(prev_work, b['nBits'])
 
-        store._blocks[block_id] = {
-            "prev_id": prev_block_id,
-            "height": b['height'],
-            "in_longest_chains": set()}
+        store._put_block(block_id, prev_block_id, b['height'])
 
         b['seconds'] = prev_seconds + b['nTime'] - prev_nTime
         b['satoshis'] = prev_satoshis + b['value_out'] - b['value_in']
@@ -950,7 +959,7 @@ store._view('txin_detail'),
                        block_satoshi_seconds = ?
                  WHERE block_id = ?""",
                       (height, chain_work, seconds, satoshis, ss, next_id))
-            store._set_block(next_id, block_id, height)
+            store._update_block(next_id, block_id, height)
 
             if height is not None:
                 store.sql("""
@@ -1133,7 +1142,8 @@ store._view('txin_detail'),
                 chain_id, block_id, in_longest, block_height
             ) VALUES (?, ?, ?, ?)""",
                   (chain_id, b['block_id'], in_longest, b['height']))
-        store._add_block_chain(b['block_id'], chain_id)
+        if in_longest == 1:
+            store._add_block_chain(b['block_id'], chain_id)
 
         if in_longest > 0:
             store.sql("""
@@ -1161,9 +1171,7 @@ store._view('txin_detail'),
                SET in_longest = 0
              WHERE block_id = ? AND chain_id = ?""",
                   (block_id, chain_id))
-        block = store._blocks.get(block_id)
-        if block:
-            block['in_longest_chains'].remove(int(chain_id))
+        store._remove_block_chain(block_id, chain_id)
 
     def connect_block(store, block_id, chain_id):
         #print "connect", block_id, chain_id
@@ -1172,9 +1180,7 @@ store._view('txin_detail'),
                SET in_longest = 1
              WHERE block_id = ? AND chain_id = ?""",
                   (block_id, chain_id))
-        block = store._blocks.get(block_id)
-        if block:
-            block['in_longest_chains'].add(int(chain_id))
+        store._add_block_chain(block_id, chain_id)
 
     def lookup_txout(store, tx_hash, txout_pos):
         row = store.selectrow("""
