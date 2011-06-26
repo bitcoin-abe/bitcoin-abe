@@ -1710,7 +1710,7 @@ class Abe:
         else:
             page['title'] = [escape(chain['name']), ' ', height]
             page['h1'] = ['<a href="', page['dotdot'], 'chain/',
-                          escape(chain['name']), '/?hi=', height, '">',
+                          escape(chain['name']), '?hi=', height, '">',
                           escape(chain['name']), '</a> ', height]
         body += ['<p>Hash: ', block_hash, '<br />\n']
 
