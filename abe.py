@@ -707,6 +707,8 @@ store._view('txin_detail'),
             #print "is_descended_from", ancestor_id, block
             if chains.intersection(block['in_longest_chains']):
                 return ancestor['height'] <= block['height']
+            if block['in_longest_chains'] - chains:
+                return False
             if block['prev_id'] is None:
                 return None
             block = store._get_block(block['prev_id'])
@@ -819,6 +821,7 @@ store._view('txin_detail'),
              WHERE bt.block_id = ?""", (block_id,)):
             (txin_id, oblock_id) = row
             if store.is_descended_from(block_id, oblock_id):
+                #print "block_txin", block_id, txin_id, oblock_id
                 store.sql("""
                     INSERT INTO block_txin (block_id, txin_id, out_block_id)
                     VALUES (?, ?, ?)""",
@@ -1275,6 +1278,7 @@ store._view('txin_detail'),
                     store.offer_block_to_chain(b, NAMECOIN_CHAIN_ID)
 
                 bytes_done += length
+                # XXX should be configurable
                 if bytes_done > 100000 :
                     store.save_blkfile_offset(dirname, ds.read_cursor)
                     store.commit()
