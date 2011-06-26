@@ -704,6 +704,7 @@ store._view('txin_detail'),
         ancestor = store._get_block(ancestor_id)
         chains = ancestor['in_longest_chains']
         while True:
+            #print "is_descended_from", ancestor_id, block
             if chains.intersection(block['in_longest_chains']):
                 return ancestor['height'] <= block['height']
             if block['prev_id'] is None:
@@ -711,6 +712,8 @@ store._view('txin_detail'),
             block = store._get_block(block['prev_id'])
             if block['prev_id'] == ancestor_id:
                 return True
+            if block['height'] <= ancestor['height']:
+                return False
 
     def contains_block(store, hash):
         return store.block_hash_to_id(hash)
