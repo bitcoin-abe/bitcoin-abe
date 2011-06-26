@@ -822,11 +822,35 @@ store._view('txin_detail'),
             (txin_id, oblock_id) = row
             if store.is_descended_from(block_id, oblock_id):
                 #print "block_txin", block_id, txin_id, oblock_id
+              orow = None
+              nrow = None
+              try:
+                if store.args.debug:
+                    orow = store.selectrow("""
+                        SELECT ob.block_hash
+                          FROM block_txin bti
+                          JOIN block ob ON (bti.out_block_id = ob.block_id)
+                         WHERE bti.block_id = ?
+                           AND bti.txin_id = ?
+                    """, (block_id, txin_id))
+                    nrow = store.selectrow("""
+                        SELECT b.block_hash, tx.tx_hash, txin.txin_pos, ob.block_hash
+                          FROM block b,
+                               tx
+                          JOIN txin USING (tx_id),
+                               block ob
+                         WHERE b.block_id = ?
+                           AND txin.txin_id = ?
+                           AND ob.block_id = ?
+                    """, (block_id, txin_id, oblock_id))
                 store.sql("""
                     INSERT INTO block_txin (block_id, txin_id, out_block_id)
                     VALUES (?, ?, ?)""",
                           (block_id, txin_id, oblock_id))
-
+              except:
+                if store.args.debug:
+                    print "failed insert block_txin: old:", orow, " new:", nrow
+                raise
         ss_destroyed = store._get_block_ss_destroyed(
             block_id, b['nTime'],
             map(lambda tx: tx['tx_id'], b['transactions']))
@@ -1162,6 +1186,9 @@ store._view('txin_detail'),
                SET in_longest = 0
              WHERE block_id = ? AND chain_id = ?""",
                   (block_id, chain_id))
+        block = store._blocks.get(block_id)
+        if block:
+            block['in_longest_chains'].remove(int(chain_id))
 
     def connect_block(store, block_id, chain_id):
         #print "connect", block_id, chain_id
@@ -1170,6 +1197,9 @@ store._view('txin_detail'),
                SET in_longest = 1
              WHERE block_id = ? AND chain_id = ?""",
                   (block_id, chain_id))
+        block = store._blocks.get(block_id)
+        if block:
+            block['in_longest_chains'].add(int(chain_id))
 
     def lookup_txout(store, tx_hash, txout_pos):
         row = store.selectrow("""
