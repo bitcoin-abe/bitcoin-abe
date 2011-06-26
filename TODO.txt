@@ -1,13 +1,11 @@
-* Support substring search.
-
 * Create "short links" as on http://blockexplorer.com.
 
 * Use explicit constraint names.
 
 * Test on Oracle.
 
-* Speed up SQL using materialized views or, where not available, other
-  denormalization techniques.
+* Speed up queries using denormalization and perhaps materialized
+  views, where available.
 
 * Test on MySQL.
 
@@ -19,13 +17,21 @@
 
 * Test on Apache/FastCGI.
 
+* Read options from a config file.
+
 * Abstract inline SQL into the DataStore class.
 
-* Break abe.py into modules.
+* Break abe.py into modules: Explorer, DataStore, and DataInit.
 
 * Highlight any objects that are not in the main chain as such.
 
 * Store and report block size, address type, raw objects, etc.
+
+* Perhaps support searching by hash/address substring.
+
+* Tools/API like http://blockexplorer.com/q.
+
+* Perhaps create a BlockExplorer.com compatibility mode.
 
 * Perhaps create an "SQL script" DataStore subclass that outputs flat
   SQL INSERTs.
@@ -34,8 +40,6 @@
 
 * Perhaps compress scriptPubKey by representing as a pubkey_id and
   address type.
-
-* Tools/API like http://blockexplorer.com/q.
 
 * Context-sensitive help as on http://blockexplorer.com.
 
