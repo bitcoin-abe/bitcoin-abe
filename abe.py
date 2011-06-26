@@ -821,36 +821,11 @@ store._view('txin_detail'),
              WHERE bt.block_id = ?""", (block_id,)):
             (txin_id, oblock_id) = row
             if store.is_descended_from(block_id, oblock_id):
-                #print "block_txin", block_id, txin_id, oblock_id
-              orow = None
-              nrow = None
-              try:
-                if store.args.debug:
-                    orow = store.selectrow("""
-                        SELECT ob.block_hash
-                          FROM block_txin bti
-                          JOIN block ob ON (bti.out_block_id = ob.block_id)
-                         WHERE bti.block_id = ?
-                           AND bti.txin_id = ?
-                    """, (block_id, txin_id))
-                    nrow = store.selectrow("""
-                        SELECT b.block_hash, tx.tx_hash, txin.txin_pos, ob.block_hash
-                          FROM block b,
-                               tx
-                          JOIN txin USING (tx_id),
-                               block ob
-                         WHERE b.block_id = ?
-                           AND txin.txin_id = ?
-                           AND ob.block_id = ?
-                    """, (block_id, txin_id, oblock_id))
                 store.sql("""
                     INSERT INTO block_txin (block_id, txin_id, out_block_id)
                     VALUES (?, ?, ?)""",
                           (block_id, txin_id, oblock_id))
-              except:
-                if store.args.debug:
-                    print "failed insert block_txin: old:", orow, " new:", nrow
-                raise
+
         ss_destroyed = store._get_block_ss_destroyed(
             block_id, b['nTime'],
             map(lambda tx: tx['tx_id'], b['transactions']))
