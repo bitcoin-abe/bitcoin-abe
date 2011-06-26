@@ -74,7 +74,7 @@ SCRIPT_PUBKEY_RE = re.compile("\x41(.{65})\xac", re.DOTALL)
 
 ADDRESS_RE = re.compile(
     '[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{6,}\\Z')
-HEIGHT_RE = re.compile('(?:0|1[0-9]*)\\Z')
+HEIGHT_RE = re.compile('(?:0|[1-9][0-9]*)\\Z')
 HASH_PREFIX_RE = re.compile('[0-9a-fA-F]{6,64}\\Z')
 
 class DataStore(object):
