@@ -1,5 +1,7 @@
 * Create "short links" as on http://blockexplorer.com.
 
+* Start a test suite.
+
 * Use explicit constraint names.
 
 * Test on Oracle.

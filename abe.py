@@ -1898,11 +1898,10 @@ class Abe:
         # XXX arbitrary choice: minimum chain_id.  Should support
         # /chain/CHAIN/block/HASH URLs and try to keep "next block"
         # links on the chain.
-        row = abe.store.selectrow(
-            """
+        row = abe.store.selectrow("""
             SELECT MIN(cc.chain_id), cc.block_id, cc.block_height
               FROM chain_candidate cc JOIN block b USING (block_id)
-             WHERE b.block_hash = ?
+             WHERE b.block_hash = ? AND cc.in_longest_chain = 1
              GROUP BY cc.block_id, cc.block_height""",
             (dbhash,))
         if row is None:
