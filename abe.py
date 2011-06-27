@@ -1907,7 +1907,7 @@ class Abe:
         row = abe.store.selectrow("""
             SELECT MIN(cc.chain_id), cc.block_id, cc.block_height
               FROM chain_candidate cc JOIN block b USING (block_id)
-             WHERE b.block_hash = ? AND cc.in_longest_chain = 1
+             WHERE b.block_hash = ? AND cc.in_longest = 1
              GROUP BY cc.block_id, cc.block_height""",
             (dbhash,))
         if row is None:
