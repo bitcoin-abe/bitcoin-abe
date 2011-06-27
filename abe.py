@@ -1417,6 +1417,9 @@ class Abe:
                 'Sorry, I don\'t know about that chain!</p>\n']
         except Redirect:
             return redirect(page)
+        except:
+            abe.store.rollback()
+            raise
 
         abe.store.rollback()  # Close imlicitly opened transaction.
 
