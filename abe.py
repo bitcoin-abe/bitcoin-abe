@@ -20,8 +20,11 @@ import os
 import warnings
 import optparse
 import re
-from Crypto.Hash import SHA256
-from Crypto.Hash import RIPEMD
+import Crypto.Hash.SHA256 as SHA256
+try:
+    import Crypto.Hash.RIPEMD160 as RIPEMD160
+except:
+    import ripemd_via_hashlib as RIPEMD160
 import binascii
 from cgi import escape
 import posixpath
@@ -1199,7 +1202,7 @@ store._view['txin_detail'],
         return store._pubkey_id(pubkey_hash, None)
 
     def pubkey_to_id(store, pubkey):
-        pubkey_hash = RIPEMD.new(SHA256.new(pubkey).digest()).digest()
+        pubkey_hash = RIPEMD160.new(SHA256.new(pubkey).digest()).digest()
         return store._pubkey_id(pubkey_hash, pubkey)
 
     def _pubkey_id(store, pubkey_hash, pubkey):
@@ -2501,7 +2504,8 @@ def parse_argv(argv):
     examples = (
         "PostgreSQL example:\n    --dbtype=psycopg2"
         " --connect-args='{\"database\":\"abe\"}' --binary-type hex\n\n"
-        "Sqlite examle: --dbtype=sqlite3 --connect-args='\"abe.sqlite\"'\n\n"
+        "Sqlite examle:\n    --dbtype=sqlite3 --connect-args='\"abe.sqlite\"'"
+        " --binary-type buffer\n\n"
         "To run an HTTP listener, supply either or both of HOST and PORT.\n"
         "By default, %(prog)s runs as a FastCGI service.  To disable this,\n"
         "pass --no-serve.")
