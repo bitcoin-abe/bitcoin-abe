@@ -2131,8 +2131,11 @@ class Abe:
         balance = {}
         received = {}
         sent = {}
+        count = [0, 0]
         chain_ids = []
-        def adj_balance(chain_id, value):
+        def adj_balance(txpoint):
+            chain_id = txpoint['chain_id']
+            value = txpoint['value']
             if chain_id not in balance:
                 chain_ids.append(chain_id)
                 chains[chain_id] = abe.chain_lookup_by_id(chain_id)
@@ -2144,18 +2147,19 @@ class Abe:
                 received[chain_id] += value
             else:
                 sent[chain_id] -= value
+            count[txpoint['is_in']] += 1
 
-        txouts = []
-        txins = []
+        txpoints = []
         rows = abe.store.selectall("""
             SELECT
+                b.block_nTime,
                 cc.chain_id,
                 b.block_height,
+                1,
                 b.block_hash,
-                b.block_nTime,
                 tx.tx_hash,
                 txin.txin_pos,
-                prevout.txout_value
+                -prevout.txout_value
               FROM chain_candidate cc
               JOIN block b USING (block_id)
               JOIN block_tx USING (block_id)
@@ -2164,31 +2168,15 @@ class Abe:
               JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
               JOIN pubkey USING (pubkey_id)
              WHERE pubkey_hash = ?
-               AND cc.in_longest = 1
-             ORDER BY cc.chain_id, b.block_height, block_tx.tx_pos""",
+               AND cc.in_longest = 1""",
                       (dbhash,))
-        for row in rows:
-            (chain_id, height, blk_hash, nTime, tx_hash, pos, value) = (
-                int(row[0]), int(row[1]), abe.store.hashout_hex(row[2]),
-                int(row[3]), abe.store.hashout_hex(row[4]), int(row[5]),
-                int(row[6]))
-            adj_balance(chain_id, -value)
-            txins.append({
-                    "type": "i",
-                    "chain_id": chain_id,
-                    "height": height,
-                    "blk_hash": blk_hash,
-                    "nTime": nTime,
-                    "tx_hash": tx_hash,
-                    "pos": pos,
-                    "value": -value,
-                    })
-        rows = abe.store.selectall("""
+        rows += abe.store.selectall("""
             SELECT
+                b.block_nTime,
                 cc.chain_id,
                 b.block_height,
+                0,
                 b.block_hash,
-                b.block_nTime,
                 tx.tx_hash,
                 txout.txout_pos,
                 txout.txout_value
@@ -2199,25 +2187,23 @@ class Abe:
               JOIN txout USING (tx_id)
               JOIN pubkey USING (pubkey_id)
              WHERE pubkey_hash = ?
-               AND cc.in_longest = 1
-             ORDER BY cc.chain_id, b.block_height, block_tx.tx_pos""",
+               AND cc.in_longest = 1""",
                       (dbhash,))
+        rows.sort()
         for row in rows:
-            (chain_id, height, blk_hash, nTime, tx_hash, pos, value) = (
-                int(row[0]), int(row[1]), abe.store.hashout_hex(row[2]),
-                int(row[3]), abe.store.hashout_hex(row[4]), int(row[5]),
-                int(row[6]))
-            adj_balance(chain_id, value)
-            txouts.append({
-                    "type": "o",
-                    "chain_id": chain_id,
-                    "height": height,
-                    "blk_hash": blk_hash,
-                    "nTime": nTime,
-                    "tx_hash": tx_hash,
-                    "pos": pos,
-                    "value": value,
-                    })
+            nTime, chain_id, height, is_in, blk_hash, tx_hash, pos, value = row
+            txpoint = {
+                    "nTime":    int(nTime),
+                    "chain_id": int(chain_id),
+                    "height":   int(height),
+                    "is_in":    int(is_in),
+                    "blk_hash": abe.store.hashout_hex(blk_hash),
+                    "tx_hash":  abe.store.hashout_hex(tx_hash),
+                    "pos":      int(pos),
+                    "value":    int(value),
+                    }
+            adj_balance(txpoint)
+            txpoints.append(txpoint)
 
         if (not chain_ids):
             body += ['<p>Address not seen on the network.</p>']
@@ -2245,9 +2231,9 @@ class Abe:
             balance[chain_id] = 0  # Reset for history traversal.
 
         body += ['<br />\n',
-                 'Transactions in: ', len(txins), '<br />\n',
+                 'Transactions in: ', count[0], '<br />\n',
                  'Received: ', format_amounts(received, False), '<br />\n',
-                 'Transactions out: ', len(txouts), '<br />\n',
+                 'Transactions out: ', count[1], '<br />\n',
                  'Sent: ', format_amounts(sent, False), '<br />\n']
 
         body += ['</p>\n'
@@ -2256,32 +2242,11 @@ class Abe:
                  '<th>Approx. Time</th><th>Amount</th><th>Balance</th>'
                  '<th>Currency</th></tr>\n']
 
-        elts = []
-        while (txins or txouts):
-            txout = txouts and txouts[0]
-            txin = txins and txins[0]
-            if txout and txin:
-                if txout['chain_id'] == txin['chain_id']:
-                    if txout['height'] > txin['height']:
-                        elt = txin
-                    else:
-                        # Outs before ins in the same block.
-                        # XXX Misleading if in depends on out in same block.
-                        elt = txout
-                elif txout['nTime'] > txin['nTime']:
-                    elt = txin
-                else:
-                    elt = txout
-            else:
-                elt = txout or txin
-            elts.append(elt)
-            del (txouts if elt == txout else txins)[0]
-
-        for elt in elts:
+        for elt in txpoints:
             chain = chains[elt['chain_id']]
             balance[elt['chain_id']] += elt['value']
             body += ['<tr><td><a href="../tx/', elt['tx_hash'],
-                     '#', elt['type'], elt['pos'],
+                     '#', 'i' if elt['is_in'] else 'o', elt['pos'],
                      '">', elt['tx_hash'][:10], '...</a>',
                      '</td><td><a href="../block/', elt['blk_hash'],
                      '">', elt['height'], '</a></td><td>',
