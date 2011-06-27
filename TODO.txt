@@ -29,6 +29,8 @@
 
 * Store and report block size, address type, raw objects, etc.
 
+* Compute Merkle trees and verify transaction Merkle roots.
+
 * Perhaps support searching by hash/address substring.
 
 * Tools/API like http://blockexplorer.com/q.
@@ -60,3 +62,7 @@
 
 * Perhaps track and report coin difficulty as proposed by casascius:
   http://forum.bitcoin.org/index.php?topic=10755.0
+
+* Perhaps track and report collectible transaction bytes: size of
+  transactions whose outputs are all spent, minus Merkle shrubbery
+  needed to verify the rest.
