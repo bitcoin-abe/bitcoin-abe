@@ -139,19 +139,21 @@ class DataStore(object):
         store._set_sql_flavour()
         store._view = store._views()
         store._blocks = {}
+        store.datadirs = {}
 
-        sv = store.config['schema_version']
-        if sv != SCHEMA_VERSION:
-            if args.upgrade:
-                import upgrade
-                upgrade.upgrade_schema(store)
-            else:
-                raise Exception(
-                    "Database schema version (%s) does not match software"
-                    " (%s).  Please run with --upgrade to convert database."
-                    % (sv, SCHEMA_VERSION))
+        if store.initialized:
+            sv = store.config['schema_version']
+            if sv != SCHEMA_VERSION:
+                if args.upgrade:
+                    import upgrade
+                    upgrade.upgrade_schema(store)
+                else:
+                    raise Exception(
+                        "Database schema version (%s) does not match software"
+                        " (%s).  Please run with --upgrade to convert database."
+                        % (sv, SCHEMA_VERSION))
 
-        store._read_datadir_table()
+            store._read_datadir_table()
 
     def _read_config(store):
         store.cursor.execute("""
@@ -161,7 +163,7 @@ class DataStore(object):
         row = store.cursor.fetchone()
         if row is None:
             # Select was successful but no row matched?  Strange.
-            (sv, btype) = ('unknown', args.binary_type)
+            (sv, btype) = ('unknown', store.args.binary_type)
         else:
             (sv, btype) = row
         store.args.binary_type = btype
@@ -371,7 +373,7 @@ GROUP BY
 """CREATE VIEW txout_detail AS SELECT
     cc.chain_id,
     cc.in_longest,
-    block_id,
+    cc.block_id,
     b.block_hash,
     b.block_height,
     block_tx.tx_pos,
@@ -388,8 +390,8 @@ GROUP BY
     pubkey.pubkey_hash,
     pubkey.pubkey
   FROM chain_candidate cc
-  JOIN block b using (block_id)
-  JOIN block_tx USING (block_id)
+  JOIN block b ON (cc.block_id = b.block_id)
+  JOIN block_tx ON (b.block_id = block_tx.block_id)
   JOIN tx    ON (tx.tx_id = block_tx.tx_id)
   JOIN txout ON (tx.tx_id = txout.tx_id)
   LEFT JOIN pubkey USING (pubkey_id)""",
@@ -398,7 +400,7 @@ GROUP BY
 """CREATE VIEW txin_detail AS SELECT
     cc.chain_id,
     cc.in_longest,
-    block_id,
+    cc.block_id,
     b.block_hash,
     b.block_height,
     block_tx.tx_pos,
@@ -417,8 +419,8 @@ GROUP BY
     pubkey.pubkey_hash,
     pubkey.pubkey
   FROM chain_candidate cc
-  JOIN block b using (block_id)
-  JOIN block_tx USING (block_id)
+  JOIN block b ON (cc.block_id = b.block_id)
+  JOIN block_tx ON (b.block_id = block_tx.block_id)
   JOIN tx    ON (tx.tx_id = block_tx.tx_id)
   JOIN txin  ON (tx.tx_id = txin.tx_id)
   LEFT JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
@@ -546,6 +548,7 @@ GROUP BY
     block_id      NUMERIC(14),
     tx_id         NUMERIC(26),
     tx_pos        NUMERIC(10) NOT NULL,
+    satoshi_seconds_destroyed NUMERIC(28),
     PRIMARY KEY (block_id, tx_id),
     UNIQUE (block_id, tx_pos),
     FOREIGN KEY (block_id)
@@ -609,9 +612,9 @@ GROUP BY
     pubkey        BIT(520)    UNIQUE NULL
 )""",
 
-store._view('chain_summary'),
-store._view('txout_detail'),
-store._view('txin_detail'),
+store._view['chain_summary'],
+store._view['txout_detail'],
+store._view['txin_detail'],
 ):
             try:
                 store.sql(stmt)
@@ -662,8 +665,8 @@ store._view('txin_detail'),
 
     def _put_block(store, block_id, prev_id, height):
         block = {
-            'prev_id': int(prev_id),
-            'height': int(height),
+            'prev_id': None if prev_id is None else int(prev_id),
+            'height':  None if height  is None else int(height),
             'in_longest_chains': set()}
         store._blocks[int(block_id)] = block
         return block
