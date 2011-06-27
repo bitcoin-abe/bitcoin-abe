@@ -1373,8 +1373,9 @@ class Abe:
             "search": abe.search,
             }
         # Change this to map the htdocs directory somewhere other than
-        # the dynamic content root.  E.g., abe.static_path = '/static/'
-        abe.static_path = '/'
+        # the dynamic content root.  E.g., abe.static_path = '/static'
+        # XXX Should be configurable.
+        abe.static_path = ''
 
     def __call__(abe, env, start_response):
         import urlparse
@@ -2381,7 +2382,6 @@ class Abe:
         """, (q.upper(), q.upper())))
 
     def serve_static(abe, path, start_response):
-        path = '/' + path
         slen = len(abe.static_path)
         if path[:slen] != abe.static_path:
             raise PageNotFound()
