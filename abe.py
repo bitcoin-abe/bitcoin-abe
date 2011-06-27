@@ -240,6 +240,17 @@ class DataStore(object):
             raise Exception("Unsupported binary-type %s"
                             % store.args.binary_type)
 
+        # Work around sqlite3's overflow when importing large ints.
+        if store.args.int_type is None:
+            intin = identity
+
+        elif store.args.int_type == 'str':
+            intin = str
+
+        else:
+            raise Exception("Unsupported int-type %s"
+                            % store.args.int_type)
+
         store.sql_transform = transform
         store._sql_cache = {}
 
@@ -255,6 +266,8 @@ class DataStore(object):
         # Might reimplement these someday...
         store.binout_int = lambda x: int(binout_hex(x), 16)
         store.binin_int = lambda x, bits: binin_hex(("%%0%dx" % (bits / 4)) % x)
+
+        store.intin       = intin
 
     def sql(store, stmt, params=()):
         cached = store._sql_cache.get(stmt)
@@ -855,7 +868,9 @@ store._view['txin_detail'],
                    SET block_satoshi_seconds = ?,
                        block_total_ss = ?
                  WHERE block_id = ?""",
-                      (b['ss'], b['total_ss'], block_id))
+                      (store.intin(b['ss']),
+                       store.intin(b['total_ss']),
+                       block_id))
 
         # Store the inverse hashPrev relationship or mark the block as
         # an orphan.
@@ -964,7 +979,8 @@ store._view['txin_detail'],
                        block_total_satoshis = ?,
                        block_satoshi_seconds = ?
                  WHERE block_id = ?""",
-                      (height, chain_work, seconds, satoshis, ss, next_id))
+                      (height, chain_work, seconds, satoshis,
+                       store.intin(ss), next_id))
             store._update_block(next_id, block_id, height)
 
             if height is not None:
@@ -2505,7 +2521,7 @@ def parse_argv(argv):
         "PostgreSQL example:\n    --dbtype=psycopg2"
         " --connect-args='{\"database\":\"abe\"}' --binary-type hex\n\n"
         "Sqlite examle:\n    --dbtype=sqlite3 --connect-args='\"abe.sqlite\"'"
-        " --binary-type buffer\n\n"
+        " --binary-type buffer --int-type str\n\n"
         "To run an HTTP listener, supply either or both of HOST and PORT.\n"
         "By default, %(prog)s runs as a FastCGI service.  To disable this,\n"
         "pass --no-serve.")
@@ -2534,6 +2550,10 @@ def parse_argv(argv):
                         " bytes as hex strings. `buffer' passes them as"
                         " Python buffer objects. Ignored for existing"
                         " databases.")
+    parser.add_argument("--int-type", dest="int_type",
+                        choices=["str"], help="Needed for drivers like"
+                        " sqlite3 that give overflow errors when receiving"
+                        " large values as Python integers")
     parser.add_argument("--port", dest="port", default=None, type=int,
                         help="TCP port on which to serve HTTP.")
     parser.add_argument("--host", dest="host", default=None,
@@ -2560,6 +2580,8 @@ def parse_argv(argv):
             args.connect_args = '":memory:"'
         if args.binary_type is None:
             args.binary_type = "buffer"
+        if args.int_type is None:
+            args.binary_type = "str"
     args.module = __import__(args.module)
     if args.connect_args is not None:
         import json
