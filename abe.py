@@ -32,7 +32,7 @@ import deserialize
 import util  # Added functions.
 import base58
 
-ABE_APPNAME = "ABE"
+ABE_APPNAME = "Abe"
 ABE_VERSION = '0.2'
 ABE_URL = 'https://github.com/jtobey/bitcoin-abe'
 
