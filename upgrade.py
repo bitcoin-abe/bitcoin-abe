@@ -325,9 +325,13 @@ def create_txout_approx(store):
     store.sql(store._view['txout_approx'])
 
 def add_fk_chain_candidate_block_id(store):
-    store.sql("""
-        ALTER TABLE chain_candidate ADD CONSTRAINT fk1_chain_candidate
-            FOREIGN KEY (block_id) REFERENCES block (block_id)""")
+    try:
+        store.sql("""
+            ALTER TABLE chain_candidate ADD CONSTRAINT fk1_chain_candidate
+                FOREIGN KEY (block_id) REFERENCES block (block_id)""")
+    except:
+        # XXX should at least display the error message.
+        print "Failed to create FOREIGN KEY; ignoring error."
 
 def run_upgrades(store, upgrades):
     for i in xrange(len(upgrades) - 1):
