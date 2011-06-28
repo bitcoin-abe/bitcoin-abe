@@ -332,7 +332,6 @@ def add_fk_chain_candidate_block_id(store):
     except:
         # XXX should at least display the error message.
         print "Failed to create FOREIGN KEY; ignoring error."
-        store.rollback()
 
 def run_upgrades(store, upgrades):
     for i in xrange(len(upgrades) - 1):
