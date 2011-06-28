@@ -34,6 +34,8 @@
 
 * Compute Merkle trees and verify transaction Merkle roots.
 
+* Report the Merlke branch of a particular transaction to support SPV.
+
 * Perhaps support searching by hash/address substring.
 
 * Tools/API like http://blockexplorer.com/q.
