@@ -23,7 +23,7 @@ import BCDataStream
 import deserialize
 import util
 
-SCHEMA_VERSION = "11"
+SCHEMA_VERSION = "12"
 
 WORK_BITS = 304  # XXX more than necessary.
 
@@ -515,7 +515,8 @@ GROUP BY
     block_id      NUMERIC(14),
     in_longest    NUMERIC(1),
     block_height  NUMERIC(14),
-    PRIMARY KEY (chain_id, block_id)
+    PRIMARY KEY (chain_id, block_id),
+    FOREIGN KEY (block_id) REFERENCES block (block_id)
 )""",
 """CREATE INDEX x_cc_block ON chain_candidate (block_id)""",
 """CREATE INDEX x_cc_chain_block_height
@@ -1302,12 +1303,12 @@ store._view['txout_approx'],
                 elif magic == NAMECOIN_MAGIC:
                     store.offer_block_to_chain(b, NAMECOIN_CHAIN_ID)
 
-                bytes_done += length
-                # XXX should be configurable
-                if bytes_done > 100000 :
-                    store.save_blkfile_offset(dirname, ds.read_cursor)
-                    store.commit()
-                    bytes_done = 0
+            bytes_done += length
+            # XXX should be configurable
+            if bytes_done > 100000 :
+                store.save_blkfile_offset(dirname, ds.read_cursor)
+                store.commit()
+                bytes_done = 0
 
         if bytes_done > 0:
             store.save_blkfile_offset(dirname, ds.read_cursor)

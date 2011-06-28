@@ -280,10 +280,6 @@ def drop_block_ss_columns(store):
         except:
             store.rollback()
 
-def add_fk(store, table, constraint, column, reference):
-    store.sql("ALTER TABLE " + table + " ADD CONSTRAINT " + constraint +
-              " FOREIGN KEY (" + column + ") REFERENCES " + references)
-
 def add_fk_block_txin_block_id(store):
     store.sql("""
         ALTER TABLE block_txin ADD CONSTRAINT fk1_block_txin
@@ -327,6 +323,11 @@ def create_x_cc_block_height(store):
 
 def create_txout_approx(store):
     store.sql(store._view['txout_approx'])
+
+def add_fk_chain_candidate_block_id(store):
+    store.sql("""
+        ALTER TABLE chain_candidate ADD CONSTRAINT fk1_chain_candidate
+            FOREIGN KEY (block_id) REFERENCES block (block_id)""")
 
 def run_upgrades(store, upgrades):
     for i in xrange(len(upgrades) - 1):
@@ -379,7 +380,8 @@ upgrades = [
     ('9.1',  drop_x_cc_block_id),
     ('9.2',  create_x_cc_block_height),
     ('10',   create_txout_approx),
-    ('11', None),
+    ('11',   add_fk_chain_candidate_block_id),
+    ('12', None),
 ]
 
 def upgrade_schema(store):
