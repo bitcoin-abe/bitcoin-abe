@@ -851,7 +851,7 @@ store._view['txout_approx'],
         if prev_satoshis is not None:
             ss_created = prev_satoshis * (b['nTime'] - prev_nTime)
             b['ss'] = prev_ss + ss_created - ss_destroyed
-            b['total_ss'] = prev_total_ss + ss_created * 1000000 # XXX testing
+            b['total_ss'] = prev_total_ss + ss_created
 
             store.sql("""
                 UPDATE block
