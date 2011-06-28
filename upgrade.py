@@ -325,6 +325,9 @@ def create_x_cc_block_height(store):
     store.sql(
         "CREATE INDEX x_cc_block_height ON chain_candidate (block_height)")
 
+def create_txout_approx(store):
+    store.sql(store._view['txout_approx'])
+
 def run_upgrades(store, upgrades):
     for i in xrange(len(upgrades) - 1):
         vers, func = upgrades[i]
@@ -375,7 +378,8 @@ upgrades = [
     ('9',    reverse_binary_hashes),
     ('9.1',  drop_x_cc_block_id),
     ('9.2',  create_x_cc_block_height),
-    ('10', None),
+    ('10',   create_txout_approx),
+    ('11', None),
 ]
 
 def upgrade_schema(store):

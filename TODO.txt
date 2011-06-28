@@ -26,7 +26,7 @@
 
 * Abstract inline SQL into the DataStore class.
 
-* Break abe.py into modules: Explorer, DataStore, and DataInit.
+* Modularise further.
 
 * Highlight any objects that are not in the main chain as such.
 

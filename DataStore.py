@@ -23,7 +23,7 @@ import BCDataStream
 import deserialize
 import util
 
-SCHEMA_VERSION = "10"
+SCHEMA_VERSION = "11"
 
 WORK_BITS = 304  # XXX more than necessary.
 
@@ -210,13 +210,13 @@ class DataStore(object):
             raise Exception("Unsupported binary-type %s"
                             % store.args.binary_type)
 
-        # Work around sqlite3's overflow when importing large ints.
         if store.args.int_type is None:
-            #transform = store._make_ss_varchar(transform)
             intin = identity
 
+        # Work around sqlite3's overflow when importing large ints.
         elif store.args.int_type == 'str':
             intin = str
+            transform = store._approximate_txout(transform)
 
         else:
             raise Exception("Unsupported int-type %s"
@@ -267,12 +267,12 @@ class DataStore(object):
             return fn(patt.sub(fixup, stmt).replace("X'", "'"))
         return ret
 
-    def _make_ss_varchar(store, fn):
+    def _approximate_txout(store, fn):
         def ret(stmt):
             return fn(re.sub(
-                    r'(\w*(?:satoshi_seconds|_ss)(?:_destroyed)?)'
-                    r' *NUMERIC\(\d+\)',
-                    r'\1 VARCHAR(100)', stmt))
+                    r'\btxout_value txout_approx_value\b',
+                    'CAST(txout_value AS DOUBLE PRECISION) txout_approx_value',
+                    stmt))
         return ret
 
     def selectrow(store, stmt, params=()):
@@ -421,6 +421,16 @@ GROUP BY
   LEFT JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
   LEFT JOIN pubkey
       ON (prevout.pubkey_id = pubkey.pubkey_id)""",
+
+            "txout_approx":
+# View of txout for drivers like sqlite3 that can not handle large
+# integer arithmetic.  For them, we transform the definition of
+# txout_approx_value to DOUBLE PRECISION (approximate) by a CAST.
+"""CREATE VIEW txout_approx AS SELECT
+    txout_id,
+    tx_id,
+    txout_value txout_approx_value
+  FROM txout"""
             }
 
     def initialize_if_needed(store):
@@ -610,6 +620,7 @@ GROUP BY
 store._view['chain_summary'],
 store._view['txout_detail'],
 store._view['txin_detail'],
+store._view['txout_approx'],
 ):
             try:
                 store.sql(stmt)
@@ -881,11 +892,12 @@ store._view['txin_detail'],
         block_ss_destroyed = 0
         for tx_id in tx_ids:
             destroyed = int(store.selectrow("""
-                SELECT COALESCE(SUM(txout.txout_value * (? - b.block_nTime)), 0)
+                SELECT COALESCE(SUM(txout_approx.txout_approx_value *
+                                    (? - b.block_nTime)), 0)
                   FROM block_txin bti
                   JOIN txin USING (txin_id)
-                  JOIN txout USING (txout_id)
-                  JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
+                  JOIN txout_approx USING (txout_id)
+                  JOIN block_tx obt ON (txout_approx.tx_id = obt.tx_id)
                   JOIN block b ON (obt.block_id = b.block_id)
                  WHERE bti.block_id = ? AND txin.tx_id = ?""",
                                             (nTime, block_id, tx_id))[0])
@@ -895,7 +907,7 @@ store._view['txin_detail'],
                    SET satoshi_seconds_destroyed = ?
                  WHERE block_id = ?
                    AND tx_id = ?""",
-                      (destroyed, block_id, tx_id))
+                      (store.intin(destroyed), block_id, tx_id))
         return block_ss_destroyed
 
     # Propagate cumulative values to descendant blocks.  Return info

@@ -1,4 +1,4 @@
-Another Block Explorer for Bitcoin.
+Abe: a free block chain browser for Bitcoin-based currencies.
 Copyright(C) 2011 by John Tobey <John.Tobey@gmail.com>
 License: GNU Affero General Public License, see the file LICENSE.txt.
 Portions Copyright (c) 2010 Gavin Andresen, see bct-LICENSE.txt.
