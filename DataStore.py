@@ -25,6 +25,31 @@ import util
 
 SCHEMA_VERSION = "10"
 
+WORK_BITS = 304  # XXX more than necessary.
+
+BITCOIN_MAGIC = "\xf9\xbe\xb4\xd9"
+BITCOIN_MAGIC_ID = 1
+BITCOIN_POLICY_ID = 1
+BITCOIN_CHAIN_ID = 1
+BITCOIN_ADDRESS_VERSION = "\0"
+
+TESTNET_MAGIC = "\xfa\xbf\xb5\xda"
+TESTNET_MAGIC_ID = 2
+TESTNET_POLICY_ID = 2
+TESTNET_CHAIN_ID = 2
+TESTNET_ADDRESS_VERSION = "\x6f"
+
+NAMECOIN_MAGIC = "\xf9\xbe\xb4\xfe"
+NAMECOIN_MAGIC_ID = 3
+NAMECOIN_POLICY_ID = 3
+NAMECOIN_CHAIN_ID = 3
+NAMECOIN_ADDRESS_VERSION = "\x34"
+
+GENESIS_HASH_PREV = "\0" * 32
+
+SCRIPT_ADDRESS_RE = re.compile("\x76\xa9\x14(.{20})\x88\xac", re.DOTALL)
+SCRIPT_PUBKEY_RE = re.compile("\x41(.{65})\xac", re.DOTALL)
+
 class DataStore(object):
 
     """
@@ -127,7 +152,7 @@ class DataStore(object):
         transform = identity
 
         if store.module.paramstyle in ('format', 'pyformat'):
-            transform = store.qmark_to_format(transform)
+            transform = store._qmark_to_format(transform)
         elif store.module.paramstyle != 'qmark':
             warnings.warn("Database parameter style is " +
                           "%s, trying qmark" % module.paramstyle)
@@ -171,7 +196,7 @@ class DataStore(object):
             hashout_hex = to_hex
 
         elif store.args.binary_type == "hex":
-            transform = store.sql_binary_as_hex(transform)
+            transform = store._sql_binary_as_hex(transform)
             binin       = to_hex
             binin_hex   = identity
             binout      = from_hex
@@ -187,6 +212,7 @@ class DataStore(object):
 
         # Work around sqlite3's overflow when importing large ints.
         if store.args.int_type is None:
+            #transform = store._make_ss_varchar(transform)
             intin = identity
 
         elif store.args.int_type == 'str':
@@ -222,7 +248,7 @@ class DataStore(object):
         store.cursor.execute(cached, params)
 
     # Convert standard placeholders to Python "format" style.
-    def qmark_to_format(store, fn):
+    def _qmark_to_format(store, fn):
         def ret(stmt):
             # XXX Simplified by assuming no literals contain "?".
             return fn(stmt.replace('%', '%%').replace("?", "%s"))
@@ -230,7 +256,7 @@ class DataStore(object):
 
     # Convert the standard BIT type to a hex string for databases
     # and drivers that don't support BIT.
-    def sql_binary_as_hex(store, fn):
+    def _sql_binary_as_hex(store, fn):
         patt = re.compile("BIT((?: VARYING)?)\\(([0-9]+)\\)")
         def fixup(match):
             # XXX This assumes no string literals match.
@@ -239,6 +265,14 @@ class DataStore(object):
         def ret(stmt):
             # XXX This assumes no string literals match.
             return fn(patt.sub(fixup, stmt).replace("X'", "'"))
+        return ret
+
+    def _make_ss_varchar(store, fn):
+        def ret(stmt):
+            return fn(re.sub(
+                    r'(\w*(?:satoshi_seconds|_ss)(?:_destroyed)?)'
+                    r' *NUMERIC\(\d+\)',
+                    r'\1 VARCHAR(100)', stmt))
         return ret
 
     def selectrow(store, stmt, params=()):
@@ -806,7 +840,7 @@ store._view['txin_detail'],
         if prev_satoshis is not None:
             ss_created = prev_satoshis * (b['nTime'] - prev_nTime)
             b['ss'] = prev_ss + ss_created - ss_destroyed
-            b['total_ss'] = prev_total_ss + ss_created
+            b['total_ss'] = prev_total_ss + ss_created * 1000000 # XXX testing
 
             store.sql("""
                 UPDATE block
@@ -1233,7 +1267,8 @@ store._view['txin_detail'],
                 ds.read_cursor = offset
                 break
 
-            hash = double_sha256(ds.input[ds.read_cursor : ds.read_cursor + 80])
+            hash = util.double_sha256(
+                ds.input[ds.read_cursor : ds.read_cursor + 80])
             # XXX should decode target and check hash against it to avoid
             # loading garbage data.
 

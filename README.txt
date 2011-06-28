@@ -3,22 +3,24 @@ Copyright(C) 2011 by John Tobey <John.Tobey@gmail.com>
 License: GNU Affero General Public License, see the file LICENSE.txt.
 Portions Copyright (c) 2010 Gavin Andresen, see bct-LICENSE.txt.
 
-Welcome to ABE!
+Welcome to Abe!
 
 This software reads the Bitcoin block file, transforms and loads the
 data into a database, and presents a web interface similar to the
 original Block Explorer by theymos, http://blockexplorer.com/.
 
-ABE draws inspiration from BlockExplorer.com and seeks some level of
+Abe draws inspiration from BlockExplorer.com and seeks some level of
 compatibility with it but uses a completely new implementation.
 
 This program depends on Python Crypto modules (Debian package
-python-crypto) and either Sqlite (python-pysqlite2) or PostgreSQL.
-Other RDBMSs may work.
+python-crypto) and a database such as Sqlite (python-pysqlite2) or
+PostgreSQL.  Other SQL databases may work with minor changes.  You
+will need a copy of the block file (blk0001.dat in your Bitcoin
+directory).  You may let Abe read the block file while Bitcoin runs.
 
-For usage, run "abe.py --help".  By default, ABE reads your Bitcoin
+For usage, run "abe.py --help".  By default, Abe reads your Bitcoin
 blk0001.dat file and runs a block explorer over FastCGI.  BUG: reading
-the block file takes far too long, hours.  However, ABE remembers
+the block file takes far too long, hours.  However, Abe remembers
 where it stopped reading and starts more quickly the second time.
 
 To run the built-in HTTP server instead of FastCGI, add "--port 2750"
