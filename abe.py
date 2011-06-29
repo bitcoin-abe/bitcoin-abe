@@ -1246,7 +1246,7 @@ def parse_argv(argv):
         if args.binary_type is None:
             args.binary_type = "buffer"
         if args.int_type is None:
-            args.binary_type = "str"
+            args.int_type = "str"
     args.module = __import__(args.module)
     if args.connect_args is not None:
         import json
