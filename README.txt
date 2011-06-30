@@ -13,7 +13,7 @@ Abe draws inspiration from BlockExplorer.com and seeks some level of
 compatibility with it but uses a completely new implementation.
 
 This program depends on Python Crypto modules (Debian package
-python-crypto) and a database such as Sqlite (python-pysqlite2) or
+python-crypto) and a database such as SQLite (python-pysqlite2) or
 PostgreSQL.  Other SQL databases may work with minor changes.  You
 will need a copy of the block file (blk0001.dat in your Bitcoin
 directory).  You may let Abe read the block file while Bitcoin runs.

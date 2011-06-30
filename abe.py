@@ -1185,7 +1185,7 @@ def parse_argv(argv):
     examples = (
         "PostgreSQL example:\n    --dbtype=psycopg2"
         " --connect-args='{\"database\":\"abe\"}' --binary-type hex\n\n"
-        "Sqlite examle:\n    --dbtype=sqlite3 --connect-args='\"abe.sqlite\"'"
+        "SQLite examle:\n    --dbtype=sqlite3 --connect-args='\"abe.sqlite\"'"
         " --binary-type buffer --int-type str\n\n"
         "To run an HTTP listener, supply either or both of HOST and PORT.\n"
         "By default, %(prog)s runs as a FastCGI service.  To disable this,\n"
@@ -1194,12 +1194,15 @@ def parse_argv(argv):
     parser = argparse.ArgumentParser(
         description="Another Bitcoin block explorer.", epilog=examples,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-                                     
+
+    parser.add_argument("--config", dest="config", default=None,
+                        metavar="FILE", help="Read options from FILE."
+                        " See abe.conf for examples.")
     parser.add_argument("--datadir", dest="datadirs", default=[],
                         metavar="DIR", action="append",
                         help="Look for block files (blk*.dat) in DIR."
                         " May be specified more than once.")
-    parser.add_argument("--dbtype", "-d", dest="module", default=None,
+    parser.add_argument("--dbtype", "-d", dest="dbtype", default=None,
                         help="DB-API driver module, by default `sqlite3'.")
     parser.add_argument("--connect-args", "-c", dest="connect_args",
                         default=None, metavar="JSON",
@@ -1236,19 +1239,38 @@ def parse_argv(argv):
                         
     args = parser.parse_args(argv)
 
+    if args.config is None:
+        args.config = {}
+    else:
+        import readconf
+        with open(args.config) as fp:
+            args.config = readconf.read(fp)
+        args.port = args.port or args.config.get('port')
+        args.host = args.host or args.config.get('host')
+        args.serve = args.serve and not args.config.get('no-serve')
+        args.upgrade = args.upgrade or args.config.get('upgrade')
+
     if not args.datadirs:
+        args.datadirs = args.config.get('datadir')
+        if not isinstance(args.datadirs, list):
+            args.datadirs = [args.datadirs]
+    if args.datadirs is None:
         args.datadirs = [util.determine_db_dir()]
 
-    if args.module is None:
-        args.module = "sqlite3"
+    if args.dbtype is None:
+        args.dbtype = args.config.get('dbtype')
+    if args.dbtype is None:
+        args.dbtype = "sqlite3"
         if args.connect_args is None:
             args.connect_args = '":memory:"'
         if args.binary_type is None:
             args.binary_type = "buffer"
         if args.int_type is None:
             args.int_type = "str"
-    args.module = __import__(args.module)
-    if args.connect_args is not None:
+
+    if args.connect_args is None:
+        args.connect_args = args.config.get('connect-args')
+    else:
         import json
         args.connect_args = json.loads(args.connect_args)
 

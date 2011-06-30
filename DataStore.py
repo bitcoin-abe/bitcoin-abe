@@ -54,7 +54,7 @@ class DataStore(object):
 
     """
     Bitcoin data storage class based on DB-API 2 and SQL1992 with
-    workarounds to support Sqlite3 and PostgreSQL/psycopg2.
+    workarounds to support SQLite3 and PostgreSQL/psycopg2.
     """
 
     def __init__(store, args):
@@ -81,7 +81,7 @@ class DataStore(object):
         have been changed other than through normal client operation.
         """
         store.args = args
-        store.module = args.module
+        store.module = __import__(args.dbtype)
         cargs = args.connect_args
 
         if cargs is None:
