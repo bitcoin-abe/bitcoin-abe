@@ -73,7 +73,7 @@ class Abe:
             '<p style="font-size: smaller">' +
             '<span style="font-style: italic">' +
             '<a href="' + ABE_URL + '">' + ABE_APPNAME + '</a> ' +
-            ABE_VERSION + ' &#9400; ' + COPYRIGHT_YEARS +
+            ABE_VERSION + ' &#169; ' + COPYRIGHT_YEARS +
             ' <a href="' + escape(COPYRIGHT_URL) + '">' +
             escape(COPYRIGHT) + '</a></span>' +
             ' Tips appreciated! <a href="%(dotdot)saddress/' +
