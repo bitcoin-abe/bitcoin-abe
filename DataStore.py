@@ -61,7 +61,8 @@ class DataStore(object):
         """
         Opens and stores a connection to the SQL database.
 
-        args.module should be a DB-API 2 driver module, e.g., sqlite3.
+        args.dbtype should name a DB-API 2 driver module, e.g.,
+        "sqlite3".
 
         args.connect_args should be an argument to the module's
         connect() method, or None for no argument, or a list of
@@ -76,9 +77,6 @@ class DataStore(object):
 
         args.datadirs names Bitcoin data directories containing
         blk0001.dat to scan for new blocks.
-
-        args.rescan should be true if the contents of the block files
-        have been changed other than through normal client operation.
         """
         store.args = args
         store.module = __import__(args.dbtype)
@@ -430,7 +428,7 @@ GROUP BY
     txout_id,
     tx_id,
     txout_value txout_approx_value
-  FROM txout"""
+  FROM txout""",
             }
 
     def initialize_if_needed(store):
@@ -442,11 +440,14 @@ GROUP BY
         for stmt in (
 
 # ABE accounting.  CONFIG_ID is used only to prevent multiple rows.
+# This table is read without knowledge of the database's SQL quirks,
+# so it must use only the most widely supported features.
 """CREATE TABLE config (
     config_id   NUMERIC(1)  PRIMARY KEY,
     schema_version VARCHAR(20),
     binary_type VARCHAR(20)
 )""",
+
 """CREATE TABLE datadir (
     dirname     VARCHAR(32767) PRIMARY KEY,
     blkfile_number NUMERIC(4),
