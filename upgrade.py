@@ -334,6 +334,12 @@ def add_fk_chain_candidate_block_id(store):
         print "Failed to create FOREIGN KEY; ignoring error."
         store.rollback()
 
+def create_configvar(store):
+    store.sql(store._view['configvar'])
+
+def configure(store):
+    store.configure()
+
 def run_upgrades(store, upgrades):
     for i in xrange(len(upgrades) - 1):
         vers, func = upgrades[i]
@@ -386,7 +392,9 @@ upgrades = [
     ('9.2',  create_x_cc_block_height),
     ('10',   create_txout_approx),
     ('11',   add_fk_chain_candidate_block_id),
-    ('12', None),
+    ('12',   create_configvar),
+    ('12.1', configure),
+    ('13', None),
 ]
 
 def upgrade_schema(store):

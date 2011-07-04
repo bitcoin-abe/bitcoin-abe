@@ -998,6 +998,7 @@ class Abe:
             if sn == '/': sn = ''
             page['env']['SCRIPT_NAME'] = sn
             page['env']['PATH_INFO'] = '/' + found[0]['uri']
+            del(page['env']['QUERY_STRING'])
             raise Redirect()
 
         body = page['body']
@@ -1151,7 +1152,6 @@ def fix_path_info(env):
     return True
 
 def redirect(page):
-    del(page['env']['QUERY_STRING'])
     uri = wsgiref.util.request_uri(page['env'])
     page['start_response'](
         '301 Moved Permanently',
@@ -1182,102 +1182,97 @@ def serve(store):
         WSGIServer(abe).run()
 
 def parse_argv(argv):
-    examples = (
-        "PostgreSQL example:\n    --dbtype=psycopg2"
-        " --connect-args='{\"database\":\"abe\"}' --binary-type hex\n\n"
-        "SQLite examle:\n    --dbtype=sqlite3 --connect-args='\"abe.sqlite\"'"
-        " --binary-type buffer --int-type str\n\n"
-        "To run an HTTP listener, supply either or both of HOST and PORT.\n"
-        "By default, %(prog)s runs as a FastCGI service.  To disable this,\n"
-        "pass --no-serve.")
-    import argparse
-    parser = argparse.ArgumentParser(
-        description="Another Bitcoin block explorer.", epilog=examples,
-        formatter_class=argparse.RawDescriptionHelpFormatter)
+    conf = {
+        "config": None,
+        "datadir": None,
+        "dbtype": None,
+        "connect_args": None,
+        "binary_type": None,
+        "port": None,
+        "host": None,
+        "no_serve": None,
+        "upgrade": None,
+        "debug": None,
+        }
+    args = lambda var: conf[var]
+    args.func_dict = conf
 
-    parser.add_argument("--config", dest="config", default=None,
-                        metavar="FILE", help="Read options from FILE."
-                        " See abe.conf for examples.")
-    parser.add_argument("--datadir", dest="datadirs", default=[],
-                        metavar="DIR", action="append",
-                        help="Look for block files (blk*.dat) in DIR."
-                        " May be specified more than once.")
-    parser.add_argument("--dbtype", "-d", dest="dbtype", default=None,
-                        help="DB-API driver module, by default `sqlite3'.")
-    parser.add_argument("--connect-args", "-c", dest="connect_args",
-                        default=None, metavar="JSON",
-                        help="DB-API connect arguments formatted as a JSON"
-                        " scalar, array, or object."
-                        " If `--dbtype' is not supplied, this defaults to"
-                        " `\":memory:\"'.")
-    parser.add_argument("--binary-type", dest="binary_type",
-                        choices=["buffer", "hex"],
-                        help="Transform binary data to support a noncompliant"
-                        " database or driver. Most database software is"
-                        " noncompliant regarding binary data. `hex' stores"
-                        " bytes as hex strings. `buffer' passes them as"
-                        " Python buffer objects. Ignored for existing"
-                        " databases.")
-    parser.add_argument("--int-type", dest="int_type",
-                        choices=["str"], help="Needed for drivers like"
-                        " sqlite3 that give overflow errors when receiving"
-                        " large values as Python integers")
-    parser.add_argument("--port", dest="port", default=None, type=int,
-                        help="TCP port on which to serve HTTP.")
-    parser.add_argument("--host", dest="host", default=None,
-                        help="Network interface for HTTP server.")
-    parser.add_argument("--no-serve", dest="serve", default=True,
-                        action="store_false",
-                        help="Exit without handling HTTP or FastCGI requests.")
-    parser.add_argument("--upgrade", dest="upgrade", default=False,
-                        action="store_true",
-                        help="Automatically upgrade database objects to"
-                        " match software version.")
-    parser.add_argument("--debug", dest="debug", default=False,
-                        action="store_true",
-                        help="Turn on miscellaneous output.")
-                        
-    args = parser.parse_args(argv)
+    for i in xrange(len(argv)):
+        arg = argv[i]
 
-    if args.config is None:
-        args.config = {}
-    else:
-        import readconf
-        with open(args.config) as fp:
-            args.config = readconf.read(fp)
-        args.port = args.port or args.config.get('port')
-        args.host = args.host or args.config.get('host')
-        args.serve = args.serve and not args.config.get('no-serve')
-        args.upgrade = args.upgrade or args.config.get('upgrade')
+        # Handle --help and --version.
+        if arg in ('-h', '--help'):
+            print ("""Usage: abe.py [-h] [--config=FILE] [--CONFIGVAR=VALUE]...
 
-    if not args.datadirs:
-        args.datadirs = args.config.get('datadir')
-        if not isinstance(args.datadirs, list):
-            args.datadirs = [args.datadirs]
-    if args.datadirs is None:
-        args.datadirs = [util.determine_db_dir()]
+A Bitcoin block chain browser.
 
-    if args.dbtype is None:
-        args.dbtype = args.config.get('dbtype')
+  -h, --help            Show this help message and exit.
+  --config FILE         Read options from FILE.
+
+All configuration variables may be given as command arguments.
+See abe.conf for commented examples.""")
+            return None
+        if arg in ('-v', '--version'):
+            print ABE_APPNAME, ABE_VERSION
+            return None
+
+        # Strip leading "--" to form a config variable.
+        if arg[:2] != '--':
+            raise ValueError(
+                "Usage: abe.py [--CONFIGVAR=VALUE]...\n"
+                "See `abe.py --help' for more information.")
+
+        # --var=val and --var val are the same.  --var+=val is different.
+        split = arg[2:].split('=', 1)
+        add = False
+        if len(split) == 1:
+            var = split[0]
+            if i < len(argv) - 1 and argv[i + 1][:2] != '--':
+                i += 1
+                val = argv[i]
+            else:
+                val = True
+        else:
+            var, val = split
+            if var[-1:] == '+':
+                var = var[:-1]
+                add = True
+
+        if val is not True and val[0] in ('"', '[', '{'):
+            val = json.loads(val)
+
+        var = var.replace('-', '_')
+        if var == 'config':
+            import readconf
+            readconf.include(val, conf)
+        elif var not in conf:
+            raise ValueError(
+                "Unknown option: `--" + var + "'")
+        elif add:
+            import readconf
+            readconf.add(conf, var, val)
+        else:
+            conf[var] = val
+
+    conf['serve'] = not conf['no_serve']
+
+    if args.datadir is None:
+        args.datadir = util.determine_db_dir()
+    if isinstance(args.datadir, str):
+        args.datadir = [args.datadir]
+
     if args.dbtype is None:
         args.dbtype = "sqlite3"
         if args.connect_args is None:
             args.connect_args = '":memory:"'
-        if args.binary_type is None:
-            args.binary_type = "buffer"
-        if args.int_type is None:
-            args.int_type = "str"
 
-    if args.connect_args is None:
-        args.connect_args = args.config.get('connect-args')
-    else:
-        import json
-        args.connect_args = json.loads(args.connect_args)
-
+    # XXX Should validate option types.
     return args
 
 def main(argv):
     args = parse_argv(argv)
+    if not args:
+        return 0
     store = make_store(args)
     if (args.serve):
         serve(store)

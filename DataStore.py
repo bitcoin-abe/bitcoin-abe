@@ -23,7 +23,7 @@ import BCDataStream
 import deserialize
 import util
 
-SCHEMA_VERSION = "12"
+SCHEMA_VERSION = "13"
 
 WORK_BITS = 304  # XXX more than necessary.
 
@@ -68,13 +68,6 @@ class DataStore(object):
         connect() method, or None for no argument, or a list of
         arguments, or a dictionary of named arguments.
 
-        args.binary_type should be one of: None, "hex", or "buffer".
-        It specifies the representation of binary data such as block
-        hashes in the database.  "hex" uses CHAR and VARCHAR types to
-        hold hexadecimal numbers, the most portable and least
-        efficient option.  "buffer" wraps binary data using the
-        built-in buffer() function, which works for sqlite3.
-
         args.datadirs names Bitcoin data directories containing
         blk0001.dat to scan for new blocks.
         """
@@ -94,7 +87,6 @@ class DataStore(object):
 
         store.conn = conn
         store.cursor = conn.cursor()
-        store.sequences = {}
 
         # Read the CONFIG record if present.
         try:
@@ -107,6 +99,7 @@ class DataStore(object):
                 pass
             store.initialized = False
 
+        store.sequences = {}
         store._set_sql_flavour()
         store._view = store._views()
         store._blocks = {}
@@ -429,6 +422,12 @@ GROUP BY
     tx_id,
     txout_value txout_approx_value
   FROM txout""",
+
+            "configvar":
+"""CREATE TABLE configvar (
+    name        VARCHAR(100) PRIMARY KEY,
+    value       VARCHAR(32767)
+)""",
             }
 
     def initialize_if_needed(store):
@@ -447,6 +446,8 @@ GROUP BY
     schema_version VARCHAR(20),
     binary_type VARCHAR(20)
 )""",
+
+store._view['configvar'],
 
 """CREATE TABLE datadir (
     dirname     VARCHAR(32767) PRIMARY KEY,
