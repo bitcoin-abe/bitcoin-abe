@@ -33,12 +33,42 @@ import util  # Added functions.
 import base58
 
 ABE_APPNAME = "Abe"
-ABE_VERSION = '0.2'
+ABE_VERSION = '0.3'
 ABE_URL = 'https://github.com/jtobey/bitcoin-abe'
 
 COPYRIGHT_YEARS = '2011'
 COPYRIGHT = "John Tobey"
 COPYRIGHT_URL = "mailto:John.Tobey@gmail.com"
+
+DONATIONS_BTC = '1PWC7PNHL1SgvZaN7xEtygenKjWobWsCuf'
+DONATIONS_NMC = 'NJ3MSELK1cWnqUa6xhF2wUYAnz3RSrWXcK'
+
+DEFAULT_TEMPLATE = """
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+    <link rel="stylesheet" type="text/css"
+     href="%(dotdot)s%(STATIC_PATH)sabe.css" />
+    <link rel="shortcut icon" href="%(dotdot)s%(STATIC_PATH)sfavicon.ico" />
+    <title>%(title)s</title>
+</head>
+<body>
+    <h1><a href="%(dotdot)schains"><img
+     src="%(dotdot)s%(STATIC_PATH)slogo32.png" alt="ABE logo" /></a> %(h1)s
+    </h1>
+    %(body)s
+    <p style="font-size: smaller">
+        <span style="font-style: italic">
+            <a href="%(ABE_URL)s">%(APPNAME)s</a>
+            %(VERSION)s &#169; %(COPYRIGHT_YEARS)s
+            <a href="%(COPYRIGHT_URL)s">%(COPYRIGHT)s</a>
+        </span>
+        Tips appreciated!
+        <a href="%(dotdot)saddress/%(DONATIONS_BTC)s">BTC</a>
+        <a href="%(dotdot)saddress/%(DONATIONS_NMC)s">NMC</a>
+    </p>
+</body>
+</html>
+"""
 
 # XXX This should probably be a property of chain, or even a query param.
 LOG10COIN = 8
@@ -67,19 +97,14 @@ class Abe:
     def __init__(abe, store, args):
         abe.store = store
         abe.args = args
-        abe.htdocs = os.path.join(os.path.split(__file__)[0], 'htdocs')
-        abe.footer = (
-            '<p style="font-size: smaller">' +
-            '<span style="font-style: italic">' +
-            '<a href="' + ABE_URL + '">' + ABE_APPNAME + '</a> ' +
-            ABE_VERSION + ' &#169; ' + COPYRIGHT_YEARS +
-            ' <a href="' + escape(COPYRIGHT_URL) + '">' +
-            escape(COPYRIGHT) + '</a></span>' +
-            ' Tips appreciated! <a href="%(dotdot)saddress/' +
-            '1PWC7PNHL1SgvZaN7xEtygenKjWobWsCuf">BTC</a>' +
-            ' <a href="%(dotdot)saddress/' +
-            'NJ3MSELK1cWnqUa6xhF2wUYAnz3RSrWXcK">NMC</a></p>\n')
-        abe.debug = abe.args.debug
+        abe.htdocs = os.path.join(os.path.split(__file__)[0],
+                                  args.document_root or 'htdocs')
+        abe.static_path = '' if args.static_path is None else args.static_path
+        abe.template_vars = args.template_vars.copy()
+        abe.template_vars['STATIC_PATH'] = (
+            abe.template_vars.get('STATIC_PATH', abe.static_path))
+        abe.template = flatten(args.template)
+        abe.debug = args.debug
         import logging
         abe.log = logging
         abe.log.info('Abe initialized.')
@@ -92,10 +117,6 @@ class Abe:
             "address": abe.show_address,
             "search": abe.search,
             }
-        # Change this to map the htdocs directory somewhere other than
-        # the dynamic content root.  E.g., abe.static_path = '/static'
-        # XXX Should be configurable.
-        abe.static_path = ''
 
     def __call__(abe, env, start_response):
         import urlparse
@@ -147,23 +168,16 @@ class Abe:
         start_response(status, [('Content-type', 'application/xhtml+xml'),
                                 ('Cache-Control', 'max-age=30')])
 
+        tvars = abe.template_vars.copy()
+        tvars['dotdot'] = page['dotdot']
+        tvars['title'] = flatten(page['title'])
+        tvars['h1'] = flatten(page.get('h1') or page['title'])
+        tvars['body'] = flatten(page['body'])
+
         return map(flatten,
                    ['<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"\n'
-                    '  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">\n'
-                    '<html xmlns="http://www.w3.org/1999/xhtml"'
-                    ' xml:lang="en" lang="en">\n'
-                    '<head>\n',
-                    '<link rel="stylesheet" type="text/css" href="',
-                    page['dotdot'], abe.static_path, 'abe.css" />\n'
-                    '<link rel="shortcut icon" href="',
-                    page['dotdot'], abe.static_path, 'favicon.ico" />\n'
-                    '<title>', page['title'], '</title>\n</head>\n',
-                    '<body>\n',
-                    '<h1><a href="', page['dotdot'] or '/', '"><img src="',
-                    page['dotdot'], abe.static_path, 'logo32.png',
-                    '" alt="ABE logo" /></a> ',
-                    page.get('h1') or page['title'], '</h1>\n', page['body'],
-                    abe.footer % page, '</body></html>'])
+                    '  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">\n',
+                    abe.template % tvars])
 
     def show_world(abe, page):
         page['title'] = ABE_APPNAME + ' Search'
@@ -1193,6 +1207,20 @@ def parse_argv(argv):
         "no_serve":     None,
         "upgrade":      None,
         "debug":        None,
+        "static_path":  None,
+        "document_root":None,
+
+        "template":     DEFAULT_TEMPLATE,
+        "template_vars": {
+            "ABE_URL": ABE_URL,
+            "APPNAME": ABE_APPNAME,
+            "VERSION": ABE_VERSION,
+            "COPYRIGHT": COPYRIGHT,
+            "COPYRIGHT_YEARS": COPYRIGHT_YEARS,
+            "COPYRIGHT_URL": COPYRIGHT_URL,
+            "DONATIONS_BTC": DONATIONS_BTC,
+            "DONATIONS_NMC": DONATIONS_NMC,
+            },
         }
     args = lambda var: conf[var]
     args.func_dict = conf

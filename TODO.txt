@@ -1,3 +1,5 @@
+* Separate view from controller.
+
 * Optionally add a link to each page allowing the user to download the
   source code and supporting files as a tarfile created on the fly to
   satisfy the AGPL.
@@ -35,7 +37,7 @@
 
 * Compute Merkle trees and verify transaction Merkle roots.
 
-* Report the Merlke branch of a particular transaction to support SPV.
+* Report the Merkle branch of a particular transaction to support SPV.
 
 * Perhaps support searching by hash/address substring.
 
