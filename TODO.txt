@@ -2,9 +2,6 @@
   source code and supporting files as a tarfile created on the fly to
   satisfy the AGPL.
 
-* On database init, auto-detect SQL flavour instead of requiring
-  options like --binary-type and --int-type.
-
 * Create "short links" as on http://blockexplorer.com.
 
 * Add a tool to upload transactions if bitcoind supports it.
