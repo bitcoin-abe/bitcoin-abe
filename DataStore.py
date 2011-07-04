@@ -23,7 +23,7 @@ import BCDataStream
 import deserialize
 import util
 
-SCHEMA_VERSION = "Abe13"
+SCHEMA_VERSION = "Abe14"
 
 WORK_BITS = 304  # XXX more than necessary.
 
@@ -315,8 +315,7 @@ class DataStore(object):
                 "SELECT nextid FROM abe_sequences WHERE key = ?", (key,))
         except store.module.DatabaseError:
             store.rollback()
-            store.sql("CREATE TABLE abe_sequences (key VARCHAR(100),"
-                      " nextid NUMERIC(30))")
+            store.sql(store._ddl['abe_sequences'])
             row = None
         if row is None:
             store.sql("INSERT INTO abe_sequences (key, nextid) VALUES (?, 1)",
@@ -464,6 +463,12 @@ GROUP BY
 """CREATE TABLE configvar (
     configvar_name  VARCHAR(100) PRIMARY KEY,
     configvar_value VARCHAR(255)
+)""",
+
+            "abe_sequences":
+"""CREATE TABLE abe_sequences (
+    key VARCHAR(100) PRIMARY KEY,
+    nextid NUMERIC(30)
 )""",
             }
 

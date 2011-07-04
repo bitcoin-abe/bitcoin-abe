@@ -342,6 +342,24 @@ def configure(store):
     store.configure()
     store.save_config()
 
+def populate_abe_sequences(store):
+    if store.config['sequence_type'] == 'update':
+        try:
+            store.sql(store._ddl['abe_sequences'])
+        except:
+            store.rollback()
+        for t in ['block', 'tx', 'txin', 'txout', 'pubkey',
+                  'chain', 'magic', 'policy']:
+            (last_id,) = store.selectrow("SELECT MAX(" + t + "_id) FROM " + t)
+            if last_id is None:
+                continue
+            store.sql("UPDATE abe_sequences SET nextid = ? WHERE key = ?"
+                      " AND nextid <= ?",
+                      (last_id + 1, t, last_id))
+            if store.cursor.rowcount < 1:
+                store.sql("INSERT INTO abe_sequences (key, nextid)"
+                          " VALUES (?, ?)", (t, last_id + 1))
+
 def run_upgrades(store, upgrades):
     for i in xrange(len(upgrades) - 1):
         vers, func = upgrades[i]
@@ -404,7 +422,8 @@ upgrades = [
     ('11',   add_fk_chain_candidate_block_id),
     ('12',   create_configvar),
     ('12.1', configure),
-    ('Abe13', None),
+    ('Abe13', populate_abe_sequences),
+    ('Abe14', None),
 ]
 
 def upgrade_schema(store):
