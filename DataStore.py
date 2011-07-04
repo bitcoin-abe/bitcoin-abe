@@ -23,7 +23,7 @@ import BCDataStream
 import deserialize
 import util
 
-SCHEMA_VERSION = "13"
+SCHEMA_VERSION = "Abe13"
 
 WORK_BITS = 304  # XXX more than necessary.
 
@@ -68,7 +68,7 @@ class DataStore(object):
         connect() method, or None for no argument, or a list of
         arguments, or a dictionary of named arguments.
 
-        args.datadirs names Bitcoin data directories containing
+        args.datadir names Bitcoin data directories containing
         blk0001.dat to scan for new blocks.
         """
         store.args = args
@@ -87,54 +87,64 @@ class DataStore(object):
 
         store.conn = conn
         store.cursor = conn.cursor()
+        store._ddl = store._get_ddl()
 
-        # Read the CONFIG record if present.
+        # Read the CONFIG and CONFIGVAR tables if present.
+        store.config = store._read_config()
+
+        if store.config is None:
+            store.initialize()
+        elif store.config['schema_version'] != SCHEMA_VERSION:
+            if args.upgrade:
+                store._set_sql_flavour()
+                import upgrade
+                upgrade.upgrade_schema(store)
+            else:
+                raise Exception(
+                    "Database schema version (%s) does not match software"
+                    " (%s).  Please run with --upgrade to convert database."
+                    % (store.config['schema_version'], SCHEMA_VERSION))
+
+        store._set_sql_flavour()
+        store._blocks = {}
+        store._read_datadir_table()
+
+    def _read_config(store):
+        # Read table CONFIGVAR if it exists.
+        config = {}
         try:
-            store.config = store._read_config()
-            store.initialized = True
+            store.cursor.execute("""
+                SELECT configvar_name, configvar_value
+                  FROM configvar""")
+            for row in store.cursor.fetchall():
+                name, value = row
+                config[name] = value
+            if config:
+                return config
+
         except store.module.DatabaseError:
             try:
                 store.rollback()
             except:
                 pass
-            store.initialized = False
 
-        store.sequences = {}
-        store._set_sql_flavour()
-        store._view = store._views()
-        store._blocks = {}
-        store.datadirs = {}
+        # Read legacy table CONFIG if it exists.
+        try:
+            store.cursor.execute("""
+                SELECT schema_version, binary_type
+                  FROM config
+                 WHERE config_id = 1""")
+            row = store.cursor.fetchone()
+            sv, btype = row
+            return { 'schema_version': sv, 'binary_type': btype }
+        except:
+            try:
+                store.rollback()
+            except:
+                pass
 
-        if store.initialized:
-            sv = store.config['schema_version']
-            if sv != SCHEMA_VERSION:
-                if args.upgrade:
-                    import upgrade
-                    upgrade.upgrade_schema(store)
-                else:
-                    raise Exception(
-                        "Database schema version (%s) does not match software"
-                        " (%s).  Please run with --upgrade to convert database."
-                        % (sv, SCHEMA_VERSION))
-
-            store._read_datadir_table()
-
-    def _read_config(store):
-        store.cursor.execute("""
-            SELECT schema_version, binary_type
-              FROM config
-             WHERE config_id = 1""")
-        row = store.cursor.fetchone()
-        if row is None:
-            # Select was successful but no row matched?  Strange.
-            (sv, btype) = ('unknown', store.args.binary_type)
-        else:
-            (sv, btype) = row
-        store.args.binary_type = btype
-        return {
-            "schema_version": sv,
-            "binary_type": btype,
-            }
+        # Return None to indicate no schema found.
+        return None
 
     # Accommodate SQL quirks.
     def _set_sql_flavour(store):
@@ -164,7 +174,9 @@ class DataStore(object):
         def from_hex_rev(x):
             return None if x is None else binascii.unhexlify(x)[::-1]
 
-        if store.args.binary_type is None:
+        btype = store.config.get('binary_type')
+
+        if btype in (None, 'str'):
             binin       = identity
             binin_hex   = from_hex
             binout      = identity
@@ -174,19 +186,24 @@ class DataStore(object):
             hashout     = rev
             hashout_hex = to_hex
 
-        elif store.args.binary_type == "buffer":
-            def to_buffer(x):
-                return None if x is None else buffer(x)
-            binin       = to_buffer
-            binin_hex   = lambda x: to_buffer(from_hex(x))
-            binout      = identity
+        elif btype in ("buffer", "bytearray"):
+            if btype == "buffer":
+                def to_btype(x):
+                    return None if x is None else buffer(x)
+            else:
+                def to_btype(x):
+                    return None if x is None else bytearray(x)
+
+            binin       = to_btype
+            binin_hex   = lambda x: to_btype(from_hex(x))
+            binout      = str
             binout_hex  = to_hex
-            hashin      = lambda x: to_buffer(rev(x))
-            hashin_hex  = lambda x: to_buffer(from_hex(x))
+            hashin      = lambda x: to_btype(rev(x))
+            hashin_hex  = lambda x: to_btype(from_hex(x))
             hashout     = rev
             hashout_hex = to_hex
 
-        elif store.args.binary_type == "hex":
+        elif btype == "hex":
             transform = store._sql_binary_as_hex(transform)
             binin       = to_hex
             binin_hex   = identity
@@ -198,20 +215,27 @@ class DataStore(object):
             hashout_hex = identity
 
         else:
-            raise Exception("Unsupported binary-type %s"
-                            % store.args.binary_type)
+            raise Exception("Unsupported binary-type %s" % btype)
 
-        if store.args.int_type is None:
+        itype = store.config.get('int_type')
+
+        if itype in (None, 'int'):
             intin = identity
 
         # Work around sqlite3's overflow when importing large ints.
-        elif store.args.int_type == 'str':
+        elif itype == 'str':
             intin = str
             transform = store._approximate_txout(transform)
 
         else:
-            raise Exception("Unsupported int-type %s"
-                            % store.args.int_type)
+            raise Exception("Unsupported int-type %s" % itype)
+
+        stype = store.config.get('sequence_type')
+        if stype in (None, 'update'):
+            new_id = lambda key: store._new_id_update(key)
+
+        else:
+            raise Exception("Unsupported sequence-type %s" % stype)
 
         store.sql_transform = transform
         store._sql_cache = {}
@@ -230,6 +254,7 @@ class DataStore(object):
         store.binin_int = lambda x, bits: binin_hex(("%%0%dx" % (bits / 4)) % x)
 
         store.intin       = intin
+        store.new_id      = new_id
 
     def sql(store, stmt, params=()):
         cached = store._sql_cache.get(stmt)
@@ -276,23 +301,32 @@ class DataStore(object):
 
     def _read_datadir_table(store):
         store.datadirs = {}
-        if store.initialized:
-            for row in store.selectall("""
-                SELECT dirname, blkfile_number, blkfile_offset
-                  FROM datadir"""):
-                dir, num, offs = row
-                store.datadirs[dir] = {"blkfile_number": num,
-                                       "blkfile_offset": int(offs)}
+        for row in store.selectall("""
+            SELECT dirname, blkfile_number, blkfile_offset
+              FROM datadir"""):
+            dir, num, offs = row
+            store.datadirs[dir] = {"blkfile_number": num,
+                                   "blkfile_offset": int(offs)}
 
-    # Implement synthetic key sequences in a simple, thread-unsafe manner.
-    # Override this if another process or thread may be inserting rows.
-    def new_id(store, tname):
-        if tname not in store.sequences:
-            (max,) = store.selectrow(
-                "SELECT MAX(" + tname + "_id) FROM " + tname);
-            store.sequences[tname] = 0 if max is None else max
-        store.sequences[tname] += 1
-        return store.sequences[tname]
+
+    def _new_id_update(store, key):
+        try:
+            row = store.selectrow(
+                "SELECT nextid FROM abe_sequences WHERE key = ?", (key,))
+        except store.module.DatabaseError:
+            store.rollback()
+            store.sql("CREATE TABLE abe_sequences (key VARCHAR(100),"
+                      " nextid NUMERIC(30))")
+            row = None
+        if row is None:
+            store.sql("INSERT INTO abe_sequences (key, nextid) VALUES (?, 1)",
+                      (key,))
+            ret = 1
+        else:
+            ret = int(row[0])
+        store.sql("UPDATE abe_sequences SET nextid = nextid + 1 WHERE key = ?",
+                  (key,))
+        return ret
 
     def commit(store):
         store.conn.commit()
@@ -303,7 +337,7 @@ class DataStore(object):
     def close(store):
         store.conn.close()
 
-    def _views(store):
+    def _get_ddl(store):
         return {
             "chain_summary":
 # XXX I could do a lot with MATERIALIZED views.
@@ -424,30 +458,24 @@ GROUP BY
   FROM txout""",
 
             "configvar":
+# ABE accounting.  This table is read without knowledge of the
+# database's SQL quirks, so it must use only the most widely supported
+# features.
 """CREATE TABLE configvar (
-    name        VARCHAR(100) PRIMARY KEY,
-    value       VARCHAR(32767)
+    configvar_name  VARCHAR(100) PRIMARY KEY,
+    configvar_value VARCHAR(255)
 )""",
             }
 
-    def initialize_if_needed(store):
+    def initialize(store):
         """
-        Create the database schema if it does not already exist.
+        Create the database schema.
         """
-        if store.initialized:
-            return
+        store.configure()
+
         for stmt in (
 
-# ABE accounting.  CONFIG_ID is used only to prevent multiple rows.
-# This table is read without knowledge of the database's SQL quirks,
-# so it must use only the most widely supported features.
-"""CREATE TABLE config (
-    config_id   NUMERIC(1)  PRIMARY KEY,
-    schema_version VARCHAR(20),
-    binary_type VARCHAR(20)
-)""",
-
-store._view['configvar'],
+store._ddl['configvar'],
 
 """CREATE TABLE datadir (
     dirname     VARCHAR(32767) PRIMARY KEY,
@@ -620,10 +648,10 @@ store._view['configvar'],
     pubkey        BIT(520)    UNIQUE NULL
 )""",
 
-store._view['chain_summary'],
-store._view['txout_detail'],
-store._view['txin_detail'],
-store._view['txout_approx'],
+store._ddl['chain_summary'],
+store._ddl['txout_detail'],
+store._ddl['txin_detail'],
+store._ddl['txout_approx'],
 ):
             try:
                 store.sql(stmt)
@@ -661,13 +689,151 @@ store._view['txout_approx'],
                   (NAMECOIN_CHAIN_ID, NAMECOIN_MAGIC_ID, NAMECOIN_POLICY_ID,
                    'Namecoin', 'NMC', store.binin(NAMECOIN_ADDRESS_VERSION)))
 
-        store.sql("""
-            INSERT INTO config (
-                config_id, schema_version, binary_type
-            ) VALUES (1, ?, ?)""",
-                  (SCHEMA_VERSION, store.args.binary_type,))
-
+        store.save_config()
         store.commit()
+        store.config['schema_version'] = SCHEMA_VERSION
+
+    def configure(store):
+        store.config = {}
+
+        for btype in (
+            ['str', 'bytearray', 'buffer', 'hex', '']
+            if store.args.binary_type is None else
+            [ store.args.binary_type, '' ]):
+
+            if btype == '':
+                raise Exception(
+                    "No known binary data representation works"
+                    if store.args.binary_type is None else
+                    "Binary type " + store.args.binary_type + " fails test")
+            store.config['binary_type'] = btype
+            store._set_sql_flavour()
+            if store._test_binary_type():
+                print "binary_type=%s" % (btype,)
+                break
+
+        for itype in ['int', 'str', '']:
+            if itype == '':
+                raise Exception(
+                    "No known large integer representation works")
+            store.config['int_type'] = itype
+            store._set_sql_flavour()
+            if store._test_int_type():
+                print "int_type=%s" % (itype,)
+                break
+
+        for stype in ['update', '']:
+            if stype == '':
+                raise Exception(
+                    "No known sequence type works")
+            store.config['sequence_type'] = stype
+            store._set_sql_flavour()
+            if store._test_sequence_type():
+                print "sequence_type=%s" % (itype,)
+                break
+
+    def _drop_if_exists(store, otype, name):
+        try:
+            store.sql("DROP " + otype + " " + name)
+        except store.module.DatabaseError:
+            store.rollback()
+
+    def _drop_table_if_exists(store, obj):
+        store._drop_if_exists("TABLE", obj)
+    def _drop_view_if_exists(store, obj):
+        store._drop_if_exists("VIEW", obj)
+    def _drop_sequence_if_exists(store, obj):
+        store._drop_if_exists("SEQUENCE", obj)
+
+    def _test_binary_type(store):
+        store._drop_table_if_exists("abe_test_1")
+        try:
+            store.sql(
+                "CREATE TABLE abe_test_1 (test_id NUMERIC(2) PRIMARY KEY,"
+                " test_bit BIT(256), test_varbit BIT VARYING(80000))")
+            val = str(''.join(map(chr, range(32))))
+            store.sql("INSERT INTO abe_test_1 (test_id, test_bit, test_varbit)"
+                      " VALUES (?, ?, ?)",
+                      (1, store.hashin(val), store.binin(val)))
+            (bit, vbit) = store.selectrow(
+                "SELECT test_bit, test_varbit FROM abe_test_1")
+            if store.hashout(bit) != val:
+                return False
+            if store.binout(vbit) != val:
+                return False
+            return True
+        except store.module.DatabaseError, e:
+            store.rollback()
+            return False
+        except Exception, e:
+            print "_test_binary_type:", store.config['binary_type'] + ":", e
+            store.rollback()
+            return False
+        finally:
+            store._drop_table_if_exists("abe_test_1")
+
+    def _test_int_type(store):
+        store._drop_table_if_exists("abe_test_1")
+        store._drop_view_if_exists("abe_test_v1")
+        try:
+            store.sql(
+                "CREATE TABLE abe_test_1 (test_id NUMERIC(2) PRIMARY KEY,"
+                " txout_value NUMERIC(30), i2 NUMERIC(20))")
+            store.sql(
+                "CREATE VIEW abe_test_v1 AS SELECT test_id,"
+                " txout_value txout_approx_value, i2 FROM abe_test_1")
+            v1 = 1234567890123456789
+            v2 = 1234567890
+            store.sql("INSERT INTO abe_test_1 (test_id, txout_value, i2)"
+                      " VALUES (?, ?, ?)",
+                      (1, store.intin(v1), v2))
+            (prod,) = store.selectrow(
+                "SELECT txout_approx_value * i2 FROM abe_test_v1")
+            prod = int(prod)
+            if prod < v1 * v2 * 1.0001 and prod > v1 * v2 * 0.9999:
+                return True
+            return False
+        except store.module.DatabaseError, e:
+            store.rollback()
+            return False
+        except Exception, e:
+            print "_test_int_type:", store.config['int_type'] + ":", e
+            store.rollback()
+            return False
+        finally:
+            store._drop_table_if_exists("abe_test_1")
+            store._drop_view_if_exists("abe_test_v1")
+
+    def _test_sequence_type(store):
+        store._drop_table_if_exists("abe_test_1")
+        try:
+            store.sql(
+                "CREATE TABLE abe_test_1 ("
+                " abe_test_1_id NUMERIC(12) PRIMARY KEY,"
+                " foo VARCHAR(10))")
+            id1 = store.new_id('abe_test_1')
+            id2 = store.new_id('abe_test_1')
+            if int(id1) != int(id2):
+                return True
+            return False
+        except store.module.DatabaseError, e:
+            store.rollback()
+            return False
+        except Exception, e:
+            print "_test_sequence_type:", store.config['sequence_type'] + ":", e
+            store.rollback()
+            return False
+        finally:
+            store._drop_table_if_exists("abe_test_1")
+
+    def save_config(store):
+        store.insert_configvar('schema_version', SCHEMA_VERSION)
+        for name, value in store.config.items():
+            store.insert_configvar(name, value)
+
+    def insert_configvar(store, name, value):
+        store.sql("INSERT INTO configvar (configvar_name, configvar_value)"
+                  " VALUES (?, ?)", (name, value))
 
     def _get_block(store, block_id):
         return store._blocks.get(int(block_id))
@@ -1231,7 +1397,7 @@ store._view['txout_approx'],
         return pubkey_id
 
     def catch_up(store):
-        for dirname in store.args.datadirs:
+        for dirname in store.args.datadir:
             store.catch_up_dir(dirname)
 
     # Load all blocks starting at the current file and offset.

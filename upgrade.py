@@ -270,7 +270,7 @@ def index_block_nTime(store):
 
 def replace_chain_summary(store):
     store.sql("DROP VIEW chain_summary")
-    store.sql(store._view['chain_summary'])
+    store.sql(store._ddl['chain_summary'])
 
 def drop_block_ss_columns(store):
     """Drop columns that may have been added in error."""
@@ -322,7 +322,7 @@ def create_x_cc_block_height(store):
         "CREATE INDEX x_cc_block_height ON chain_candidate (block_height)")
 
 def create_txout_approx(store):
-    store.sql(store._view['txout_approx'])
+    store.sql(store._ddl['txout_approx'])
 
 def add_fk_chain_candidate_block_id(store):
     try:
@@ -335,10 +335,12 @@ def add_fk_chain_candidate_block_id(store):
         store.rollback()
 
 def create_configvar(store):
-    store.sql(store._view['configvar'])
+    store.sql(store._ddl['configvar'])
 
 def configure(store):
+    store.args.binary_type = store.config['binary_type']
     store.configure()
+    store.save_config()
 
 def run_upgrades(store, upgrades):
     for i in xrange(len(upgrades) - 1):
@@ -346,9 +348,17 @@ def run_upgrades(store, upgrades):
         if store.config['schema_version'] == vers:
             func(store)
             sv = upgrades[i+1][0]
-            store.sql(
-                "UPDATE config SET schema_version = ? WHERE config_id = 1",
-                (sv,))
+            if sv[:3] == 'Abe':
+                store.sql(
+                    "UPDATE configvar SET configvar_value = ?"
+                    " WHERE configvar_name = 'schema_version'",
+                    (sv,))
+                if store.cursor.rowcount != 1:
+                    raise Exception("Failed to update schema_version");
+            else:
+                store.sql(
+                    "UPDATE config SET schema_version = ? WHERE config_id = 1",
+                    (sv,))
             store.commit()
             store.config['schema_version'] = sv
 
@@ -394,7 +404,7 @@ upgrades = [
     ('11',   add_fk_chain_candidate_block_id),
     ('12',   create_configvar),
     ('12.1', configure),
-    ('13', None),
+    ('Abe13', None),
 ]
 
 def upgrade_schema(store):

@@ -51,7 +51,6 @@ HASH_PREFIX_RE = re.compile('[0-9a-fA-F]{6,64}\\Z')
 
 def make_store(args):
     store = DataStore.new(args)
-    store.initialize_if_needed()
     store.catch_up()
     return store
 
@@ -1183,22 +1182,24 @@ def serve(store):
 
 def parse_argv(argv):
     conf = {
-        "config": None,
-        "datadir": None,
-        "dbtype": None,
+        "config":       None,
+        "datadir":      None,
+        "dbtype":       None,
         "connect_args": None,
-        "binary_type": None,
-        "port": None,
-        "host": None,
-        "no_serve": None,
-        "upgrade": None,
-        "debug": None,
+        "binary_type":  None,
+        "port":         None,
+        "host":         None,
+        "no_serve":     None,
+        "upgrade":      None,
+        "debug":        None,
         }
     args = lambda var: conf[var]
     args.func_dict = conf
 
-    for i in xrange(len(argv)):
+    i = 0
+    while i < len(argv):
         arg = argv[i]
+        i += 1
 
         # Handle --help and --version.
         if arg in ('-h', '--help'):
@@ -1227,9 +1228,9 @@ See abe.conf for commented examples.""")
         add = False
         if len(split) == 1:
             var = split[0]
-            if i < len(argv) - 1 and argv[i + 1][:2] != '--':
-                i += 1
+            if i < len(argv) and argv[i][:2] != '--':
                 val = argv[i]
+                i += 1
             else:
                 val = True
         else:

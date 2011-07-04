@@ -23,7 +23,7 @@ def _include(seen, filename, conf):
 
     with open(filename) as fp:
         entries = read(fp)
-    for var, val, add in pairs:
+    for var, val, add in entries:
         var = var.replace('-', '_')
         if var == 'config':
             _include(seen + [filename],
