@@ -171,7 +171,7 @@ class Abe:
         body += [
             abe.search_form(page),
             '<table>\n',
-            '<tr><th>Currency</th><th>Code</th><th>Block</th>',
+            '<tr><th>Currency</th><th>Code</th><th>Block</th><th>Time</th>',
             '<th>Started</th><th>Age (days)</th><th>Coins Created</th>',
             '<th>Avg Coin Age</th><th>',
             '% <a href="https://en.bitcoin.it/wiki/Bitcoin_Days_Destroyed">',
@@ -219,7 +219,8 @@ class Abe:
 
                 body += [
                     '<td><a href="block/', hash, '">', height, '</a></td>',
-                    '<td>', format_time(started), '</td>',
+                    '<td>', format_time(nTime), '</td>',
+                    '<td>', format_time(started)[:10], '</td>',
                     '<td>', '%5g' % (chain_age / 86400.0), '</td>',
                     '<td>', format_satoshis(satoshis, chain), '</td>',
                     '<td>', avg_age, '</td>',
