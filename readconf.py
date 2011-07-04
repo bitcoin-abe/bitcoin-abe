@@ -23,12 +23,12 @@ def _include(seen, filename, conf):
 
     with open(filename) as fp:
         entries = read(fp)
-    for var, val, add in entries:
+    for var, val, additive in entries:
         var = var.replace('-', '_')
         if var == 'config':
             _include(seen + [filename],
                      os.path.join(os.path.dirname(filename), val), conf)
-        elif add:
+        elif additive:
             add(conf, var, val)
         else:
             conf[var] = val
