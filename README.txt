@@ -18,10 +18,21 @@ PostgreSQL.  Other SQL databases may work with minor changes.  You
 will need a copy of the block file (blk0001.dat in your Bitcoin
 directory).  You may let Abe read the block file while Bitcoin runs.
 
-For usage, run "abe.py --help".  By default, Abe reads your Bitcoin
-blk0001.dat file and runs a chain viewer over FastCGI.  BUG: reading
-the block file takes far too long, hours.  However, Abe remembers
-where it stopped reading and starts more quickly the second time.
+The Affero General Public License requires whoever modifies this code
+and runs it on a server to make the modified code available to users
+of the server.  You may do this by forking the Github project (if you
+received this code from Github.com), keeping your modifications in the
+new project, and linking to it in the page template.  Or you may wish
+to satisfy the requirement by simply passing "--auto-agpl" to
+"abe.py".  This option makes all files in the directory containing
+abe.py and its subdirectories available to clients.  See the comments
+in abe.conf for more information.
+
+For usage, run "abe.py --help" and see the comments in abe.conf.  By
+default, Abe reads your Bitcoin blk0001.dat file and runs a chain
+viewer over FastCGI.  BUG: reading the block file takes far too long,
+hours.  However, Abe remembers where it stopped reading and starts
+more quickly the second time.
 
 To run the built-in HTTP server instead of FastCGI, add "--port 2750"
 or a TCP port number of your choosing.
