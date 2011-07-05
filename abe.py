@@ -62,6 +62,7 @@ DEFAULT_TEMPLATE = """
             %(VERSION)s &#169; %(COPYRIGHT_YEARS)s
             <a href="%(COPYRIGHT_URL)s">%(COPYRIGHT)s</a>
         </span>
+        %(download)s
         Tips appreciated!
         <a href="%(dotdot)saddress/%(DONATIONS_BTC)s">BTC</a>
         <a href="%(dotdot)saddress/%(DONATIONS_NMC)s">NMC</a>
@@ -93,6 +94,10 @@ class PageNotFound(Exception):
 class Redirect(Exception):
     """Thrown when code wants to redirect the request"""
 
+class Streamed(Exception):
+    """Thrown when code has written the document to the callable
+    returned by start_response."""
+
 class Abe:
     def __init__(abe, store, args):
         abe.store = store
@@ -117,6 +122,11 @@ class Abe:
             "address": abe.show_address,
             "search": abe.search,
             }
+        if args.auto_agpl:
+            abe.handlers["download"] = abe.download_srcdir
+        else:
+            abe.template_vars['download'] = (
+                abe.template_vars.get('download', ''))
 
     def __call__(abe, env, start_response):
         import urlparse
@@ -159,6 +169,8 @@ class Abe:
                 'Sorry, I don\'t know about that chain!</p>\n']
         except Redirect:
             return redirect(page)
+        except Streamed:
+            return ''
         except:
             abe.store.rollback()
             raise
@@ -173,6 +185,9 @@ class Abe:
         tvars['title'] = flatten(page['title'])
         tvars['h1'] = flatten(page.get('h1') or page['title'])
         tvars['body'] = flatten(page['body'])
+        if abe.args.auto_agpl:
+            tvars['download'] = (
+                ' <a href="' + page['dotdot'] + 'download">Source</a>')
 
         return map(flatten,
                    ['<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"\n'
@@ -1083,6 +1098,21 @@ class Abe:
                 OR UPPER(chain_code3) LIKE '%' || ? || '%'
         """, (q.upper(), q.upper())))
 
+    def download_srcdir(abe, page):
+        name = abe.args.download_name
+        if name is None:
+            name = re.sub(r'\W+', '-', ABE_APPNAME.lower()) + '-' + ABE_VERSION
+        fileobj = lambda: None
+        fileobj.func_dict['write'] = page['start_response'](
+            '200 OK',
+            [('Content-type', 'application/x-gtar-compressed'),
+             ('Content-disposition', 'filename=' + name + '.tar.gz')])
+        import tarfile
+        with tarfile.TarFile.open(fileobj=fileobj, mode='w|gz',
+                                  format=tarfile.PAX_FORMAT) as tar:
+            tar.add(os.path.split(__file__)[0], name)
+        raise Streamed()
+
     def serve_static(abe, path, start_response):
         slen = len(abe.static_path)
         if path[:slen] != abe.static_path:
@@ -1209,6 +1239,8 @@ def parse_argv(argv):
         "debug":        None,
         "static_path":  None,
         "document_root":None,
+        "auto_agpl":    None,
+        "download_name":None,
 
         "template":     DEFAULT_TEMPLATE,
         "template_vars": {
@@ -1295,6 +1327,9 @@ See abe.conf for commented examples.""")
         args.dbtype = "sqlite3"
         if args.connect_args is None:
             args.connect_args = '":memory:"'
+
+    if args.auto_agpl:
+        import tarfile
 
     # XXX Should validate option types.
     return args

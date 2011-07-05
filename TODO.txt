@@ -1,8 +1,8 @@
-* Separate view from controller.
+* Modularise further.
 
-* Optionally add a link to each page allowing the user to download the
-  source code and supporting files as a tarfile created on the fly to
-  satisfy the AGPL.
+* Abstract inline SQL out of the rendering methods.
+
+* Separate view from controller.
 
 * Create "short links" as on http://blockexplorer.com.
 
@@ -28,8 +28,6 @@
 * Test on Apache/FastCGI.
 
 * Abstract inline SQL into the DataStore class.
-
-* Modularise further.
 
 * Highlight any objects that are not in the main chain as such.
 
