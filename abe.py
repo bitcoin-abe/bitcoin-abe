@@ -221,7 +221,7 @@ class Abe:
             name = row[0]
             chain = abe._row_to_chain((row[8], name, row[9], row[10], row[11]))
             body += [
-                '<tr><td><a href="chain/', escape(name), '/">',
+                '<tr><td><a href="chain/', escape(name), '">',
                 escape(name), '</a></td><td>', escape(chain['code3']), '</td>']
 
             if row[1] is not None:
