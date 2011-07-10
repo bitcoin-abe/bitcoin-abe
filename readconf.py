@@ -26,7 +26,8 @@ def _include(seen, filename, conf):
     for var, val, additive in entries:
         var = var.replace('-', '_')
         if var == 'config':
-            _include(seen + [filename],
+            import os
+            _include(seen | set(filename),
                      os.path.join(os.path.dirname(filename), val), conf)
         elif additive:
             add(conf, var, val)
