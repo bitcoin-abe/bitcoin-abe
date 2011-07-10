@@ -734,7 +734,7 @@ store._ddl['txout_approx'],
             store.config['sequence_type'] = stype
             store._set_sql_flavour()
             if store._test_sequence_type():
-                print "sequence_type=%s" % (itype,)
+                print "sequence_type=%s" % (stype,)
                 break
 
     def _drop_if_exists(store, otype, name):
@@ -1414,6 +1414,7 @@ store._ddl['txout_approx'],
                 INSERT INTO datadir (
                     dirname, blkfile_number, blkfile_offset
                 ) VALUES (?, ?, ?)""", (dirname, 1, 0))
+            store.commit()
             store.datadirs[dirname] = dircfg
 
         def open_blkfile():

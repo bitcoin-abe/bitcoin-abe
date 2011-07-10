@@ -1,8 +1,3 @@
-* "Missing datadir row" error on fresh PostgreSQL install after
-  400-500 blocks.  Worked around with psql: insert into datadir
-  (dirname, blkfile_number, blkfile_offset) values
-  ('/home/jtobey/.bitcoin', 1, 0);
-
 * Modularise further.
 
 * Abstract inline SQL out of the rendering methods.

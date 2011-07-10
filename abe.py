@@ -1301,6 +1301,7 @@ See abe.conf for commented examples.""")
                 add = True
 
         if val is not True and val[0] in ('"', '[', '{'):
+            import json
             val = json.loads(val)
 
         var = var.replace('-', '_')
