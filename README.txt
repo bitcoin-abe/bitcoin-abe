@@ -31,8 +31,8 @@ clients.  See the comments in abe.conf for more information.
 For usage, run "abe.py --help" and see the comments in abe.conf.  By
 default, Abe reads your Bitcoin blk0001.dat file and runs a chain
 viewer over FastCGI.  BUG: reading the block file takes far too long,
-hours.  However, Abe remembers where it stopped reading and starts
-more quickly the second time.
+hours on PostgreSQL and days on SQLite3.  However, Abe remembers where
+it stopped reading and starts more quickly the second time.
 
 To run the built-in HTTP server instead of FastCGI, add "--port 2750"
 or a TCP port number of your choosing.
