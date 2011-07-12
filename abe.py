@@ -75,8 +75,8 @@ DEFAULT_TEMPLATE = """
 LOG10COIN = 8
 COIN = 10 ** LOG10COIN
 
-ADDRESS_RE = re.compile(
-    '[123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz]{6,}\\Z')
+ADDRESS_RE = re.compile('[1-9A-HJ-NP-Za-km-z]{27,}\\Z')
+ADDR_PREFIX_RE = re.compile('[1-9A-HJ-NP-Za-km-z]{6,}\\Z')
 HEIGHT_RE = re.compile('(?:0|[1-9][0-9]*)\\Z')
 HASH_PREFIX_RE = re.compile('[0-9a-fA-F]{6,64}\\Z')
 
@@ -1000,9 +1000,8 @@ class Abe:
             '<form action="', page['dotdot'], 'search"><p>\n'
             '<input name="q" size="64" value="', escape(q), '" />'
             '<button type="submit">Search</button>\n'
-            '<br />Search does not yet support partial addresses.'
-            ' Hash search requires at least the first six hex characters.'
-            '</p></form>\n']
+            '<br />Address or hash search requires at least the first six'
+            ' characters.</p></form>\n']
 
     def search(abe, page):
         page['title'] = 'Search'
@@ -1015,6 +1014,7 @@ class Abe:
         found = []
         if HEIGHT_RE.match(q):      found += abe.search_number(int(q))
         if ADDRESS_RE.match(q):     found += abe.search_address(q)
+        elif ADDR_PREFIX_RE.match(q):found += abe.search_address_prefix(q)
         if HASH_PREFIX_RE.match(q): found += abe.search_hash_prefix(q)
         found += abe.search_general(q)
 
@@ -1084,8 +1084,66 @@ class Abe:
         try:
             binaddr = base58.bc_address_to_hash_160(address)
         except:
-            return ()
-        return ({ 'name': 'Address ' + address, 'uri': 'address/' + address },)
+            return abe.search_address_prefix(address)
+        return [{ 'name': 'Address ' + address, 'uri': 'address/' + address }]
+
+    def search_address_prefix(abe, ap):
+        ret = []
+        ones = 0
+        for c in ap:
+            if c != '1':
+                break
+            ones += 1
+        minlen = max(len(ap), 27)
+        l = max(35, len(ap))  # XXX Increase "35" to support multibyte
+                              # address versions.
+        al = ap + ('1' * (l - len(ap)))
+        ah = ap + ('z' * (l - len(ap)))
+
+        def incr_str(s):
+            for i in range(len(s)-1, -1, -1):
+                if s[i] != '\xff':
+                    return s[:i] + chr(ord(s[i])+1) + ('\0' * (len(s) - i - 1))
+            return '\1' + ('\0' * len(s))
+
+        def process(row):
+            hash = abe.store.binout(row[0])
+            address = hash_to_address(vl, hash)
+            if not address.startswith(ap):
+                if vh != vl:
+                    address = hash_to_address(vh, hash)
+                    if not address.startswith(ap):
+                        return None
+                return None
+            print "found address:", address
+            return { 'name': 'Address ' + address, 'uri': 'address/' + address }
+
+        while l >= minlen:
+            vl, hl = decode_address(al)
+            vh, hh = decode_address(ah)
+            if ones:
+                if hash_to_address('\0', hh)[ones:][:1] == '1':
+                    break
+            elif vh == '\0':
+                break
+            elif vh != vl and vh != incr_str(vl):
+                continue
+            if hl <= hh:
+                neg = ""
+            else:
+                neg = " NOT"
+                hl, hh = hh, hl
+            bl = abe.store.binin(hl)
+            bh = abe.store.binin(hh)
+            print "address search", repr(vl)+":"+abe.store.binout_hex(bl), repr(vl)+":"+abe.store.binout_hex(bh)
+            ret += filter(None, map(process, abe.store.selectall(
+                "SELECT pubkey_hash FROM pubkey WHERE pubkey_hash" +
+                neg + " BETWEEN ? AND ? LIMIT 100", (bl, bh))))
+            l -= 1
+            al = al[:-1]
+            ah = ah[:-1]
+
+        return ret
 
     def search_general(abe, q):
         """Search for something that is not an address, hash, or block number.
@@ -1172,13 +1230,20 @@ def hash_to_address(version, hash):
 
 def decode_check_address(address):
     if ADDRESS_RE.match(address):
-        bytes = base58.b58decode(address, 25)
-        if bytes is not None:
-            version = bytes[0]
-            hash = bytes[1:21]
-            if hash_to_address(version, hash) == address:
-                return version, hash
+        bytes = base58.b58decode(address, None)
+        if len(bytes) < 25:
+            bytes = ('\0' * (25 - len(bytes))) + bytes
+        version = bytes[:-24]
+        hash = bytes[-24:-4]
+        if hash_to_address(version, hash) == address:
+            return version, hash
     return None, None
+
+def decode_address(addr):
+    bytes = base58.b58decode(addr, None)
+    if len(bytes) < 25:
+        bytes = ('\0' * (25 - len(bytes))) + bytes
+    return bytes[:-24], bytes[-24:-4]
 
 def flatten(l):
     if isinstance(l, list):
