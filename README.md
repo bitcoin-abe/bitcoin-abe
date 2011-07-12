@@ -19,12 +19,11 @@ been optimised to run as fast as BBE.
 Dependencies
 ------------
 
-This program depends on Python Crypto modules (Debian package
-python-crypto) and a database such as SQLite (python-pysqlite2) or
-PostgreSQL (see README-POSTGRES.txt).  Other SQL databases may work
-with minor changes.  You will need a copy of the block file
-(blk0001.dat in your Bitcoin directory).  You may let Abe read the
-block file while Bitcoin runs.
+Abe depends on Python Crypto modules (Debian package python-crypto)
+and a database such as PostgreSQL (see README-POSTGRES.txt) or SQLite
+(python-pysqlite2).  Other SQL databases may work with minor changes.
+You will need a copy of the block file (blk0001.dat in your Bitcoin
+directory).  You may let Abe read the block file while Bitcoin runs.
 
 License
 -------
@@ -83,8 +82,8 @@ rough overview of FastCGI setup, see README-FASTCGI.txt.
 To run the built-in HTTP server instead of FastCGI, specify a TCP port
 and network interface in abe.conf, e.g.:
 
-> port 2750
-> host 127.0.0.1  # or a domain name
+  port 2750
+  host 127.0.0.1  # or a domain name
 
 Input
 -----
@@ -92,7 +91,7 @@ Input
 To display Namecoin or any block chain with data somewhere other than
 the default Bitcoin directory specify "datadir" in abe.conf, e.g.:
 
-> datadir = /home/bitcoin/.namecoin
+  datadir = /home/bitcoin/.namecoin
 
 Note that this software is currently unaware of name transactions.
 
