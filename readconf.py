@@ -149,9 +149,12 @@ def _scan_json_nonstring(fp, c):
     return ret, c
 
 def _scan_json_space(fp, c):
-    # Scan whitespace including "," and ":".
+    # Scan whitespace including "," and ":".  Strip comments for good measure.
     ret = ''
-    while c != '' and c in ' \t\r\n,:':
+    while c != '' and c in ' \t\r\n,:#':
+        if c == '#':
+            while c not in ('', '\n'):
+                c = fp.read(1)
         ret += c
         c = fp.read(1)
     return ret, c
