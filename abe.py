@@ -1327,9 +1327,7 @@ See abe.conf for commented examples.""")
         args.datadir = [args.datadir]
 
     if args.dbtype is None:
-        args.dbtype = "sqlite3"
-        if args.connect_args is None:
-            args.connect_args = ':memory:'
+        raise TypeError("dbtype is required; please see abe.conf for examples")
 
     if args.auto_agpl:
         import tarfile
