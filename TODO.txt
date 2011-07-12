@@ -1,3 +1,9 @@
+* Sporadic hanging in FastCGI mode.
+
+* Speed up SQLite initial load.
+
+* Provide a fast load mode with constraints disabled.
+
 * Modularise further.
 
 * Abstract inline SQL out of the rendering methods.
@@ -22,8 +28,6 @@
 * Use SEQUENCEs where available for synthetic identifiers.
 
 * Write a validation module to check db data.
-
-* Provide a fast load mode with constraints disabled.
 
 * Test on Apache/FastCGI.
 
