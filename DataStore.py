@@ -23,7 +23,7 @@ import BCDataStream
 import deserialize
 import util
 
-SCHEMA_VERSION = "Abe14"
+SCHEMA_VERSION = "Abe15"
 
 WORK_BITS = 304  # XXX more than necessary.
 
@@ -107,7 +107,7 @@ class DataStore(object):
 
         store._set_sql_flavour()
         store._blocks = {}
-        store._read_datadir_table()
+        store._init_datadirs()
 
     def _read_config(store):
         # Read table CONFIGVAR if it exists.
@@ -299,15 +299,74 @@ class DataStore(object):
         store.sql(stmt, params)
         return store.cursor.fetchall()
 
-    def _read_datadir_table(store):
-        store.datadirs = {}
+    def _init_datadirs(store):
+        datadirs = {}
         for row in store.selectall("""
-            SELECT dirname, blkfile_number, blkfile_offset
+            SELECT dirname, blkfile_number, blkfile_offset, chain_id
               FROM datadir"""):
-            dir, num, offs = row
-            store.datadirs[dir] = {"blkfile_number": num,
-                                   "blkfile_offset": int(offs)}
+            dir, num, offs, chain_id = row
+            datadirs[dir] = {
+                "dirname": dir,
+                "blkfile_number": int(num),
+                "blkfile_offset": int(offs),
+                "chain_id": None if chain_id is None else int(chain_id)}
 
+        # By default, scan every dir we know.  This doesn't happen in
+        # practise, because abe.py sets ~/.bitcoin as default datadir.
+        if store.args.datadir is None:
+            store.datadirs = datadirs.values()
+            return
+
+        store.datadirs = []
+        for dircfg in store.args.datadir:
+            if isinstance(dircfg, dict):
+                dirname = dircfg.get('dirname')
+                if dirname is None:
+                    raise ValueError(
+                        'Missing dirname in datadir configuration: '
+                        + str(dircfg))
+                if dirname in datadirs:
+                    store.datadirs.append(datadirs[dirname])
+                    continue
+
+                chain_id = dircfg.get('chain_id')
+                if chain_id is None:
+                    chain_name = dircfg.get('chain')
+                    row = store.selectrow(
+                        "SELECT chain_id FROM chain WHERE chain_name = ?",
+                        (chain_name,))
+                    if row is not None:
+                        chain_id = row[0]
+                    elif chain_name is not None:
+                        chain_id = store.new_id('chain')
+                        code3 = dircfg.get('code3')
+                        if code3 is None:
+                            code3 = '000' if chain_id > 999 else "%03d" % (
+                                chain_id,)
+                        addr_vers = dircfg.get('address_version')
+                        if addr_vers is None:
+                            addr_vers = BITCOIN_ADDRESS_VERSION
+                        store.sql("""
+                            INSERT INTO chain (
+                                chain_id, chain_name, chain_code3,
+                                chain_address_version
+                            ) VALUES (?, ?, ?, ?)""",
+                                  (chain_id, chain_name, code3,
+                                   store.binin(addr_vers)))
+                        print "Assigned chain_id", chain_id, "to", chain_name
+
+            else:
+                # Not a dict.  A string naming a directory holding
+                # standard chains.
+                dirname = dircfg
+                chain_id = None
+
+            store.datadirs.append({
+                "dirname": dirname,
+                "blkfile_number": 1,
+                "blkfile_offset": 0,
+                "chain_id": chain_id,
+                })
 
     def _new_id_update(store, key):
         try:
@@ -485,7 +544,8 @@ store._ddl['configvar'],
 """CREATE TABLE datadir (
     dirname     VARCHAR(32767) PRIMARY KEY,
     blkfile_number NUMERIC(4),
-    blkfile_offset NUMERIC(20)
+    blkfile_offset NUMERIC(20),
+    chain_id    NUMERIC(10) NULL
 )""",
 
 # MAGIC lists the magic numbers seen in messages and block files, known
@@ -529,8 +589,8 @@ store._ddl['configvar'],
 # block, possibly null.  A chain may have a currency code.
 """CREATE TABLE chain (
     chain_id    NUMERIC(10) PRIMARY KEY,
-    magic_id    NUMERIC(10),
-    policy_id   NUMERIC(10),
+    magic_id    NUMERIC(10) NULL,
+    policy_id   NUMERIC(10) NULL,
     chain_name  VARCHAR(100) UNIQUE NOT NULL,
     chain_code3 CHAR(3)     NULL,
     chain_address_version BIT VARYING(800) NOT NULL,
@@ -1402,34 +1462,27 @@ store._ddl['txout_approx'],
         return pubkey_id
 
     def catch_up(store):
-        for dirname in store.args.datadir:
-            store.catch_up_dir(dirname)
+        for dircfg in store.datadirs:
+            store.catch_up_dir(dircfg)
 
     # Load all blocks starting at the current file and offset.
-    def catch_up_dir(store, dirname):
-        dircfg = store.datadirs.get(dirname)
-        if dircfg is None:
-            dircfg = {"blkfile_number": 1, "blkfile_offset": 0L}
-            store.sql("""
-                INSERT INTO datadir (
-                    dirname, blkfile_number, blkfile_offset
-                ) VALUES (?, ?, ?)""", (dirname, 1, 0))
-            store.commit()
-            store.datadirs[dirname] = dircfg
-
+    def catch_up_dir(store, dircfg):
         def open_blkfile():
-            filename = os.path.join(dirname, "blk%04d.dat"
+            filename = os.path.join(dircfg['dirname'], "blk%04d.dat"
                                     % (dircfg['blkfile_number'],))
             ds = BCDataStream.BCDataStream()
             ds.map_file(open(filename, "rb"), 0)
             return ds
 
-        # First attempt failures are fatal.
-        ds = open_blkfile()
+        try:
+            ds = open_blkfile()
+        except IOError, e:
+            print "Skipping datadir " + dircfg['dirname'] + ": " + e
+            return
         ds.read_cursor = dircfg['blkfile_offset']
 
         while (True):
-            store.import_blkdat(dirname, ds)
+            store.import_blkdat(dircfg, ds)
 
             # Try another file.
             dircfg['blkfile_number'] += 1
@@ -1443,7 +1496,7 @@ store._ddl['txout_approx'],
             dircfg['blkfile_offset'] = 0
 
     # Load all blocks from the given data stream.
-    def import_blkdat(store, dirname, ds):
+    def import_blkdat(store, dircfg, ds):
         bytes_done = 0
 
         while ds.read_cursor + 8 <= len(ds.input):
@@ -1470,34 +1523,46 @@ store._ddl['txout_approx'],
                 store.import_block(b)
 
                 # Assume blocks obey the respective policy if they get here.
-                if magic == BITCOIN_MAGIC:
-                    store.offer_block_to_chain(b, BITCOIN_CHAIN_ID)
+                if 'chain_id' in dircfg:
+                    chain_id = dircfg['chain_id']
+                elif magic == BITCOIN_MAGIC:
+                    chain_id = BITCOIN_CHAIN_ID
                 elif magic == TESTNET_MAGIC:
-                    store.offer_block_to_chain(b, TESTNET_CHAIN_ID)
+                    chain_id = TESTNET_CHAIN_ID
                 elif magic == NAMECOIN_MAGIC:
-                    store.offer_block_to_chain(b, NAMECOIN_CHAIN_ID)
+                    chain_id = NAMECOIN_CHAIN_ID
+                else:
+                    chain_id = None
+
+                if chain_id is not None:
+                    store.offer_block_to_chain(b, chain_id)
 
             bytes_done += length
             # XXX should be configurable
             if bytes_done > 100000 :
-                store.save_blkfile_offset(dirname, ds.read_cursor)
+                store.save_blkfile_offset(dircfg, ds.read_cursor)
                 store.commit()
                 bytes_done = 0
 
         if bytes_done > 0:
-            store.save_blkfile_offset(dirname, ds.read_cursor)
+            store.save_blkfile_offset(dircfg, ds.read_cursor)
             store.commit()
 
-    def save_blkfile_offset(store, dirname, offset):
+    def save_blkfile_offset(store, dircfg, offset):
         store.sql("""
             UPDATE datadir
                SET blkfile_number = ?,
                    blkfile_offset = ?
              WHERE dirname = ?""",
-                  (store.datadirs[dirname]['blkfile_number'], offset, dirname))
+                  (dircfg['blkfile_number'], offset, dircfg['dirname']))
         if store.cursor.rowcount == 0:
-            raise AssertionError('Missing datadir row: ' + dirname)
-        store.datadirs[dirname]['blkfile_offset'] = offset
+            store.sql("""
+                INSERT INTO datadir (dirname, blkfile_number,
+                    blkfile_offset, chain_id)
+                VALUES (?, ?, ?, ?)""",
+                      (dircfg['dirname'], dircfg['blkfile_number'], offset,
+                       dircfg['chain_id']))
+        dircfg['blkfile_offset'] = offset
 
 def new(args):
     return DataStore(args)

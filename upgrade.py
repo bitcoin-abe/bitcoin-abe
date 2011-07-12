@@ -360,6 +360,9 @@ def populate_abe_sequences(store):
                 store.sql("INSERT INTO abe_sequences (key, nextid)"
                           " VALUES (?, ?)", (t, last_id + 1))
 
+def add_datadir_chain_id(store):
+    store.sql("ALTER TABLE datadir ADD chain_id NUMERIC(10) NULL")
+
 def run_upgrades(store, upgrades):
     for i in xrange(len(upgrades) - 1):
         vers, func = upgrades[i]
@@ -423,7 +426,8 @@ upgrades = [
     ('12',   create_configvar),
     ('12.1', configure),
     ('Abe13', populate_abe_sequences),
-    ('Abe14', None),
+    ('Abe14', add_datadir_chain_id),
+    ('Abe15', None),
 ]
 
 def upgrade_schema(store):
