@@ -29,29 +29,25 @@ directory containing abe.py and its subdirectories available to
 clients.  See the comments in abe.conf for more information.
 
 For usage, run "abe.py --help" and see the comments in abe.conf.  By
-default, Abe reads your Bitcoin blk0001.dat file and runs a chain
-viewer over FastCGI.  BUG: reading the block file takes far too long,
-hours on PostgreSQL and days on SQLite3.  However, Abe remembers where
-it stopped reading and starts more quickly the second time.
+default, Abe reads your Bitcoin blk0001.dat file, builds an in-memory
+database, and runs a chain viewer over FastCGI.
+
+BUG: Reading the block file takes far too long, hours on PostgreSQL
+and days on SQLite3.  However, if you use a persistent database (the
+default is not persistent) Abe remembers where it stopped reading and
+starts more quickly the second time.
+
+See `abe.py --help` for examples of how to persist the data, greatly
+reducing start time.  See README-POSTGRES.txt for a rough idea of how
+to set up PostgreSQL.
 
 To run the built-in HTTP server instead of FastCGI, add "--port 2750"
-or a TCP port number of your choosing.
+or a TCP port number of your choosing.  For a rough overview of
+FastCGI setup, see README-FASTCGI.txt.
 
 To explore Namecoin (or a chain with data somewhere other than the
 default Bitcoin directory) pass, e.g., "--datadir ~/.namecoin".  Note
 that this software is currently unaware of name transactions.
-
-See `abe.py --help` for examples of how to persist the data, greatly
-reducing start time.
-
-PostgreSQL on Debian/Ubuntu:
-  apt-get install postgresql python-psycopg2
-  sudo -u postgres createdb abe
-  # Replace USER with your Unix user name:
-  sudo -u postgres createuser USER
-  # Replace 8.4 with the PostgreSQL version:
-  sudo sh -c "echo local abe USER ident >> /etc/postgresql/8.4/main/pg_hba.conf"
-  service postgresql reload
 
 Please see TODO.txt for a list of what is not yet implemented but
 would like to be.

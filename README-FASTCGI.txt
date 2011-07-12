@@ -1,6 +1,6 @@
-Apache FastCGI setup, somewhat untested:
+Apache FastCGI setup on Debian/Ubuntu, somewhat untested:
 
-apt-get install libapache2-mod-fcgid
+apt-get install libapache2-mod-fcgid python-flup
 
 # /etc/apache2/sites-available/abe:
 <VirtualHost *>
@@ -23,6 +23,9 @@ chmod +x /usr/lib/cgi-bin/abe.fcgi
 www-data ALL=(USER) NOPASSWD: /home/USER/cgi-bin/abe
 
 mkdir -p /home/USER/cgi-bin
+
+# Put database config etc. in /home/USER/abe.conf.  See the sample
+# abe.conf in the Abe distribution.
 
 # /home/USER/cgi-bin/abe:
 #! /bin/sh
