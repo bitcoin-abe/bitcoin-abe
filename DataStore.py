@@ -355,6 +355,9 @@ class DataStore(object):
                                    store.binin(addr_vers)))
                         print "Assigned chain_id", chain_id, "to", chain_name
 
+            elif dircfg in datadirs:
+                store.datadirs.append(datadirs[dircfg])
+                continue
             else:
                 # Not a dict.  A string naming a directory holding
                 # standard chains.
