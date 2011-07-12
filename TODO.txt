@@ -12,6 +12,8 @@
 
 * Create "short links" as on http://blockexplorer.com.
 
+* Clean up and document limits on search result size.
+
 * Add a tool to upload transactions if bitcoind supports it.
 
 * Start a test suite.
