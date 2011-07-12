@@ -1,8 +1,8 @@
 Abe: a free block chain browser for Bitcoin-based currencies.
 https://github.com/jtobey/bitcoin-abe
-Copyright(C) 2011 by John Tobey <John.Tobey@gmail.com>
-License: GNU Affero General Public License, see the file LICENSE.txt.
-Portions Copyright (c) 2010 Gavin Andresen, see bct-LICENSE.txt.
+    Copyright(C) 2011 by John Tobey <John.Tobey@gmail.com>
+    License: GNU Affero General Public License, see the file LICENSE.txt.
+    Portions Copyright (c) 2010 Gavin Andresen, see bct-LICENSE.txt.
 
 Welcome to Abe!
 ===============
@@ -82,8 +82,8 @@ rough overview of FastCGI setup, see README-FASTCGI.txt.
 To run the built-in HTTP server instead of FastCGI, specify a TCP port
 and network interface in abe.conf, e.g.:
 
-  port 2750
-  host 127.0.0.1  # or a domain name
+    port 2750
+    host 127.0.0.1  # or a domain name
 
 Input
 -----
@@ -91,7 +91,7 @@ Input
 To display Namecoin or any block chain with data somewhere other than
 the default Bitcoin directory specify "datadir" in abe.conf, e.g.:
 
-  datadir = /home/bitcoin/.namecoin
+    datadir = /home/bitcoin/.namecoin
 
 Note that this software is currently unaware of name transactions.
 
