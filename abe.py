@@ -1215,7 +1215,7 @@ def serve(store):
         if args.host is None:
             args.host = "localhost"
         from wsgiref.simple_server import make_server
-        port = int(args.port or 8888)
+        port = int(args.port or 80)
         httpd = make_server(args.host, port, abe)
         print "Serving HTTP..."
         try:
