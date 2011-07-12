@@ -1480,7 +1480,7 @@ store._ddl['txout_approx'],
         try:
             ds = open_blkfile()
         except IOError, e:
-            print "Skipping datadir " + dircfg['dirname'] + ": " + e
+            print "Skipping datadir " + dircfg['dirname'] + ": " + str(e)
             return
         ds.read_cursor = dircfg['blkfile_offset']
 
