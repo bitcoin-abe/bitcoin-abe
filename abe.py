@@ -147,16 +147,18 @@ class Abe:
             print "fixed path_info"
             return redirect(page)
 
-        # Always be up-to-date, even if we means having to wait for a response!
-        # XXX Could use threads, timers, or a cron job.
-        abe.store.catch_up()
-
         obtype = wsgiref.util.shift_path_info(env)
         handler = abe.handlers.get(obtype)
         try:
             if handler is None:
                 return abe.serve_static(obtype + env['PATH_INFO'],
                                         start_response)
+
+            # Always be up-to-date, even if we means having to wait
+            # for a response!  XXX Could use threads, timers, or a
+            # cron job.
+            abe.store.catch_up()
+
             handler(page)
         except PageNotFound:
             status = '404 Not Found'
