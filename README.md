@@ -58,7 +58,7 @@ You may specify connect-args in any of the following forms:
 * named arguments as a JSON object, e.g.:
   connect-args = { "database": "abe", "password": "b1tc0!n" }
 
-* multiple arguments as a JSON array, e.g.:
+* positional arguments as a JSON array, e.g.:
   connect-args = ["abe", "abe", "b1tc0!n"]
 
 * a single string argument on one line, e.g.:
