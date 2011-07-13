@@ -1,35 +1,31 @@
-* Speed up SQLite initial load.
+* Use explicit constraint names.
 
-* Provide a fast load mode with constraints disabled.
+* Speed up initial load by disabling unneeded constraints temporarily.
 
-* Modularise further.
-
-* Abstract inline SQL out of the rendering methods.
-
-* Separate view from controller.
+* Separate HTML from data access.
 
 * Create "short links" as on http://blockexplorer.com.
+
+* /q/nethash
+
+* Start a test suite.
+
+* Test on MySQL.
+
+* Speed up browsing by denormalizing data, perhaps using materialized
+  views where available.
+
+* Perhaps test on Oracle.
+
+* Use SEQUENCEs where available for synthetic identifiers.
 
 * Clean up and document limits on search result size.
 
 * Add a tool to upload transactions if bitcoind supports it.
 
-* Start a test suite.
+* Perhaps write a validation module to check db data.
 
-* Use explicit constraint names.
-
-* Test on Oracle.
-
-* Speed up queries using denormalization and perhaps materialized
-  views, where available.
-
-* Test on MySQL.
-
-* Use SEQUENCEs where available for synthetic identifiers.
-
-* Write a validation module to check db data.
-
-* Abstract inline SQL into the DataStore class.
+* Abstract SQL into the DataStore class.
 
 * Highlight any objects that are not in the main chain as such.
 
@@ -67,8 +63,8 @@
 * Import transactions from the pool.
 
 * Perhaps add coin tracking features: allow the administrator to
-  specify "interesting" transactions and addresses, then add a
-  hyperlink from objects linked to them.
+  specify "interesting" (e.g., suspected fraudulent) transactions and
+  addresses, then add a hyperlink from objects linked to them.
 
 * Perhaps track and report coin difficulty as proposed by casascius:
   http://forum.bitcoin.org/index.php?topic=10755.0
