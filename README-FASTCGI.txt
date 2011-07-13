@@ -36,9 +36,7 @@ Replace USER with your Unix user name and create file
     #! /usr/bin/python
     import subprocess, sys, os, time
     command=["sudo", "-u", "USER", "/home/USER/cgi-bin/abe", str(os.getpid())]
-    subprocess.Popen(command, stdin=sys.stdin)
-    while True:
-        time.sleep(1000)
+    subprocess.Popen(command, stdin=sys.stdin).wait()
 
 Make the file executable:
 

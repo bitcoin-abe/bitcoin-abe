@@ -75,7 +75,7 @@ DEFAULT_TEMPLATE = """
 LOG10COIN = 8
 COIN = 10 ** LOG10COIN
 
-ADDRESS_RE = re.compile('[1-9A-HJ-NP-Za-km-z]{27,}\\Z')
+ADDRESS_RE = re.compile('[1-9A-HJ-NP-Za-km-z]{26,}\\Z')
 ADDR_PREFIX_RE = re.compile('[1-9A-HJ-NP-Za-km-z]{6,}\\Z')
 HEIGHT_RE = re.compile('(?:0|[1-9][0-9]*)\\Z')
 HASH_PREFIX_RE = re.compile('[0-9a-fA-F]{6,64}\\Z')
@@ -1094,7 +1094,8 @@ class Abe:
             if c != '1':
                 break
             ones += 1
-        minlen = max(len(ap), 27)
+        all_ones = (ones == len(ap))
+        minlen = max(len(ap), 24)
         l = max(35, len(ap))  # XXX Increase "35" to support multibyte
                               # address versions.
         al = ap + ('1' * (l - len(ap)))
@@ -1109,20 +1110,25 @@ class Abe:
         def process(row):
             hash = abe.store.binout(row[0])
             address = hash_to_address(vl, hash)
-            if not address.startswith(ap):
+            if address.startswith(ap):
+                v = vl
+            else:
                 if vh != vl:
                     address = hash_to_address(vh, hash)
                     if not address.startswith(ap):
                         return None
-                return None
-            print "found address:", address
-            return { 'name': 'Address ' + address, 'uri': 'address/' + address }
+                    v = vh
+            if abe.is_address_version(v):
+                return {
+                    'name': 'Address ' + address,
+                    'uri': 'address/' + address,
+                    }
 
         while l >= minlen:
             vl, hl = decode_address(al)
             vh, hh = decode_address(ah)
             if ones:
-                if hash_to_address('\0', hh)[ones:][:1] == '1':
+                if not all_ones and hash_to_address('\0', hh)[ones:][:1] == '1':
                     break
             elif vh == '\0':
                 break
@@ -1193,6 +1199,10 @@ class Abe:
             return found
         except IOError:
             raise PageNotFound()
+
+    # Change this if you want multi-byte address versions.
+    def is_address_version(abe, v):
+        return len(v) == 1
 
 def get_int_param(page, name):
     vals = page['params'].get(name)
