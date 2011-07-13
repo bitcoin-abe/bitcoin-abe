@@ -1310,7 +1310,7 @@ def serve(store):
                     #os._exit(0)  # sys.exit merely raises an exception.
                     os.kill(os.getpid(), signal.SIGTERM)
                     return
-                print "process", str(wpid), "found alive"
+                #print "process", str(wpid), "found alive"
                 Timer(interval, watch).start()
             Timer(interval, watch).start()
         WSGIServer(abe).run()
