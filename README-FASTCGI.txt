@@ -59,7 +59,7 @@ Create file /home/USER/cgi-bin/abe with these contents:
 
     #! /bin/sh
     PYTHONUNBUFFERED=1 exec /home/USER/bitcoin-abe/abe.py \
-    --config /home/USER/abe.conf --static-path static/ --server-pid="$1"
+    --config /home/USER/abe.conf --static-path static/ --watch-pid="$1"
 
 Make the file executable:
 
