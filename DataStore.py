@@ -45,6 +45,12 @@ NAMECOIN_POLICY_ID = 3
 NAMECOIN_CHAIN_ID = 3
 NAMECOIN_ADDRESS_VERSION = "\x34"
 
+WEEDS_MAGIC = "\xf8\xbf\xb5\xda"
+WEEDS_MAGIC_ID = 4
+WEEDS_POLICY_ID = 4
+WEEDS_CHAIN_ID = 4
+WEEDS_ADDRESS_VERSION = "\xf3"
+
 GENESIS_HASH_PREV = "\0" * 32
 
 SCRIPT_ADDRESS_RE = re.compile("\x76\xa9\x14(.{20})\x88\xac", re.DOTALL)
@@ -744,9 +750,12 @@ store._ddl['txout_approx'],
                               "Testnet"))
         store.sql(ins_magic, (NAMECOIN_MAGIC_ID,
                               store.binin(NAMECOIN_MAGIC), "Namecoin"))
+        store.sql(ins_magic, (WEEDS_MAGIC_ID,
+                              store.binin(WEEDS_MAGIC), "Weedsnet"))
         store.sql(ins_policy, (BITCOIN_POLICY_ID, "Bitcoin policy"))
         store.sql(ins_policy, (TESTNET_POLICY_ID, "Testnet policy"))
         store.sql(ins_policy, (NAMECOIN_POLICY_ID, "Namecoin policy"))
+        store.sql(ins_policy, (WEEDS_POLICY_ID, "Weedsnet policy"))
         store.sql(ins_chain,
                   (BITCOIN_CHAIN_ID, BITCOIN_MAGIC_ID, BITCOIN_POLICY_ID,
                    'Bitcoin', 'BTC', store.binin(BITCOIN_ADDRESS_VERSION)))
@@ -756,6 +765,9 @@ store._ddl['txout_approx'],
         store.sql(ins_chain,
                   (NAMECOIN_CHAIN_ID, NAMECOIN_MAGIC_ID, NAMECOIN_POLICY_ID,
                    'Namecoin', 'NMC', store.binin(NAMECOIN_ADDRESS_VERSION)))
+        store.sql(ins_chain,
+                  (WEEDS_CHAIN_ID, WEEDS_MAGIC_ID, WEEDS_POLICY_ID,
+                   'Weedsnet', 'WDS', store.binin(WEEDS_ADDRESS_VERSION)))
 
         store.save_config()
         store.commit()
@@ -1534,6 +1546,8 @@ store._ddl['txout_approx'],
                     chain_id = TESTNET_CHAIN_ID
                 elif magic == NAMECOIN_MAGIC:
                     chain_id = NAMECOIN_CHAIN_ID
+                elif magic == WEEDS_MAGIC:
+                    chain_id = WEEDS_CHAIN_ID
                 else:
                     chain_id = None
 
