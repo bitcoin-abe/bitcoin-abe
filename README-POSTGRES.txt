@@ -6,4 +6,4 @@ sudo -u postgres createdb abe
 sudo -u postgres createuser USER
 # Replace 8.4 with the PostgreSQL version:
 sudo sh -c "echo local abe USER ident >> /etc/postgresql/8.4/main/pg_hba.conf"
-service postgresql reload
+sudo service postgresql reload
