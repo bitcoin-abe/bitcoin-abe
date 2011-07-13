@@ -22,9 +22,10 @@ Dependencies
 
 Abe depends on Python Crypto modules (Debian package python-crypto)
 and a database such as PostgreSQL (see README-POSTGRES.txt) or SQLite
-(python-pysqlite2).  Other SQL databases may work with minor changes.
-You will need a copy of the block file (blk0001.dat in your Bitcoin
-directory).  You may let Abe read the block file while Bitcoin runs.
+(package python-pysqlite2).  Other SQL databases may work with minor
+changes.  You will need a copy of the block file (blk0001.dat in your
+Bitcoin directory).  You may let Abe read the block file while Bitcoin
+runs.
 
 License
 -------
@@ -77,8 +78,8 @@ and starts more quickly the second time.
 Web server
 ----------
 
-By default, Abe expects to be run in a FastCGI environment.  For a
-rough overview of FastCGI setup, see README-FASTCGI.txt.
+By default, Abe expects to be run in a FastCGI environment.  For an
+overview of FastCGI setup, see README-FASTCGI.txt.
 
 To run the built-in HTTP server instead of FastCGI, specify a TCP port
 and network interface in abe.conf, e.g.:
@@ -95,6 +96,18 @@ the default Bitcoin directory specify "datadir" in abe.conf, e.g.:
     datadir = /home/bitcoin/.namecoin
 
 Note that this software is currently unaware of name transactions.
+
+The datadir directive can include a new chain's basic configuration,
+e.g.:
+
+    datadir += [{
+            "dirname": "/home/weeds/testnet",
+            "chain":   "Weeds",
+            "code3":   "WDS",
+            "address_version": "o" }]
+
+Note that "+=" adds to the existing datadir configuration, while "="
+replaces it.
 
 More information
 ----------------

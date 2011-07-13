@@ -7,7 +7,10 @@ Install required packages:
     apt-get install python-crypto
 
 Replace YOUR.ABE.DOMAIN below with a domain that resolves to this
-host.  The site will be http://YOUR.ABE.DOMAIN/.
+host.  The site will be http://YOUR.ABE.DOMAIN/.  To embed Abe in an
+existing site (e.g., http://YOUR.DOMAIN/abe/) simply prepend a path
+(e.g., "/abe" in the Alias directives and place them in your existing
+sites-available file instead of a new VirtualHost.
 Replace ABE/DIRECTORY/htdocs with the directory containing abe.css;
 the Apache process must have permission to read it.
 Replace "/usr/lib/cgi-bin" with another directory if you prefer;
@@ -26,7 +29,7 @@ Create file /etc/apache2/sites-available/abe with these contents:
         #CustomLog /var/log/abe_access.log combined
     </VirtualHost>
 
-Issue:
+Enable the new configuration:
 
     a2ensite abe
 
@@ -44,8 +47,8 @@ Make the file executable:
 
 Replace USER with your Unix user name and use visudo(1) to append
 the following to /etc/sudoers:
-This allows the Apache account (www-data) to run Abe as USER.
 
+    # This allows the Apache account (www-data) to run Abe as USER.
     www-data ALL=(USER) NOPASSWD: /home/USER/cgi-bin/abe
 
 Put configuration such as database connection parameters in
