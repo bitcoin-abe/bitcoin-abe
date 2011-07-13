@@ -1,5 +1,3 @@
-* Sporadic hanging in FastCGI mode.
-
 * Speed up SQLite initial load.
 
 * Provide a fast load mode with constraints disabled.
@@ -31,8 +29,6 @@
 
 * Write a validation module to check db data.
 
-* Test on Apache/FastCGI.
-
 * Abstract inline SQL into the DataStore class.
 
 * Highlight any objects that are not in the main chain as such.
@@ -42,6 +38,8 @@
 * Compute Merkle trees and verify transaction Merkle roots.
 
 * Report the Merkle branch of a particular transaction to support SPV.
+
+* Test as multithreaded or forking server.
 
 * Perhaps support searching by hash/address substring.
 

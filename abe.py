@@ -1183,7 +1183,7 @@ class Abe:
             # XXX Should check file modification time and handle HTTP
             # if-modified-since.  Or just hope serious users will map
             # our htdocs as static in their web server.
-            # XXX is "+ pi" adequate for non-POSIX systems?
+            # XXX is "+ '/' + path" adequate for non-POSIX systems?
             found = open(abe.htdocs + '/' + path, "rb")
             import mimetypes
             (type, enc) = mimetypes.guess_type(path)
@@ -1289,8 +1289,44 @@ def serve(store):
             httpd.shutdown()
             raise
     else:
+        # FastCGI server.
         from flup.server.fcgi import WSGIServer
+
+        # In the case where the web server starts abe.py but can't
+        # signal it on server shutdown (because Abe runs as a
+        # different user) we arrange the following.  FastCGI script
+        # passes its pid as --watch-pid=PID and enters an infinite
+        # loop.  We check every minute whether it has terminated and
+        # exit when it has.
+        wpid = args.watch_pid
+        if wpid is not None:
+            wpid = int(wpid)
+            interval = 60.0  # XXX should be configurable.
+            from threading import Timer
+            import signal
+            def watch():
+                if not process_is_alive(wpid):
+                    print "process", str(wpid), "terminated, exiting"
+                    #os._exit(0)  # sys.exit merely raises an exception.
+                    os.kill(os.getpid(), signal.SIGTERM)
+                    return
+                print "process", str(wpid), "found alive"
+                Timer(interval, watch).start()
+            Timer(interval, watch).start()
         WSGIServer(abe).run()
+
+def process_is_alive(pid):
+    # XXX probably fails spectacularly on Windows.
+    import errno
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError, e:
+        if e.errno == errno.EPERM:
+            return True  # process exists, but we can't send it signals.
+        if e.errno == errno.ESRCH:
+            return False # no such process.
+        raise
 
 def parse_argv(argv):
     conf = {
@@ -1308,6 +1344,7 @@ def parse_argv(argv):
         "document_root":None,
         "auto_agpl":    None,
         "download_name":None,
+        "watch_pid":    None,
 
         "template":     DEFAULT_TEMPLATE,
         "template_vars": {
@@ -1367,7 +1404,7 @@ See abe.conf for commented examples.""")
                 var = var[:-1]
                 add = True
 
-        if val is not True and val[0] in ('"', '[', '{'):
+        if val is not True and val[:1] in ('"', '[', '{'):
             import json
             val = json.loads(val)
 
