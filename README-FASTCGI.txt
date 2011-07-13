@@ -34,7 +34,7 @@ Replace USER with your Unix user name and create file
 /usr/lib/cgi-bin/abe.fcgi with these contents:
 
     #! /usr/bin/python
-    import subprocess, sys, os, time
+    import subprocess, sys, os
     command=["sudo", "-u", "USER", "/home/USER/cgi-bin/abe", str(os.getpid())]
     subprocess.Popen(command, stdin=sys.stdin).wait()
 
