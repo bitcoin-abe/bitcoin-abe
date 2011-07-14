@@ -1226,7 +1226,7 @@ def format_satoshis(satoshis, chain):
 
 def format_difficulty(diff):
     idiff = int(diff)
-    ret = '.' + str(int(round((diff - idiff) * 1000)))
+    ret = '.%03d' % (int(round((diff - idiff) * 1000)),)
     while idiff > 999:
         ret = (' %03d' % (idiff % 1000,)) + ret
         idiff = idiff / 1000
