@@ -443,7 +443,8 @@ upgrades = [
     ('Abe13', populate_abe_sequences),
     ('Abe14', add_datadir_chain_id),
     ('Abe15', rescan_if_missed_blocks),
-    ('Abe16', None),
+    ('Abe16', rescan_if_missed_blocks),
+    ('Abe17', None),
 ]
 
 def upgrade_schema(store):

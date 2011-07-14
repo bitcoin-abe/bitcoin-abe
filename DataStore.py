@@ -23,7 +23,7 @@ import BCDataStream
 import deserialize
 import util
 
-SCHEMA_VERSION = "Abe16"
+SCHEMA_VERSION = "Abe17"
 
 WORK_BITS = 304  # XXX more than necessary.
 
@@ -988,14 +988,6 @@ store._ddl['txout_approx'],
             if block['height'] <= ancestor['height']:
                 return False
 
-    def contains_block(store, hash):
-        return store.block_hash_to_id(hash)
-
-    def block_hash_to_id(store, hash):
-        row = store.selectrow("SELECT block_id FROM block WHERE block_hash = ?",
-                              (store.hashin(hash),))
-        return row[0] if row else row
-
     def find_prev(store, hash):
         row = store.selectrow("""
             SELECT block_id, block_height, block_chain_work,
@@ -1220,8 +1212,9 @@ store._ddl['txout_approx'],
                        block_total_satoshis = ?,
                        block_satoshi_seconds = ?
                  WHERE block_id = ?""",
-                      (height, chain_work, seconds, satoshis,
-                       store.intin(ss), next_id))
+                      (height, store.binin_int(chain_work, WORK_BITS),
+                       seconds, satoshis, store.intin(ss), next_id))
+
             store._update_block(next_id, block_id, height)
 
             if height is not None:
@@ -1356,15 +1349,20 @@ store._ddl['txout_approx'],
         else:
             # Do we produce a chain longer than the current chain?
             # Query whether the new block (or its tallest descendant)
-            # beats the current chain_last_block_id.
+            # beats the current chain_last_block_id.  Also check
+            # whether the current best is our top, which indicates
+            # this block is in longest; this can happen in database
+            # repair scenarios.
             row = store.selectrow("""
                 SELECT b.block_id, b.block_height
                   FROM block b, chain c
-                 WHERE b.block_id = c.chain_last_block_id
-                   AND c.chain_id = ?
-                   AND b.block_chain_work < ?""",
-                      (chain_id, store.binin_int(b['top']['chain_work'],
-                                                 WORK_BITS)))
+                 WHERE c.chain_id = ?
+                   AND ((b.block_id = c.chain_last_block_id
+                         AND b.block_chain_work < ?)
+                        OR c.chain_last_block_id = ?)""",
+                      (chain_id,
+                       store.binin_int(b['top']['chain_work'], WORK_BITS),
+                       b['top']['block_id']))
             if row:
                 # New longest chain.
                 in_longest = 1
@@ -1528,8 +1526,18 @@ store._ddl['txout_approx'],
             # XXX should decode target and check hash against it to avoid
             # loading garbage data.
 
-            if store.contains_block(hash):
-                # Block header already seen.  Skip the block.
+            chain_ids = set()
+            block_row = store.selectrow("""
+                SELECT block_id, block_height, block_chain_work,
+                       block_nTime, block_total_seconds,
+                       block_total_satoshis, block_satoshi_seconds
+                  FROM block
+                 WHERE block_hash = ?
+            """, (store.hashin(hash),))
+
+            if block_row:
+                # Block header already seen.  Don't import the block,
+                # but try to add it to a chain.
                 # XXX Could rescan transactions in case we loaded an
                 # incomplete block or if operating under --rescan.
                 ds.read_cursor += length
@@ -1538,20 +1546,45 @@ store._ddl['txout_approx'],
                 b["hash"] = hash
                 store.import_block(b)
 
-                # Assume blocks obey the respective policy if they get here.
-                chain_id = dircfg['chain_id']
-                if chain_id is not None:
-                    pass
-                elif magic == BITCOIN_MAGIC:
-                    chain_id = BITCOIN_CHAIN_ID
-                elif magic == TESTNET_MAGIC:
-                    chain_id = TESTNET_CHAIN_ID
-                elif magic == NAMECOIN_MAGIC:
-                    chain_id = NAMECOIN_CHAIN_ID
-                elif magic == WEEDS_MAGIC:
-                    chain_id = WEEDS_CHAIN_ID
+            # Assume blocks obey the respective policy if they get here.
+            chain_id = dircfg['chain_id']
+            if chain_id is not None:
+                pass
+            elif magic == BITCOIN_MAGIC:
+                chain_id = BITCOIN_CHAIN_ID
+            elif magic == TESTNET_MAGIC:
+                chain_id = TESTNET_CHAIN_ID
+            elif magic == NAMECOIN_MAGIC:
+                chain_id = NAMECOIN_CHAIN_ID
+            elif magic == WEEDS_MAGIC:
+                chain_id = WEEDS_CHAIN_ID
 
-                if chain_id is not None:
+            if chain_id is not None:
+
+                if block_row:
+                    b = {
+                        "block_id":   block_row[0],
+                        "height":     block_row[1],
+                        "chain_work": store.binout_int(block_row[2]),
+                        "nTime":      block_row[3],
+                        "seconds":    block_row[4],
+                        "satoshis":   block_row[5],
+                        "ss":         block_row[6]}
+                    if store.selectrow("""
+                        SELECT 1
+                          FROM chain_candidate
+                         WHERE block_id = ?
+                           AND chain_id = ?""",
+                                    (b['block_id'], chain_id)):
+                        b = None
+                    else:
+                        if b['height'] == 0:
+                            b['hashPrev'] = GENESIS_HASH_PREV
+                        else:
+                            b['hashPrev'] = 'dummy'  # Fool adopt_orphans.
+                        b['top'], new_work = store.adopt_orphans(b, 0)
+
+                if b:
                     store.offer_block_to_chain(b, chain_id)
 
             bytes_done += length

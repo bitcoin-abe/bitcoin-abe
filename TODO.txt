@@ -2,6 +2,8 @@
 
 * Speed up initial load by disabling unneeded constraints temporarily.
 
+* Profile adopt_orphans and offer_block_to_chain.
+
 * Separate HTML from data access.
 
 * Create "short links" as on http://blockexplorer.com.
