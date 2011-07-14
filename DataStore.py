@@ -23,7 +23,7 @@ import BCDataStream
 import deserialize
 import util
 
-SCHEMA_VERSION = "Abe17"
+SCHEMA_VERSION = "Abe18"
 
 WORK_BITS = 304  # XXX more than necessary.
 

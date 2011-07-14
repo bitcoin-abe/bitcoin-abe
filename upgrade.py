@@ -372,11 +372,114 @@ def rescan_if_missed_blocks(store):
         SELECT COUNT(1)
           FROM block
           LEFT JOIN chain_candidate USING (block_id)
-         WHERE chain_id IS NULL;
+         WHERE chain_id IS NULL
     """)
     if bad > 0:
         store.sql(
             "UPDATE datadir SET blkfile_number = 1, blkfile_offset = 0")
+
+def insert_missed_blocks(store):
+    """
+    Rescanning doesn't always work due to timeouts and resource
+    constraints.  This may help.
+    """
+    missed = []
+    for row in store.selectall("""
+        SELECT b.block_id
+          FROM block b
+          LEFT JOIN chain_candidate cc ON (b.block_id = cc.block_id)
+         WHERE chain_id IS NULL
+         ORDER BY b.block_height
+    """):
+        missed.append(row[0])
+    if not missed:
+        return
+    print "Attempting to repair", len(missed), "missed blocks."
+    inserted = 0
+    for block_id in missed:
+        store.sql("""
+            INSERT INTO chain_candidate (
+                chain_id, block_id, block_height, in_longest)
+            SELECT cc.chain_id, b.block_id, b.block_height, 0
+              FROM chain_candidate cc
+              JOIN block prev ON (cc.block_id = prev.block_id)
+              JOIN block b ON (b.prev_block_id = prev.block_id)
+             WHERE b.block_id = ?""", (block_id,))
+        inserted += store.cursor.rowcount
+    if inserted < len(missed):
+        raise Exception(
+            "Failed to insert all missing blocks; inserted " + inserted);
+    print "Inserted", inserted, "rows into chain_candidate."
+
+def repair_missed_blocks(store):
+    print "Finding longest chains."
+    best_work = []
+    for row in store.selectall("""
+        SELECT cc.chain_id, MAX(b.block_chain_work)
+          FROM chain_candidate cc
+          JOIN block b USING (block_id)
+         GROUP BY cc.chain_id"""):
+        best_work.append(row)
+    best = []
+    for row in best_work:
+        chain_id, bcw = row
+        (block_id,) = store.selectrow("""
+            SELECT MIN(block_id)
+              FROM block b
+              JOIN chain_candidate cc USING (block_id)
+             WHERE cc.chain_id = ?
+               AND b.block_chain_work = ?
+        """, (chain_id, bcw))
+        (in_longest,) = store.selectrow("""
+            SELECT in_longest
+              FROM chain_candidate
+             WHERE chain_id = ?
+               AND block_id = ?
+        """, (chain_id, block_id))
+        if in_longest == 1:
+            print "Chain", chain_id, "already has the block of greatest work."
+            continue
+        best.append([chain_id, block_id])
+        store.sql("""
+            UPDATE chain
+               SET chain_last_block_id = ?
+             WHERE chain_id = ?""",
+                  (block_id, chain_id))
+        if store.cursor.rowcount == 1:
+            print "Chain", chain_id, "block", block_id
+        else:
+            raise Exception("Wrong rowcount updating chain " + str(chain_id))
+    if not best:
+        return
+    print "Marking blocks in longest chains."
+    for elt in best:
+        chain_id, block_id = elt
+        count = 0
+        while True:
+            store.sql("""
+                UPDATE chain_candidate
+                   SET in_longest = 1
+                 WHERE chain_id = ?
+                   AND block_id = ?""",
+                      (chain_id, block_id))
+            if store.cursor.rowcount != 1:
+                raise Exception("Wrong rowcount updating chain_candidate ("
+                                + str(chain_id) + ", " + str(block_id) + ")")
+            count += 1
+            row = store.selectrow("""
+                SELECT b.prev_block_id, cc.in_longest
+                  FROM block b
+                  JOIN chain_candidate cc ON (b.prev_block_id = cc.block_id)
+                 WHERE cc.chain_id = ?
+                   AND b.block_id = ?""",
+                                  (chain_id, block_id))
+            if row is None:
+                break  # genesis block?
+            block_id, in_longest = row
+            if in_longest == 1:
+                break
+        print "Processed", count, "in chain", chain_id
+    print "Repair successful."
 
 def run_upgrades(store, upgrades):
     for i in xrange(len(upgrades) - 1):
@@ -444,7 +547,9 @@ upgrades = [
     ('Abe14', add_datadir_chain_id),
     ('Abe15', rescan_if_missed_blocks),
     ('Abe16', rescan_if_missed_blocks),
-    ('Abe17', None),
+    ('Abe17',   insert_missed_blocks),
+    ('Abe17.1', repair_missed_blocks),
+    ('Abe18', None),
 ]
 
 def upgrade_schema(store):
