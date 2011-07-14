@@ -397,6 +397,9 @@ def insert_missed_blocks(store):
     print "Attempting to repair", len(missed), "missed blocks."
     inserted = 0
     for block_id in missed:
+        # Insert block if its previous block is in the chain.
+        # XXX This won't work if we want to support forks.
+        # XXX This doesn't work for unattached blocks.
         store.sql("""
             INSERT INTO chain_candidate (
                 chain_id, block_id, block_height, in_longest)
@@ -406,9 +409,7 @@ def insert_missed_blocks(store):
               JOIN block b ON (b.prev_block_id = prev.block_id)
              WHERE b.block_id = ?""", (block_id,))
         inserted += store.cursor.rowcount
-    if inserted < len(missed):
-        raise Exception(
-            "Failed to insert all missing blocks; inserted " + inserted);
+        store.commit()  # XXX not sure why PostgreSQL needs this.
     print "Inserted", inserted, "rows into chain_candidate."
 
 def repair_missed_blocks(store):
