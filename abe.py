@@ -44,6 +44,8 @@ DONATIONS_BTC = '1PWC7PNHL1SgvZaN7xEtygenKjWobWsCuf'
 DONATIONS_NMC = 'NJ3MSELK1cWnqUa6xhF2wUYAnz3RSrWXcK'
 
 DEFAULT_TEMPLATE = """
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
 <head>
     <link rel="stylesheet" type="text/css"
@@ -139,6 +141,8 @@ class Abe:
             "params": {},
             "dotdot": "../" * (env['PATH_INFO'].count('/') - 1),
             "start_response": start_response,
+            "content_type": 'application/xhtml+xml',
+            "template": abe.template,
             }
         if 'QUERY_STRING' in env:
             page['params'] = urlparse.parse_qs(env['QUERY_STRING'])
@@ -179,7 +183,7 @@ class Abe:
 
         abe.store.rollback()  # Close imlicitly opened transaction.
 
-        start_response(status, [('Content-type', 'application/xhtml+xml'),
+        start_response(status, [('Content-type', page['content_type']),
                                 ('Cache-Control', 'max-age=30')])
 
         tvars = abe.template_vars.copy()
@@ -191,10 +195,7 @@ class Abe:
             tvars['download'] = (
                 ' <a href="' + page['dotdot'] + 'download">Source</a>')
 
-        return map(flatten,
-                   ['<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"\n'
-                    '  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">\n',
-                    abe.template % tvars])
+        return page['template'] % tvars
 
     def show_world(abe, page):
         page['title'] = ABE_APPNAME + ' Search'
@@ -301,6 +302,8 @@ class Abe:
             # Tolerate trailing slash.
             page['env']['SCRIPT_NAME'] = page['env']['SCRIPT_NAME'][:-1]
             raise Redirect()
+        if cmd == 'q':
+            return abe.api(page, chain=chain)
         if cmd is not None:
             raise PageNotFound()
 
@@ -1163,6 +1166,22 @@ class Abe:
              WHERE UPPER(chain_name) LIKE '%' || ? || '%'
                 OR UPPER(chain_code3) LIKE '%' || ? || '%'
         """, (q.upper(), q.upper())))
+
+    def api(abe, page, chain=None):
+        page['content_type'] = 'text/plain'
+        page['template'] = '%(body)s'
+        if chain is None:
+            raise PageNotFound()  # Not supported yet.
+        cmd = wsgiref.util.shift_path_info(page['env'])
+        if cmd != 'getblockcount':
+            raise PageNotFound()  # Others not supported yet.
+        (height,) = abe.store.selectrow("""
+            SELECT MAX(block_height)
+              FROM chain_candidate
+             WHERE chain_id = ?
+               AND in_longest = 1""", (chain['id'],))
+        count = 0 if height is None else height + 1
+        page['body'] = count
 
     def download_srcdir(abe, page):
         name = abe.args.download_name
