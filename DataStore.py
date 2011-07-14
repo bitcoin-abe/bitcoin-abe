@@ -257,7 +257,11 @@ class DataStore(object):
 
         # Might reimplement these someday...
         store.binout_int = lambda x: int(binout_hex(x), 16)
-        store.binin_int = lambda x, bits: binin_hex(("%%0%dx" % (bits / 4)) % x)
+        def binin_int(x, bits):
+            if x is None:
+                return None
+            return binin_hex(("%%0%dx" % (bits / 4)) % x)
+        store.binin_int = binin_int
 
         store.intin       = intin
         store.new_id      = new_id
@@ -1040,8 +1044,14 @@ store._ddl['txout_approx'],
 
         store._put_block(block_id, prev_block_id, b['height'])
 
-        b['seconds'] = prev_seconds + b['nTime'] - prev_nTime
-        b['satoshis'] = prev_satoshis + b['value_out'] - b['value_in']
+        if prev_seconds is None:
+            b['seconds'] = None
+        else:
+            b['seconds'] = prev_seconds + b['nTime'] - prev_nTime
+        if prev_satoshis is None:
+            b['satoshis'] = None
+        else:
+            b['satoshis'] = prev_satoshis + b['value_out'] - b['value_in']
 
         # Insert the block table row.
         store.sql(
@@ -1558,6 +1568,11 @@ store._ddl['txout_approx'],
                 chain_id = NAMECOIN_CHAIN_ID
             elif magic == WEEDS_MAGIC:
                 chain_id = WEEDS_CHAIN_ID
+            else:
+                print ("chain not found for block", b and b['block_id'],
+                       "at", dircfg['dirname'],
+                       "file", dircfg['blkfile_number'],
+                       "offset", offset)
 
             if chain_id is not None:
 
@@ -1576,6 +1591,8 @@ store._ddl['txout_approx'],
                          WHERE block_id = ?
                            AND chain_id = ?""",
                                     (b['block_id'], chain_id)):
+                        print ("block", b['block_id'],
+                               "already in chain", chain_id)
                         b = None
                     else:
                         if b['height'] == 0:
