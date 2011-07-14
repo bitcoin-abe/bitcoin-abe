@@ -386,9 +386,10 @@ class DataStore(object):
             store.sql(store._ddl['abe_sequences'])
             row = None
         if row is None:
-            store.sql("INSERT INTO abe_sequences (key, nextid) VALUES (?, 1)",
-                      (key,))
-            ret = 1
+            (ret,) = store.selectrow("SELECT MAX(" + key + "_id) FROM " + key)
+            ret += 1
+            store.sql("INSERT INTO abe_sequences (key, nextid) VALUES (?, ?)",
+                      (key, ret + 1))
         else:
             ret = int(row[0])
         store.sql("UPDATE abe_sequences SET nextid = nextid + 1 WHERE key = ?",
