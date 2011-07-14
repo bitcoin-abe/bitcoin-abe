@@ -23,6 +23,9 @@ Create file /etc/apache2/sites-available/abe with these contents:
         Alias /static/ ABE/DIRECTORY/htdocs/
         Alias / /usr/lib/cgi-bin/abe.fcgi/
 
+        # Seconds allowed for abe.py to start returning data.  Default is 40.
+        FcgidIOTimeout 300
+
         # Uncomment to log Abe requests.
         #ErrorLog /var/log/abe_error.log
         #LogLevel info
