@@ -363,6 +363,21 @@ def populate_abe_sequences(store):
 def add_datadir_chain_id(store):
     store.sql("ALTER TABLE datadir ADD chain_id NUMERIC(10) NULL")
 
+def rescan_if_missed_blocks(store):
+    """
+    Due to a bug, some blocks may have been loaded but not placed in
+    a chain.  If so, reset all datadir offsets to 0 to force a rescan.
+    """
+    (bad,) = store.selectrow("""
+        SELECT COUNT(1)
+          FROM block
+          LEFT JOIN chain_candidate USING (block_id)
+         WHERE chain_id IS NULL;
+    """)
+    if bad > 0:
+        store.sql(
+            "UPDATE datadir SET blkfile_number = 1, blkfile_offset = 0")
+
 def run_upgrades(store, upgrades):
     for i in xrange(len(upgrades) - 1):
         vers, func = upgrades[i]
@@ -427,7 +442,8 @@ upgrades = [
     ('12.1', configure),
     ('Abe13', populate_abe_sequences),
     ('Abe14', add_datadir_chain_id),
-    ('Abe15', None),
+    ('Abe15', rescan_if_missed_blocks),
+    ('Abe16', None),
 ]
 
 def upgrade_schema(store):

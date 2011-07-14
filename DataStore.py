@@ -23,7 +23,7 @@ import BCDataStream
 import deserialize
 import util
 
-SCHEMA_VERSION = "Abe15"
+SCHEMA_VERSION = "Abe16"
 
 WORK_BITS = 304  # XXX more than necessary.
 
@@ -1539,8 +1539,9 @@ store._ddl['txout_approx'],
                 store.import_block(b)
 
                 # Assume blocks obey the respective policy if they get here.
-                if 'chain_id' in dircfg:
-                    chain_id = dircfg['chain_id']
+                chain_id = dircfg['chain_id']
+                if chain_id is not None:
+                    pass
                 elif magic == BITCOIN_MAGIC:
                     chain_id = BITCOIN_CHAIN_ID
                 elif magic == TESTNET_MAGIC:
@@ -1549,8 +1550,6 @@ store._ddl['txout_approx'],
                     chain_id = NAMECOIN_CHAIN_ID
                 elif magic == WEEDS_MAGIC:
                     chain_id = WEEDS_CHAIN_ID
-                else:
-                    chain_id = None
 
                 if chain_id is not None:
                     store.offer_block_to_chain(b, chain_id)
