@@ -1412,6 +1412,7 @@ See abe.conf for commented examples.""")
             return None
         if arg in ('-v', '--version'):
             print ABE_APPNAME, ABE_VERSION
+            print "Schema version", DataStore.SCHEMA_VERSION
             return None
 
         # Strip leading "--" to form a config variable.
