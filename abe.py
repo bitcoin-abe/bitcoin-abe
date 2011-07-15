@@ -33,7 +33,7 @@ import util  # Added functions.
 import base58
 
 ABE_APPNAME = "Abe"
-ABE_VERSION = '0.3'
+ABE_VERSION = '0.4'
 ABE_URL = 'https://github.com/jtobey/bitcoin-abe'
 
 COPYRIGHT_YEARS = '2011'

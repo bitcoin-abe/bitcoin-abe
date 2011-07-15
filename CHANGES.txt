@@ -1,0 +1,24 @@
+Major changes from 0.3 to 0.4 (2011-07-04 to 2011-07-15)
+========================================================
+
+* The chain summary page (the one listing several blocks in the same
+  chain) loads much faster than before.
+
+* Address search accepts an initial substring, still without storing
+  addresses in the database.
+
+* FastCGI support has matured.  See README-FASTCGI.txt for setup.
+
+* Abe supports Weeds currency natively.  Weeds info:
+  http://forum.bitcoin.org/index.php?topic=24209.0
+
+* The "datadir" configuration directive can add a new currency without
+  changes to Python code.
+
+* "auto-agpl" provides a link to download the source directory: a
+  license compliance aid for those not wishing to use a Github fork.
+
+* /chain/Bitcoin/q/getblockcount: first of (I hope) many
+  BBE-compatible APIs.
+
+* Several small fixes and speedups.
