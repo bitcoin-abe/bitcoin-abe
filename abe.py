@@ -78,6 +78,7 @@ LOG10COIN = 8
 COIN = 10 ** LOG10COIN
 
 ADDRESS_RE = re.compile('[1-9A-HJ-NP-Za-km-z]{26,}\\Z')
+# It is fun to change "6" to "3" and search lots of addresses.
 ADDR_PREFIX_RE = re.compile('[1-9A-HJ-NP-Za-km-z]{6,}\\Z')
 HEIGHT_RE = re.compile('(?:0|[1-9][0-9]*)\\Z')
 HASH_PREFIX_RE = re.compile('[0-9a-fA-F]{6,64}\\Z')
@@ -333,15 +334,17 @@ class Abe:
             return True
 
         rows = abe.store.selectall("""
-            SELECT block_hash, block_height, block_nTime, num_tx,
-                   block_nBits, block_value_out,
-                   block_total_seconds, block_satoshi_seconds,
-                   block_total_satoshis, block_ss_destroyed, block_total_ss
-              FROM chain_summary
-             WHERE chain_id = ?
-               AND block_height BETWEEN ? AND ?
-               AND in_longest = 1
-             ORDER BY block_height DESC LIMIT ?
+            SELECT b.block_hash, b.block_height, b.block_nTime, b.block_num_tx,
+                   b.block_nBits, b.block_value_out,
+                   b.block_total_seconds, b.block_satoshi_seconds,
+                   b.block_total_satoshis, b.block_ss_destroyed,
+                   b.block_total_ss
+              FROM block b
+              JOIN chain_candidate cc USING (block_id)
+             WHERE cc.chain_id = ?
+               AND cc.block_height BETWEEN ? AND ?
+               AND cc.in_longest = 1
+             ORDER BY cc.block_height DESC LIMIT ?
         """, (chain['id'], hi - count + 1, hi, count))
 
         if hi is None:
@@ -450,7 +453,7 @@ class Abe:
                 block_satoshi_seconds,
                 block_total_ss,
                 block_ss_destroyed,
-                num_tx
+                block_num_tx
               FROM chain_summary
              WHERE """ + where
         row = abe.store.selectrow(sql, bind)

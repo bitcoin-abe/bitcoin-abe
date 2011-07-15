@@ -363,6 +363,9 @@ def populate_abe_sequences(store):
 def add_datadir_chain_id(store):
     store.sql("ALTER TABLE datadir ADD chain_id NUMERIC(10) NULL")
 
+def noop(store):
+    pass
+
 def rescan_if_missed_blocks(store):
     """
     Due to a bug, some blocks may have been loaded but not placed in
@@ -482,6 +485,39 @@ def repair_missed_blocks(store):
         print "Processed", count, "in chain", chain_id
     print "Repair successful."
 
+def add_block_num_tx(store):
+    store.sql("ALTER TABLE block ADD block_num_tx NUMERIC(10)")
+
+def add_block_ss_destroyed(store):
+    store.sql("ALTER TABLE block ADD block_ss_destroyed NUMERIC(28)")
+
+def init_block_tx_sums(store):
+    print "Calculating block_num_tx and block_ss_destroyed."
+    rows = store.selectall("""
+        SELECT block_id,
+               COUNT(1),
+               COUNT(satoshi_seconds_destroyed),
+               SUM(satoshi_seconds_destroyed)
+          FROM block
+          JOIN block_tx USING (block_id)
+         GROUP BY block_id""")
+    count = 0
+    print "Storing block_num_tx."
+    for row in rows:
+        block_id, num_tx, num_ssd, ssd = row
+        if num_ssd < num_tx:
+            ssd = None
+        store.sql("""
+            UPDATE block
+               SET block_num_tx = ?,
+                   block_ss_destroyed = ?
+             WHERE block_id = ?""",
+                  (num_tx, ssd, block_id))
+        count += 1
+        if count % 1000 == 0:
+            store.commit()
+    # XXX would like to set NOT NULL on block_num_tx.
+
 def run_upgrades(store, upgrades):
     for i in xrange(len(upgrades) - 1):
         vers, func = upgrades[i]
@@ -546,11 +582,15 @@ upgrades = [
     ('12.1', configure),
     ('Abe13', populate_abe_sequences),
     ('Abe14', add_datadir_chain_id),
-    ('Abe15', rescan_if_missed_blocks),
-    ('Abe16', rescan_if_missed_blocks),
+    ('Abe15', noop),
+    ('Abe16', rescan_if_missed_blocks),  # May be slow.
     ('Abe17',   insert_missed_blocks),
     ('Abe17.1', repair_missed_blocks),
-    ('Abe18', None),
+    ('Abe18',   add_block_num_tx),       # Seconds
+    ('Abe18.1', add_block_ss_destroyed), # Seconds
+    ('Abe18.2', init_block_tx_sums),     # 5 minutes
+    ('Abe18.3', replace_chain_summary),  # Fast
+    ('Abe19',   None),
 ]
 
 def upgrade_schema(store):

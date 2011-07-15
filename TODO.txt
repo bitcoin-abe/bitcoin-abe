@@ -10,7 +10,7 @@
 
 * /q/nethash
 
-* Start a test suite.
+* Start a test suite, especially for out-of-order blocks and reorgs.
 
 * Test on MySQL.
 

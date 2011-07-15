@@ -23,7 +23,7 @@ import BCDataStream
 import deserialize
 import util
 
-SCHEMA_VERSION = "Abe18"
+SCHEMA_VERSION = "Abe19"
 
 WORK_BITS = 304  # XXX more than necessary.
 
@@ -427,39 +427,17 @@ class DataStore(object):
     b.prev_block_id,
     prev.block_hash prev_block_hash,
     b.block_chain_work,
-    COUNT(DISTINCT bt.tx_id) num_tx,
+    b.block_num_tx,
     b.block_value_in,
     b.block_value_out,
     b.block_total_satoshis,
     b.block_total_seconds,
     b.block_satoshi_seconds,
     b.block_total_ss,
-    SUM(bt.satoshi_seconds_destroyed) block_ss_destroyed
+    b.block_ss_destroyed
 FROM chain_candidate cc
 JOIN block b ON (cc.block_id = b.block_id)
-LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)
-JOIN block_tx bt ON (bt.block_id = b.block_id)
-JOIN txout USING (tx_id)
-GROUP BY
-    cc.chain_id,
-    cc.in_longest,
-    b.block_id,
-    b.block_hash,
-    b.block_version,
-    b.block_hashMerkleRoot,
-    b.block_nTime,
-    b.block_nBits,
-    b.block_nNonce,
-    cc.block_height,
-    b.prev_block_id,
-    prev.block_hash,
-    b.block_chain_work,
-    b.block_value_in,
-    b.block_value_out,
-    b.block_total_satoshis,
-    b.block_total_seconds,
-    b.block_satoshi_seconds,
-    b.block_total_ss""",
+LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
 
             "txout_detail":
 """CREATE VIEW txout_detail AS SELECT
@@ -594,6 +572,8 @@ store._ddl['configvar'],
     block_total_seconds NUMERIC(20),
     block_satoshi_seconds NUMERIC(28),
     block_total_ss NUMERIC(28),
+    block_num_tx  NUMERIC(10) NOT NULL,
+    block_ss_destroyed NUMERIC(28),
     FOREIGN KEY (prev_block_id)
         REFERENCES block (block_id)
 )""",
@@ -1060,16 +1040,16 @@ store._ddl['txout_approx'],
                 block_nTime, block_nBits, block_nNonce, block_height,
                 prev_block_id, block_chain_work, block_value_in,
                 block_value_out, block_total_satoshis,
-                block_total_seconds, block_satoshi_seconds,
-                block_total_ss
+                block_total_seconds, block_num_tx
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL
-            )""",  # XXX NULLs
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )""",
             (block_id, store.hashin(b['hash']), b['version'],
              store.hashin(b['hashMerkleRoot']), b['nTime'],
              b['nBits'], b['nNonce'], b['height'], prev_block_id,
              store.binin_int(b['chain_work'], WORK_BITS),
-             b['value_in'], b['value_out'], b['satoshis'], b['seconds']))
+             b['value_in'], b['value_out'], b['satoshis'], b['seconds'],
+             len(b['transactions'])))
 
         # List the block's transactions in block_tx.
         for tx_pos in xrange(len(b['transactions'])):
@@ -1096,22 +1076,24 @@ store._ddl['txout_approx'],
                     VALUES (?, ?, ?)""",
                           (block_id, txin_id, oblock_id))
 
-        ss_destroyed = store._get_block_ss_destroyed(
+        b['ss_destroyed'] = store._get_block_ss_destroyed(
             block_id, b['nTime'],
             map(lambda tx: tx['tx_id'], b['transactions']))
 
         if prev_satoshis is not None:
             ss_created = prev_satoshis * (b['nTime'] - prev_nTime)
-            b['ss'] = prev_ss + ss_created - ss_destroyed
+            b['ss'] = prev_ss + ss_created - b['ss_destroyed']
             b['total_ss'] = prev_total_ss + ss_created
 
             store.sql("""
                 UPDATE block
                    SET block_satoshi_seconds = ?,
-                       block_total_ss = ?
+                       block_total_ss = ?,
+                       block_ss_destroyed = ?
                  WHERE block_id = ?""",
                       (store.intin(b['ss']),
                        store.intin(b['total_ss']),
+                       store.intin(b['ss_destroyed']),
                        block_id))
 
         # Store the inverse hashPrev relationship or mark the block as
@@ -1202,6 +1184,7 @@ store._ddl['txout_approx'],
                 satoshis = b['satoshis'] + generated
 
             if b['ss'] is None or b['satoshis'] is None or b['seconds'] is None:
+                destroyed = None
                 ss = None
             else:
                 tx_ids = map(
@@ -1220,10 +1203,12 @@ store._ddl['txout_approx'],
                        block_chain_work = ?,
                        block_total_seconds = ?,
                        block_total_satoshis = ?,
-                       block_satoshi_seconds = ?
+                       block_satoshi_seconds = ?,
+                       block_ss_destroyed = ?
                  WHERE block_id = ?""",
                       (height, store.binin_int(chain_work, WORK_BITS),
-                       seconds, satoshis, store.intin(ss), next_id))
+                       seconds, satoshis, store.intin(ss),
+                       store.intin(destroyed), next_id))
 
             store._update_block(next_id, block_id, height)
 
@@ -1591,8 +1576,8 @@ store._ddl['txout_approx'],
                          WHERE block_id = ?
                            AND chain_id = ?""",
                                     (b['block_id'], chain_id)):
-                        print ("block", b['block_id'],
-                               "already in chain", chain_id)
+                        print "block", b['block_id'], \
+                            "already in chain", chain_id
                         b = None
                     else:
                         if b['height'] == 0:
