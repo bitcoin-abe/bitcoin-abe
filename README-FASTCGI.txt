@@ -9,7 +9,7 @@ Install required packages:
 Replace YOUR.ABE.DOMAIN below with a domain that resolves to this
 host.  The site will be http://YOUR.ABE.DOMAIN/.  To embed Abe in an
 existing site (e.g., http://YOUR.DOMAIN/abe/) simply prepend a path
-(e.g., "/abe" in the Alias directives and place them in your existing
+(e.g., "/abe") in the Alias directives and place them in your existing
 sites-available file instead of a new VirtualHost.
 Replace ABE/DIRECTORY/htdocs with the directory containing abe.css;
 the Apache process must have permission to read it.
@@ -60,10 +60,11 @@ Put configuration such as database connection parameters in
 abe.conf in the Abe distribution for file format.  IMPORTANT: Make
 sure the configuration does NOT contain a "host" or "port" option.
 
-Create file /home/USER/cgi-bin/abe with these contents:
+Replace ABE/DIRECTORY with the directory containing abe.py and create
+file /home/USER/cgi-bin/abe with these contents:
 
     #! /bin/sh
-    PYTHONUNBUFFERED=1 exec /home/USER/bitcoin-abe/abe.py \
+    PYTHONUNBUFFERED=1 exec ABE/DIRECTORY/abe.py \
     --config /home/USER/abe.conf --static-path static/ --watch-pid="$1"
 
 Make the file executable:
