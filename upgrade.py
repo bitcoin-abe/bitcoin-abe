@@ -502,7 +502,7 @@ def init_block_tx_sums(store):
           JOIN block_tx USING (block_id)
          GROUP BY block_id""")
     count = 0
-    print "Storing block_num_tx."
+    print "Storing block_num_tx and block_ss_destroyed."
     for row in rows:
         block_id, num_tx, num_ssd, ssd = row
         if num_ssd < num_tx:
