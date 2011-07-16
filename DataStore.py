@@ -363,6 +363,7 @@ class DataStore(object):
                             ) VALUES (?, ?, ?, ?)""",
                                   (chain_id, chain_name, code3,
                                    store.binin(addr_vers)))
+                        store.commit()
                         print "Assigned chain_id", chain_id, "to", chain_name
 
             elif dircfg in datadirs:
@@ -1477,8 +1478,8 @@ store._ddl['txout_approx'],
     # Load all blocks starting at the current file and offset.
     def catch_up_dir(store, dircfg):
         def open_blkfile():
-            filename = os.path.join(dircfg['dirname'], "blk%04d.dat"
-                                    % (dircfg['blkfile_number'],))
+            store._refresh_dircfg(dircfg)
+            filename = store.blkfile_name(dircfg)
             ds = BCDataStream.BCDataStream()
             ds.map_file(open(filename, "rb"), 0)
             return ds
@@ -1488,7 +1489,6 @@ store._ddl['txout_approx'],
         except IOError, e:
             print "Skipping datadir " + dircfg['dirname'] + ": " + str(e)
             return
-        ds.read_cursor = dircfg['blkfile_offset']
 
         while (True):
             store.import_blkdat(dircfg, ds)
@@ -1506,13 +1506,42 @@ store._ddl['txout_approx'],
 
     # Load all blocks from the given data stream.
     def import_blkdat(store, dircfg, ds):
+        filenum = dircfg['blkfile_number']
+        ds.read_cursor = dircfg['blkfile_offset']
         bytes_done = 0
 
-        while ds.read_cursor + 8 <= len(ds.input):
+        while filenum == dircfg['blkfile_number']:
+            if ds.read_cursor + 8 > len(ds.input):
+                break
+
             offset = ds.read_cursor
-            magic = ds.read_bytes(4)  # XXX should scan past invalid data.
+            magic = ds.read_bytes(4)
+
+            # Assume blocks obey the respective policy if they get here.
+            chain_id = dircfg['chain_id']
+            if chain_id is not None:
+                pass
+            elif magic == BITCOIN_MAGIC:
+                chain_id = BITCOIN_CHAIN_ID
+            elif magic == TESTNET_MAGIC:
+                chain_id = TESTNET_CHAIN_ID
+            elif magic == NAMECOIN_MAGIC:
+                chain_id = NAMECOIN_CHAIN_ID
+            elif magic == WEEDS_MAGIC:
+                chain_id = WEEDS_CHAIN_ID
+            else:
+                filename = store.blkfile_name(dircfg)
+                print "chain not found for magic", repr(magic), \
+                    "in block file", filename, "at offset", offset
+                print ("If file contents have changed, consider forcing a"
+                       " rescan: UPDATE datadir SET blkfile_offset=0"
+                       " WHERE dirname='%s'" % (dircfg['dirname'],))
+                ds.read_cursor = offset
+                break
+
             length = ds.read_int32()
             if ds.read_cursor + length > len(ds.input):
+                print "incomplete block of length", length
                 ds.read_cursor = offset
                 break
 
@@ -1540,24 +1569,6 @@ store._ddl['txout_approx'],
                 b = deserialize.parse_Block(ds)
                 b["hash"] = hash
                 store.import_block(b)
-
-            # Assume blocks obey the respective policy if they get here.
-            chain_id = dircfg['chain_id']
-            if chain_id is not None:
-                pass
-            elif magic == BITCOIN_MAGIC:
-                chain_id = BITCOIN_CHAIN_ID
-            elif magic == TESTNET_MAGIC:
-                chain_id = TESTNET_CHAIN_ID
-            elif magic == NAMECOIN_MAGIC:
-                chain_id = NAMECOIN_CHAIN_ID
-            elif magic == WEEDS_MAGIC:
-                chain_id = WEEDS_CHAIN_ID
-            else:
-                print ("chain not found for block", b and b['block_id'],
-                       "at", dircfg['dirname'],
-                       "file", dircfg['blkfile_number'],
-                       "offset", offset)
 
             if chain_id is not None:
 
@@ -1594,11 +1605,16 @@ store._ddl['txout_approx'],
             if bytes_done > 100000 :
                 store.save_blkfile_offset(dircfg, ds.read_cursor)
                 store.commit()
+                store._refresh_dircfg(dircfg)
                 bytes_done = 0
 
         if bytes_done > 0:
             store.save_blkfile_offset(dircfg, ds.read_cursor)
             store.commit()
+
+    def blkfile_name(store, dircfg):
+        return os.path.join(dircfg['dirname'], "blk%04d.dat"
+                            % (dircfg['blkfile_number'],))
 
     def save_blkfile_offset(store, dircfg, offset):
         store.sql("""
@@ -1615,6 +1631,20 @@ store._ddl['txout_approx'],
                       (dircfg['dirname'], dircfg['blkfile_number'], offset,
                        dircfg['chain_id']))
         dircfg['blkfile_offset'] = offset
+
+    def _refresh_dircfg(store, dircfg):
+        row = store.selectrow("""
+            SELECT blkfile_number, blkfile_offset
+              FROM datadir
+             WHERE dirname = ?""", (dircfg['dirname'],))
+        if row:
+            number, offset = map(int, row)
+            if (number > dircfg['blkfile_number'] or
+                (number == dircfg['blkfile_number'] and
+                 offset > dircfg['blkfile_offset'])):
+                print "skipped to", dircfg['dirname'], number, offset
+                dircfg['blkfile_number'] = number
+                dircfg['blkfile_offset'] = offset
 
 def new(args):
     return DataStore(args)
