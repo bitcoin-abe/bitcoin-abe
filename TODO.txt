@@ -25,6 +25,12 @@
 
 * Clean up and document limits on search result size.
 
+* Admin interface to reset blkfile_offset, delete chains, etc.
+
+* Configurable logging.
+
+* Think about scaling to BBE loads.
+
 * Add a tool to upload transactions if bitcoind supports it.
 
 * Perhaps write a validation module to check db data.
@@ -58,9 +64,6 @@
 * Context-sensitive help as on http://blockexplorer.com.
 
 * Simplify the process of adding new chains.
-
-* Defend against corrupt or differently formatted block files, though
-  yet unseen.
 
 * Present Namecoin name operations.
 
