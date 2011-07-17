@@ -2,6 +2,9 @@
 
 * Speed up initial load by disabling unneeded constraints temporarily.
 
+* Perhaps rewrite adopt_orphans iteratively to avoid Python's
+  recursion limit.
+
 * Profile adopt_orphans and offer_block_to_chain.
 
 * Separate HTML from data access.
