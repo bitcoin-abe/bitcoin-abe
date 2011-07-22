@@ -115,6 +115,13 @@ class DataStore(object):
         store._blocks = {}
         store._init_datadirs()
 
+        # XXX could avoid doing this where it doesn't work (SQLite).
+        try:
+            store.sql("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        except:
+            store.rollback()
+            pass
+
     def _read_config(store):
         # Read table CONFIGVAR if it exists.
         config = {}
@@ -228,7 +235,7 @@ class DataStore(object):
         if itype in (None, 'int'):
             intin = identity
 
-        # Work around sqlite3's overflow when importing large ints.
+        # Work around sqlite3's integer overflow.
         elif itype == 'str':
             intin = str
             transform = store._approximate_txout(transform)
