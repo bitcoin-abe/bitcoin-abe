@@ -1301,7 +1301,7 @@ def redirect(page):
         [('Location', uri),
          ('Content-Type', 'text/html')])
     return ('<html><head><title>Moved</title></head>\n'
-            '<body><h1>Moved</h1><p>This page has moved to'
+            '<body><h1>Moved</h1><p>This page has moved to '
             '<a href="' + uri + '">' + uri + '</a></body></html>')
 
 def serve(store):
