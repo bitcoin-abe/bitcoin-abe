@@ -1480,7 +1480,11 @@ store._ddl['txout_approx'],
 
     def catch_up(store):
         for dircfg in store.datadirs:
-            store.catch_up_dir(dircfg)
+            try:
+                store.catch_up_dir(dircfg)
+            except Exception, e:
+                print ("Warning: failed to catch up %s: %s"
+                       % (dircfg['dirname'], str(e)))
 
     # Load all blocks starting at the current file and offset.
     def catch_up_dir(store, dircfg):
