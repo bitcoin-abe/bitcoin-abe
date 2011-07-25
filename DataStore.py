@@ -1485,6 +1485,7 @@ store._ddl['txout_approx'],
             except Exception, e:
                 print ("Warning: failed to catch up %s: %s"
                        % (dircfg['dirname'], str(e)))
+                store.rollback()
 
     # Load all blocks starting at the current file and offset.
     def catch_up_dir(store, dircfg):
