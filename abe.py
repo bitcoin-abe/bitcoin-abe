@@ -1316,7 +1316,7 @@ def serve(store):
         from wsgiref.simple_server import make_server
         port = int(args.port or 80)
         httpd = make_server(args.host, port, abe)
-        print "Serving HTTP..."
+        print "Listening on http://" + args.host + ":" + str(port)
         try:
             httpd.serve_forever()
         except:
