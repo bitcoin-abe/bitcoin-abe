@@ -399,7 +399,7 @@ class DataStore(object):
             row = None
         if row is None:
             (ret,) = store.selectrow("SELECT MAX(" + key + "_id) FROM " + key)
-            ret = 1 if ret is None else 1
+            ret = 1 if ret is None else ret + 1
             store.sql("INSERT INTO abe_sequences (key, nextid) VALUES (?, ?)",
                       (key, ret + 1))
         else:
