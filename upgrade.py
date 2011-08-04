@@ -21,6 +21,26 @@ import os
 import sys
 import abe
 
+def run_upgrades(store, upgrades):
+    for i in xrange(len(upgrades) - 1):
+        vers, func = upgrades[i]
+        if store.config['schema_version'] == vers:
+            func(store)
+            sv = upgrades[i+1][0]
+            if sv[:3] == 'Abe':
+                store.sql(
+                    "UPDATE configvar SET configvar_value = ?"
+                    " WHERE configvar_name = 'schema_version'",
+                    (sv,))
+                if store.cursor.rowcount != 1:
+                    raise Exception("Failed to update schema_version");
+            else:
+                store.sql(
+                    "UPDATE config SET schema_version = ? WHERE config_id = 1",
+                    (sv,))
+            store.commit()
+            store.config['schema_version'] = sv
+
 def add_block_value_in(store):
     store.sql("ALTER TABLE block ADD block_value_in NUMERIC(30)")
 def add_block_value_out(store):
@@ -518,25 +538,9 @@ def init_block_tx_sums(store):
             store.commit()
     # XXX would like to set NOT NULL on block_num_tx.
 
-def run_upgrades(store, upgrades):
-    for i in xrange(len(upgrades) - 1):
-        vers, func = upgrades[i]
-        if store.config['schema_version'] == vers:
-            func(store)
-            sv = upgrades[i+1][0]
-            if sv[:3] == 'Abe':
-                store.sql(
-                    "UPDATE configvar SET configvar_value = ?"
-                    " WHERE configvar_name = 'schema_version'",
-                    (sv,))
-                if store.cursor.rowcount != 1:
-                    raise Exception("Failed to update schema_version");
-            else:
-                store.sql(
-                    "UPDATE config SET schema_version = ? WHERE config_id = 1",
-                    (sv,))
-            store.commit()
-            store.config['schema_version'] = sv
+def config_ddl(store):
+    store.configure_ddl_implicit_commit()
+    store.save_configvar("ddl_implicit_commit")
 
 upgrades = [
     ('6',    add_block_value_in),
@@ -590,7 +594,8 @@ upgrades = [
     ('Abe18.1', add_block_ss_destroyed), # Seconds
     ('Abe18.2', init_block_tx_sums),     # 5 minutes
     ('Abe18.3', replace_chain_summary),  # Fast
-    ('Abe19',   None),
+    ('Abe19',   config_ddl),             # Fast
+    ('Abe20',   None),
 ]
 
 def upgrade_schema(store):
