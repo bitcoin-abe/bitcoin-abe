@@ -29,7 +29,7 @@ def _include(seen, filename, conf):
             import os
             _include(seen | set(filename),
                      os.path.join(os.path.dirname(filename), val), conf)
-        elif additive:
+        elif additive and conf.get(var) is not None:
             add(conf, var, val)
         else:
             conf[var] = val

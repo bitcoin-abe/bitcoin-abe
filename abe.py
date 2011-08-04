@@ -1178,13 +1178,15 @@ class Abe:
         cmd = wsgiref.util.shift_path_info(page['env'])
         if cmd != 'getblockcount':
             raise PageNotFound()  # Others not supported yet.
+
+        # "getblockcount" traditionally returns max(block_height),
+        # which is one less than the actual block count.
         (height,) = abe.store.selectrow("""
             SELECT MAX(block_height)
               FROM chain_candidate
              WHERE chain_id = ?
                AND in_longest = 1""", (chain['id'],))
-        count = 0 if height is None else height + 1
-        page['body'] = count
+        page['body'] = -1 if height is None else height
 
     def download_srcdir(abe, page):
         name = abe.args.download_name
@@ -1301,7 +1303,7 @@ def redirect(page):
         [('Location', uri),
          ('Content-Type', 'text/html')])
     return ('<html><head><title>Moved</title></head>\n'
-            '<body><h1>Moved</h1><p>This page has moved to'
+            '<body><h1>Moved</h1><p>This page has moved to '
             '<a href="' + uri + '">' + uri + '</a></body></html>')
 
 def serve(store):
@@ -1314,7 +1316,7 @@ def serve(store):
         from wsgiref.simple_server import make_server
         port = int(args.port or 80)
         httpd = make_server(args.host, port, abe)
-        print "Serving HTTP..."
+        print "Listening on http://" + args.host + ":" + str(port)
         try:
             httpd.serve_forever()
         except:

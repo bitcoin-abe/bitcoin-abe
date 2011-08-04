@@ -23,7 +23,7 @@ import BCDataStream
 import deserialize
 import util
 
-SCHEMA_VERSION = "Abe19"
+SCHEMA_VERSION = "Abe20"
 
 WORK_BITS = 304  # XXX more than necessary.
 
@@ -273,6 +273,11 @@ class DataStore(object):
             store._sql_cache[stmt] = cached
         store.cursor.execute(cached, params)
 
+    def ddl(store, stmt):
+        store.sql(stmt)
+        if store.config['ddl_implicit_commit'] == 'false':
+            store.commit()
+
     # Convert standard placeholders to Python "format" style.
     def _qmark_to_format(store, fn):
         def ret(stmt):
@@ -387,11 +392,11 @@ class DataStore(object):
                 "SELECT nextid FROM abe_sequences WHERE key = ?", (key,))
         except store.module.DatabaseError:
             store.rollback()
-            store.sql(store._ddl['abe_sequences'])
+            store.ddl(store._ddl['abe_sequences'])
             row = None
         if row is None:
             (ret,) = store.selectrow("SELECT MAX(" + key + "_id) FROM " + key)
-            ret += 1
+            ret = 1 if ret is None else ret + 1
             store.sql("INSERT INTO abe_sequences (key, nextid) VALUES (?, ?)",
                       (key, ret + 1))
         else:
@@ -713,7 +718,7 @@ store._ddl['txin_detail'],
 store._ddl['txout_approx'],
 ):
             try:
-                store.sql(stmt)
+                store.ddl(stmt)
             except:
                 print "Failed:", stmt
                 raise
@@ -756,50 +761,51 @@ store._ddl['txout_approx'],
 
         store.save_config()
         store.commit()
-        store.config['schema_version'] = SCHEMA_VERSION
 
     def configure(store):
         store.config = {}
 
-        for btype in (
+        store.configure_ddl_implicit_commit()
+
+        for val in (
             ['str', 'bytearray', 'buffer', 'hex', '']
             if store.args.binary_type is None else
             [ store.args.binary_type, '' ]):
 
-            if btype == '':
+            if val == '':
                 raise Exception(
                     "No known binary data representation works"
                     if store.args.binary_type is None else
                     "Binary type " + store.args.binary_type + " fails test")
-            store.config['binary_type'] = btype
+            store.config['binary_type'] = val
             store._set_sql_flavour()
             if store._test_binary_type():
-                print "binary_type=%s" % (btype,)
+                print "binary_type=%s" % (val,)
                 break
 
-        for itype in ['int', 'str', '']:
-            if itype == '':
+        for val in ['int', 'str', '']:
+            if val == '':
                 raise Exception(
                     "No known large integer representation works")
-            store.config['int_type'] = itype
+            store.config['int_type'] = val
             store._set_sql_flavour()
             if store._test_int_type():
-                print "int_type=%s" % (itype,)
+                print "int_type=%s" % (val,)
                 break
 
-        for stype in ['update', '']:
-            if stype == '':
+        for val in ['update', '']:
+            if val == '':
                 raise Exception(
                     "No known sequence type works")
-            store.config['sequence_type'] = stype
+            store.config['sequence_type'] = val
             store._set_sql_flavour()
             if store._test_sequence_type():
-                print "sequence_type=%s" % (stype,)
+                print "sequence_type=%s" % (val,)
                 break
 
     def _drop_if_exists(store, otype, name):
         try:
-            store.sql("DROP " + otype + " " + name)
+            store.ddl("DROP " + otype + " " + name)
         except store.module.DatabaseError:
             store.rollback()
 
@@ -810,10 +816,40 @@ store._ddl['txout_approx'],
     def _drop_sequence_if_exists(store, obj):
         store._drop_if_exists("SEQUENCE", obj)
 
+    def configure_ddl_implicit_commit(store):
+        for val in ['true', 'false']:
+            store.config['ddl_implicit_commit'] = val
+            store._set_sql_flavour()
+            if store._test_ddl():
+                print "ddl_implicit_commit=%s" % (val,)
+                return
+        raise Exception("Can not test for DDL implicit commit.")
+
+    def _test_ddl(store):
+        """Test whether DDL performs implicit commit."""
+        store._drop_table_if_exists("abe_test_1")
+        try:
+            store.ddl(
+                "CREATE TABLE abe_test_1 ("
+                " abe_test_1_id NUMERIC(12) PRIMARY KEY,"
+                " foo VARCHAR(10))")
+            store.rollback()
+            store.selectall("SELECT MAX(abe_test_1_id) FROM abe_test_1")
+            return True
+        except store.module.DatabaseError, e:
+            store.rollback()
+            return False
+        except Exception, e:
+            print "_test_ddl:", store.config['ddl_implicit_commit'] + ":", e
+            store.rollback()
+            return False
+        finally:
+            store._drop_table_if_exists("abe_test_1")
+
     def _test_binary_type(store):
         store._drop_table_if_exists("abe_test_1")
         try:
-            store.sql(
+            store.ddl(
                 "CREATE TABLE abe_test_1 (test_id NUMERIC(2) PRIMARY KEY,"
                 " test_bit BIT(256), test_varbit BIT VARYING(80000))")
             val = str(''.join(map(chr, range(32))))
@@ -841,10 +877,10 @@ store._ddl['txout_approx'],
         store._drop_table_if_exists("abe_test_1")
         store._drop_view_if_exists("abe_test_v1")
         try:
-            store.sql(
+            store.ddl(
                 "CREATE TABLE abe_test_1 (test_id NUMERIC(2) PRIMARY KEY,"
                 " txout_value NUMERIC(30), i2 NUMERIC(20))")
-            store.sql(
+            store.ddl(
                 "CREATE VIEW abe_test_v1 AS SELECT test_id,"
                 " txout_value txout_approx_value, i2 FROM abe_test_1")
             v1 = 1234567890123456789
@@ -872,7 +908,7 @@ store._ddl['txout_approx'],
     def _test_sequence_type(store):
         store._drop_table_if_exists("abe_test_1")
         try:
-            store.sql(
+            store.ddl(
                 "CREATE TABLE abe_test_1 ("
                 " abe_test_1_id NUMERIC(12) PRIMARY KEY,"
                 " foo VARCHAR(10))")
@@ -892,13 +928,13 @@ store._ddl['txout_approx'],
             store._drop_table_if_exists("abe_test_1")
 
     def save_config(store):
-        store.insert_configvar('schema_version', SCHEMA_VERSION)
-        for name, value in store.config.items():
-            store.insert_configvar(name, value)
+        store.config['schema_version'] = SCHEMA_VERSION
+        for name in store.config.keys():
+            store.save_configvar(name)
 
-    def insert_configvar(store, name, value):
+    def save_configvar(store, name):
         store.sql("INSERT INTO configvar (configvar_name, configvar_value)"
-                  " VALUES (?, ?)", (name, value))
+                  " VALUES (?, ?)", (name, store.config[name]))
 
     def _get_block(store, block_id):
         return store._blocks.get(int(block_id))
@@ -1472,7 +1508,12 @@ store._ddl['txout_approx'],
 
     def catch_up(store):
         for dircfg in store.datadirs:
-            store.catch_up_dir(dircfg)
+            try:
+                store.catch_up_dir(dircfg)
+            except Exception, e:
+                print ("Warning: failed to catch up %s: %s"
+                       % (dircfg['dirname'], str(e)))
+                store.rollback()
 
     # Load all blocks starting at the current file and offset.
     def catch_up_dir(store, dircfg):
