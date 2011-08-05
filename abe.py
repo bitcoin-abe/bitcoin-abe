@@ -647,7 +647,8 @@ class Abe:
 
         page['title'] = [escape(chain['name']), ' ', height]
         abe._show_block('chain_id = ? AND block_height = ? AND in_longest = 1',
-                        (chain['id'], height), page, '../block/', chain)
+                        (chain['id'], height), page, page['dotdot'] + 'block/',
+                        chain)
 
     def show_block(abe, page):
         block_hash = wsgiref.util.shift_path_info(page['env'])
