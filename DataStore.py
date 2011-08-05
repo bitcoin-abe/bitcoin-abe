@@ -115,6 +115,13 @@ class DataStore(object):
         store._blocks = {}
         store._init_datadirs()
 
+        store.commit_bytes = args.commit_bytes
+        if store.commit_bytes is None:
+            store.commit_bytes = 100000
+        else:
+            store.commit_bytes = int(store.commit_bytes)
+        print "commit_bytes=", store.commit_bytes
+
     def _read_config(store):
         # Read table CONFIGVAR if it exists.
         config = {}
@@ -1631,8 +1638,8 @@ store._ddl['txout_approx'],
                     store.offer_block_to_chain(b, chain_id)
 
             bytes_done += length
-            # XXX should be configurable
-            if bytes_done > 100000 :
+            if bytes_done > store.commit_bytes :
+                print "commit"
                 store.save_blkfile_offset(dircfg, ds.read_cursor)
                 store.commit()
                 bytes_done = 0
