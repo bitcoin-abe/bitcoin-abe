@@ -51,6 +51,12 @@ WEEDS_POLICY_ID = 4
 WEEDS_CHAIN_ID = 4
 WEEDS_ADDRESS_VERSION = "\xf3"
 
+BEER_MAGIC = "\xf7\xbf\xb5\xdb"
+BEER_MAGIC_ID = 5
+BEER_POLICY_ID = 5
+BEER_CHAIN_ID = 5
+BEER_ADDRESS_VERSION = "\xf2"
+
 GENESIS_HASH_PREV = "\0" * 32
 
 SCRIPT_ADDRESS_RE = re.compile("\x76\xa9\x14(.{20})\x88\xac", re.DOTALL)
@@ -757,10 +763,13 @@ store._ddl['txout_approx'],
                               store.binin(NAMECOIN_MAGIC), "Namecoin"))
         store.sql(ins_magic, (WEEDS_MAGIC_ID,
                               store.binin(WEEDS_MAGIC), "Weedsnet"))
+        store.sql(ins_magic, (BEER_MAGIC_ID,
+                              store.binin(BEER_MAGIC), "BeerTokens"))
         store.sql(ins_policy, (BITCOIN_POLICY_ID, "Bitcoin policy"))
         store.sql(ins_policy, (TESTNET_POLICY_ID, "Testnet policy"))
         store.sql(ins_policy, (NAMECOIN_POLICY_ID, "Namecoin policy"))
         store.sql(ins_policy, (WEEDS_POLICY_ID, "Weedsnet policy"))
+        store.sql(ins_policy, (BEER_POLICY_ID, "BeerTokens policy"))
         store.sql(ins_chain,
                   (BITCOIN_CHAIN_ID, BITCOIN_MAGIC_ID, BITCOIN_POLICY_ID,
                    'Bitcoin', 'BTC', store.binin(BITCOIN_ADDRESS_VERSION)))
@@ -773,6 +782,9 @@ store._ddl['txout_approx'],
         store.sql(ins_chain,
                   (WEEDS_CHAIN_ID, WEEDS_MAGIC_ID, WEEDS_POLICY_ID,
                    'Weedsnet', 'WDS', store.binin(WEEDS_ADDRESS_VERSION)))
+        store.sql(ins_chain,
+                  (BEER_CHAIN_ID, BEER_MAGIC_ID, BEER_POLICY_ID,
+                   'BeerTokens', 'BER', store.binin(BEER_ADDRESS_VERSION)))
 
         store.save_config()
         store.commit()
@@ -1584,6 +1596,8 @@ store._ddl['txout_approx'],
                 chain_id = NAMECOIN_CHAIN_ID
             elif magic == WEEDS_MAGIC:
                 chain_id = WEEDS_CHAIN_ID
+            elif magic == BEER_MAGIC:
+                chain_id = BEER_CHAIN_ID
             else:
                 filename = store.blkfile_name(dircfg)
                 print "chain not found for magic", repr(magic), \
