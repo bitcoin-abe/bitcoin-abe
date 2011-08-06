@@ -124,6 +124,7 @@ class Abe:
             "tx": abe.show_tx,
             "address": abe.show_address,
             "search": abe.search,
+            "q": abe.api,
             }
         if args.auto_agpl:
             abe.handlers["download"] = abe.download_srcdir
@@ -1184,7 +1185,7 @@ class Abe:
 
         page['content_type'] = 'text/plain'
         page['template'] = '%(body)s'
-        return func(page, chain)
+        page['body'] = func(page, chain)
 
     def q(abe, page):
         page['body'] = ['<p>Supported APIs:</p>\n<ul>\n']
@@ -1202,7 +1203,8 @@ class Abe:
     def q_getblockcount(abe, page, chain):
         """shows the current block number."""
         if chain is None:
-            raise PageNotFound()  # Not supported yet.
+            return 'Usage: "/chain/CHAIN/q/getblockcount".\n' \
+                'Shows the greatest block height in CHAIN.\n'
         # "getblockcount" traditionally returns max(block_height),
         # which is one less than the actual block count.
         (height,) = abe.store.selectrow("""
@@ -1210,7 +1212,19 @@ class Abe:
               FROM chain_candidate
              WHERE chain_id = ?
                AND in_longest = 1""", (chain['id'],))
-        page['body'] = -1 if height is None else height
+        return -1 if height is None else height
+
+    def q_translate(abe, page, chain):
+        """shows the address in chain with the given address's hash."""
+        addr = wsgiref.util.shift_path_info(page['env'])
+        if chain is None or addr is None:
+            return 'Usage: "/chain/CHAIN/q/translate/ADDRESS".\n' \
+                'Translates ADDRESS for use in CHAIN.\n'
+        version, hash = decode_address(addr)
+        ret = binascii.hexlify(version) + ":" + binascii.hexlify(hash)
+        if hash_to_address(version, hash) != addr:
+            ret = "INVALID(" + ret + ")"
+        return ret
 
     def download_srcdir(abe, page):
         name = abe.args.download_name
