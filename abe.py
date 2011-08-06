@@ -59,7 +59,7 @@ DEFAULT_TEMPLATE = """
      src="%(dotdot)s%(STATIC_PATH)slogo32.png" alt="ABE logo" /></a> %(h1)s
     </h1>
     %(body)s
-    <p><a href="q">API</a> (machine-readable pages)</p>
+    <p><a href="%(dotdot)sq">API</a> (machine-readable pages)</p>
     <p style="font-size: smaller">
         <span style="font-style: italic">
             <a href="%(ABE_URL)s">%(APPNAME)s</a>
