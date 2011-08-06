@@ -24,6 +24,7 @@ from cgi import escape
 import posixpath
 import wsgiref.util
 import time
+import binascii
 
 import DataStore
 
@@ -1203,8 +1204,8 @@ class Abe:
     def q_getblockcount(abe, page, chain):
         """shows the current block number."""
         if chain is None:
-            return 'Usage: "/chain/CHAIN/q/getblockcount".\n' \
-                'Shows the greatest block height in CHAIN.\n'
+            return 'Shows the greatest block height in CHAIN.\n' \
+                '/chain/CHAIN/q/getblockcount\n'
         # "getblockcount" traditionally returns max(block_height),
         # which is one less than the actual block count.
         (height,) = abe.store.selectrow("""
@@ -1214,17 +1215,44 @@ class Abe:
                AND in_longest = 1""", (chain['id'],))
         return -1 if height is None else height
 
-    def q_translate(abe, page, chain):
-        """shows the address in chain with the given address's hash."""
+    def q_translate_address(abe, page, chain):
+        """shows the address in a given chain with a given address's hash."""
         addr = wsgiref.util.shift_path_info(page['env'])
         if chain is None or addr is None:
-            return 'Usage: "/chain/CHAIN/q/translate/ADDRESS".\n' \
-                'Translates ADDRESS for use in CHAIN.\n'
+            return 'Translates ADDRESS for use in CHAIN.\n' \
+                '/chain/CHAIN/q/translate_address/ADDRESS\n'
+        version, hash = decode_check_address(addr)
+        if hash is None:
+            return addr + " (INVALID ADDRESS)"
+        return hash_to_address(chain['address_version'], hash)
+
+    def q_decode_address(abe, page, chain):
+        """shows the version prefix and hash of an address."""
+        addr = wsgiref.util.shift_path_info(page['env'])
+        if addr is None:
+            return 'Translates ADDRESS for use in CHAIN.\n' \
+                '/q/decode_address/ADDRESS\n'
         version, hash = decode_address(addr)
         ret = binascii.hexlify(version) + ":" + binascii.hexlify(hash)
         if hash_to_address(version, hash) != addr:
             ret = "INVALID(" + ret + ")"
         return ret
+
+    def q_hashtoaddress(abe, page, chain):
+        """shows the address with the given version prefix and hash."""
+        hash = wsgiref.util.shift_path_info(page['env'])
+        if hash is None:
+            return 'Converts a 160-bit hash and address version to an address' \
+                '/q/hashtoaddress/HASH[/VERSION]\n'
+        version = wsgiref.util.shift_path_info(page['env'])
+        if version is None:
+            version = '00'
+        try:
+            hash = binascii.unhexlify(hash)
+            version = binascii.unhexlify(version)
+        except:
+            return 'ERROR: Arguments must be hexadecimal strings of even length'
+        return hash_to_address(version, hash)
 
     def download_srcdir(abe, page):
         name = abe.args.download_name
