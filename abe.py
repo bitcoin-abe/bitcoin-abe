@@ -1083,6 +1083,7 @@ class Abe:
                     }
             ret += map(process, abe.store.selectall(
                 "SELECT " + t + "_hash FROM " + t + " WHERE " + t +
+                # XXX hardcoded limit.
                 "_hash BETWEEN ? AND ? LIMIT 100",
                 (lo, hi)))
         return ret
@@ -1151,6 +1152,7 @@ class Abe:
             print "address search", repr(vl)+":"+abe.store.binout_hex(bl), repr(vl)+":"+abe.store.binout_hex(bh)
             ret += filter(None, map(process, abe.store.selectall(
                 "SELECT pubkey_hash FROM pubkey WHERE pubkey_hash" +
+                # XXX hardcoded limit.
                 neg + " BETWEEN ? AND ? LIMIT 100", (bl, bh))))
             l -= 1
             al = al[:-1]
@@ -1172,14 +1174,35 @@ class Abe:
         """, (q.upper(), q.upper())))
 
     def api(abe, page, chain=None):
+        cmd = wsgiref.util.shift_path_info(page['env'])
+        if cmd is None:
+            return abe.q(page)
+
+        func = getattr(abe, 'q_' + cmd, None)
+        if func is None:
+            raise PageNotFound()
+
         page['content_type'] = 'text/plain'
         page['template'] = '%(body)s'
+        return func(page, chain)
+
+    def q(abe, page):
+        page['body'] = ['<p>Supported APIs:</p>\n<ul>\n']
+        for name in dir(abe):
+            if not name.startswith("q_"):
+                continue
+            cmd = name[2:]
+            page['body'] += ['<li><a href="q/', cmd, '">', cmd, '</a>']
+            val = getattr(abe, name)
+            if val.__doc__ is not None:
+                page['body'] += [' - ', escape(val.__doc__)]
+            page['body'] += ['</li>\n']
+        page['body'] += ['</ul>\n']
+
+    def q_getblockcount(abe, page, chain):
+        """shows the current block number."""
         if chain is None:
             raise PageNotFound()  # Not supported yet.
-        cmd = wsgiref.util.shift_path_info(page['env'])
-        if cmd != 'getblockcount':
-            raise PageNotFound()  # Others not supported yet.
-
         # "getblockcount" traditionally returns max(block_height),
         # which is one less than the actual block count.
         (height,) = abe.store.selectrow("""
@@ -1265,11 +1288,7 @@ def hash_to_address(version, hash):
 
 def decode_check_address(address):
     if ADDRESS_RE.match(address):
-        bytes = base58.b58decode(address, None)
-        if len(bytes) < 25:
-            bytes = ('\0' * (25 - len(bytes))) + bytes
-        version = bytes[:-24]
-        hash = bytes[-24:-4]
+        version, hash = decode_address(address)
         if hash_to_address(version, hash) == address:
             return version, hash
     return None, None
