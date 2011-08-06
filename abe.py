@@ -59,6 +59,7 @@ DEFAULT_TEMPLATE = """
      src="%(dotdot)s%(STATIC_PATH)slogo32.png" alt="ABE logo" /></a> %(h1)s
     </h1>
     %(body)s
+    <p><a href="q">API</a> (machine-readable pages)</p>
     <p style="font-size: smaller">
         <span style="font-style: italic">
             <a href="%(ABE_URL)s">%(APPNAME)s</a>
@@ -1242,7 +1243,8 @@ class Abe:
         """shows the address with the given version prefix and hash."""
         hash = wsgiref.util.shift_path_info(page['env'])
         if hash is None:
-            return 'Converts a 160-bit hash and address version to an address' \
+            return \
+                'Converts a 160-bit hash and address version to an address\n' \
                 '/q/hashtoaddress/HASH[/VERSION]\n'
         version = wsgiref.util.shift_path_info(page['env'])
         if version is None:
