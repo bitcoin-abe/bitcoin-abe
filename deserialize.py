@@ -25,6 +25,8 @@ def deserialize_CAddress(d):
 def parse_setting(setting, vds):
   if setting[0] == "f":  # flag (boolean) settings
     return str(vds.read_boolean())
+  elif setting == "addrIncoming":
+    return "" # bitcoin 0.4 purposely breaks addrIncoming setting in encrypted wallets.
   elif setting[0:4] == "addr": # CAddress
     d = parse_CAddress(vds)
     return deserialize_CAddress(d)
@@ -187,6 +189,17 @@ def deserialize_Block(d):
   for t in d['transactions']:
     result += deserialize_Transaction(t)+"\n"
   result += "\nRaw block header: "+d['__header__'].encode('hex_codec')
+  return result
+
+def parse_BlockLocator(vds):
+  d = { 'hashes' : [] }
+  nHashes = vds.read_compact_size()
+  for i in xrange(nHashes):
+    d['hashes'].append(vds.read_bytes(32))
+  return d
+
+def deserialize_BlockLocator(d):
+  result = "Block Locator top: "+d['hashes'][0][::-1].encode('hex_codec')
   return result
 
 opcodes = Enumeration("Opcodes", [
