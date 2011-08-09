@@ -1303,13 +1303,13 @@ class Abe:
                    AND ints.in_longest = 1
                    AND ints.block_height * ? + ? = cc.block_height)
              WHERE cc.in_longest = 1
-               AND cc.chain_id = 1""" + (
+               AND cc.chain_id = ?""" + (
                 "" if stop is None else """
                AND cc.block_height <= ?""") + """
              ORDER BY cc.block_height""",
-                                   (interval, start)
+                                   (interval, start, chain['id'])
                                    if stop is None else
-                                   (interval, start, stop))
+                                   (interval, start, chain['id'], stop))
         ret = NETHASH_HEADER
 
         for row in rows:
