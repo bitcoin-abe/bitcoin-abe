@@ -133,7 +133,6 @@ class DataStore(object):
             store.commit_bytes = 100000
         else:
             store.commit_bytes = int(store.commit_bytes)
-        print "commit_bytes=", store.commit_bytes
 
     def _read_config(store):
         # Read table CONFIGVAR if it exists.
