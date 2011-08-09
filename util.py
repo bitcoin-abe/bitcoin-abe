@@ -39,14 +39,23 @@ def pubkey_to_hash(pubkey):
 def calculate_target(nBits):
     return (nBits & 0xffffff) << (8 * ((nBits >> 24) - 3))
 
+def target_to_difficulty(target):
+    return ((1 << 224) - 1) * 1000 / (target + 1) / 1000.0
+
 def calculate_difficulty(nBits):
-    return ((1 << 224) - 1) * 1000 / (calculate_target(nBits) + 1) / 1000.0
+    return target_to_difficulty(calculate_target(nBits))
 
 def work_to_difficulty(work):
     return work * ((1 << 224) - 1) * 1000 / (1 << 256) / 1000.0
 
+def target_to_work(target):
+    # XXX will this round using the same rules as C++ Bitcoin?
+    return int((1 << 256) / (target + 1))
+
 def calculate_work(prev_work, nBits):
     if prev_work is None:
         return None
-    # XXX will this round using the same rules as C++ Bitcoin?
-    return prev_work + int((1 << 256) / (calculate_target(nBits) + 1))
+    return prev_work + target_to_work(calculate_target(nBits))
+
+def work_to_target(work):
+    return int((1 << 256) / work) - 1

@@ -85,6 +85,25 @@ ADDR_PREFIX_RE = re.compile('[1-9A-HJ-NP-Za-km-z]{6,}\\Z')
 HEIGHT_RE = re.compile('(?:0|[1-9][0-9]*)\\Z')
 HASH_PREFIX_RE = re.compile('[0-9a-fA-F]{6,64}\\Z')
 
+NETHASH_HEADER = """\
+blockNumber:          height of last block in interval + 1
+time:                 block time in seconds since 0h00 1 Jan 1970 UTC
+target:               decimal target at blockNumber
+avgTargetSinceLast:   harmonic mean of target over interval
+difficulty:           difficulty at blockNumber
+hashesToWin:          expected number of hashes needed to solve a block at this difficulty
+avgIntervalSinceLast: interval seconds divided by blocks
+netHashPerSecond:     estimated network hash rate over interval
+
+Values differ slightly from http://blockexplorer.com/q/nethash.
+
+/chain/CHAIN/q/nethash[/INTERVAL[/START[/STOP]]]
+Default INTERVAL=144, START=0, STOP=infinity.
+
+blockNumber,time,target,avgTargetSinceLast,difficulty,hashesToWin,avgIntervalSinceLast,netHashPerSecond
+START DATA
+"""
+
 def make_store(args):
     store = DataStore.new(args)
     store.catch_up()
@@ -1241,20 +1260,85 @@ class Abe:
 
     def q_hashtoaddress(abe, page, chain):
         """shows the address with the given version prefix and hash."""
-        hash = wsgiref.util.shift_path_info(page['env'])
-        if hash is None:
+        arg = wsgiref.util.shift_path_info(page['env'])
+        if arg is None:
             return \
                 'Converts a 160-bit hash and address version to an address\n' \
                 '/q/hashtoaddress/HASH[/VERSION]\n'
-        version = wsgiref.util.shift_path_info(page['env'])
+
+        version, hash = arg.split(":", 1)
+
+        # BBE-compatible HASH/VERSION
         if version is None:
-            version = '00'
+            version, hash = wsgiref.util.shift_path_info(page['env']), arg
+
+        if version is None:
+            version, hash = '00', arg
         try:
             hash = binascii.unhexlify(hash)
             version = binascii.unhexlify(version)
         except:
             return 'ERROR: Arguments must be hexadecimal strings of even length'
         return hash_to_address(version, hash)
+
+    def q_nethash(abe, page, chain):
+        """shows statistics about difficulty and network power."""
+        if chain is None:
+            return 'Shows statistics every INTERVAL blocks\n' \
+                '/chain/CHAIN/q/nethash[/INTERVAL[/START[/STOP]]]\n'
+        interval = path_info_uint(page, 144) or 144
+        start = path_info_uint(page, 0)
+        stop = path_info_uint(page, None)
+
+        rows = abe.store.selectall("""
+            SELECT b.block_height,
+                   b.block_nTime,
+                   b.block_chain_work,
+                   b.block_nBits
+              FROM block b
+              JOIN chain_candidate cc
+             USING (block_id)
+              JOIN chain_candidate ints ON (
+                       ints.chain_id = cc.chain_id
+                   AND ints.in_longest = 1
+                   AND ints.block_height * ? + ? = cc.block_height)
+             WHERE cc.in_longest = 1
+               AND cc.chain_id = 1""" + (
+                "" if stop is None else """
+               AND cc.block_height <= ?""") + """
+             ORDER BY cc.block_height""",
+                                   (interval, start)
+                                   if stop is None else
+                                   (interval, start, stop))
+        ret = NETHASH_HEADER
+
+        for row in rows:
+            height, nTime, chain_work, nBits = row
+            nTime            = float(nTime)
+            nBits            = int(nBits)
+            target           = util.calculate_target(nBits)
+            difficulty       = util.target_to_difficulty(target)
+            work             = util.target_to_work(target)
+            chain_work       = abe.store.binout_int(chain_work) - work
+
+            if row is not rows[0]:
+                height           = int(height)
+                interval_work    = chain_work - prev_chain_work
+                avg_target       = util.work_to_target(interval_work / interval)
+                #if avg_target == target - 1:
+                #    avg_target = target
+                interval_seconds = nTime - prev_nTime
+                if interval_seconds <= 0:
+                    nethash = 'Infinity'
+                else:
+                    nethash = "%.0f" % (interval_work / interval_seconds,)
+                ret += "%d,%d,%d,%d,%.3f,%d,%.0f,%s\n" % (
+                    height, nTime, target, avg_target, difficulty, work,
+                    interval_seconds / interval, nethash)
+
+            prev_nTime, prev_chain_work = nTime, chain_work
+
+        return ret
 
     def download_srcdir(abe, page):
         name = abe.args.download_name
@@ -1299,6 +1383,18 @@ class Abe:
 def get_int_param(page, name):
     vals = page['params'].get(name)
     return vals and int(vals[0])
+
+def path_info_uint(page, default):
+    s = wsgiref.util.shift_path_info(page['env'])
+    if s is None:
+        return default
+    try:
+        ret = int(s)
+    except:
+        return default
+    if ret < 0:
+        return default
+    return ret
 
 def format_time(nTime):
     import time
