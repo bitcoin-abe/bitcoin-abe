@@ -1263,7 +1263,7 @@ class Abe:
         arg = wsgiref.util.shift_path_info(page['env'])
         if arg is None:
             return \
-                'Converts a 160-bit hash and address version to an address\n' \
+                'Converts a 160-bit hash and address version to an address.\n' \
                 '/q/hashtoaddress/HASH[/VERSION]\n'
 
         version, hash = arg.split(":", 1)
@@ -1284,11 +1284,20 @@ class Abe:
     def q_nethash(abe, page, chain):
         """shows statistics about difficulty and network power."""
         if chain is None:
-            return 'Shows statistics every INTERVAL blocks\n' \
+            return 'Shows statistics every INTERVAL blocks.\n' \
                 '/chain/CHAIN/q/nethash[/INTERVAL[/START[/STOP]]]\n'
         interval = path_info_uint(page, 144) or 144
         start = path_info_uint(page, 0)
         stop = path_info_uint(page, None)
+
+        # Select every INTERVAL blocks from START to STOP.
+        # Standard SQL lacks an "every Nth row" feature, so we
+        # provide it with the help of a table containing the integers.
+        # We don't need all integers, only as many as rows we want to
+        # fetch.  We happen to have a table with the desired integers,
+        # namely chain_candidate; its block_height column covers the
+        # required range without duplicates if properly constrained.
+        # That is the story of the second JOIN.
 
         rows = abe.store.selectall("""
             SELECT b.block_height,
@@ -1296,8 +1305,7 @@ class Abe:
                    b.block_chain_work,
                    b.block_nBits
               FROM block b
-              JOIN chain_candidate cc
-             USING (block_id)
+              JOIN chain_candidate cc USING (block_id)
               JOIN chain_candidate ints ON (
                        ints.chain_id = cc.chain_id
                    AND ints.in_longest = 1
@@ -1339,6 +1347,24 @@ class Abe:
             prev_nTime, prev_chain_work = nTime, chain_work
 
         return ret
+
+    def q_totalbc(abe, page, chain):
+        """shows the amount of currency ever mined."""
+        if chain is None:
+            return 'Shows the amount of currency ever mined.\n' \
+                'This differs from the amount in circulation when' \
+                ' coins are destroyed, as happens frequently in Namecoin.\n' \
+                'Unlike http://blockexplorer.com/q/totalbc, this does not' \
+                ' support future block numbers, and it returns a sum of' \
+                ' observed generations rather than a calculated value.\n' \
+                '/chain/CHAIN/q/totalbc\n'
+        row = abe.store.selectrow("""
+            SELECT b.block_total_satoshis
+              FROM chain c
+              LEFT JOIN block b ON (c.chain_last_block_id = b.block_id)
+             WHERE c.chain_id = ?
+        """, (chain['id'],))
+        return format_satoshis(int(row[0]), chain) if row else 0
 
     def download_srcdir(abe, page):
         name = abe.args.download_name
