@@ -1357,13 +1357,26 @@ class Abe:
                 'Unlike http://blockexplorer.com/q/totalbc, this does not' \
                 ' support future block numbers, and it returns a sum of' \
                 ' observed generations rather than a calculated value.\n' \
-                '/chain/CHAIN/q/totalbc\n'
-        row = abe.store.selectrow("""
-            SELECT b.block_total_satoshis
-              FROM chain c
-              LEFT JOIN block b ON (c.chain_last_block_id = b.block_id)
-             WHERE c.chain_id = ?
-        """, (chain['id'],))
+                '/chain/CHAIN/q/totalbc[/HEIGHT]\n'
+        height = path_info_uint(page, None)
+        if height is None:
+            row = abe.store.selectrow("""
+                SELECT b.block_total_satoshis
+                  FROM chain c
+                  LEFT JOIN block b ON (c.chain_last_block_id = b.block_id)
+                 WHERE c.chain_id = ?
+            """, (chain['id'],))
+        else:
+            row = abe.store.selectrow("""
+                SELECT b.block_total_satoshis
+                  FROM chain_candidate cc
+                  LEFT JOIN block b USING (block_id)
+                 WHERE cc.chain_id = ?
+                   AND cc.block_height = ?
+                   AND cc.in_longest = 1
+            """, (chain['id'], height))
+            if not row:
+                return 'ERROR: block %d not seen yet' % (height,)
         return format_satoshis(int(row[0]), chain) if row else 0
 
     def download_srcdir(abe, page):
