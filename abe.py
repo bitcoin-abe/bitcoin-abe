@@ -1247,16 +1247,28 @@ class Abe:
         return hash_to_address(chain['address_version'], hash)
 
     def q_decode_address(abe, page, chain):
-        """shows the version prefix and hash of an address."""
+        """shows the version prefix and hash encoded in an address."""
         addr = wsgiref.util.shift_path_info(page['env'])
         if addr is None:
-            return 'Translates ADDRESS for use in CHAIN.\n' \
+            return "Shows ADDRESS's version byte(s) and public key hash" \
+                ' as hex strings separated by colon (":").\n' \
                 '/q/decode_address/ADDRESS\n'
         version, hash = decode_address(addr)
         ret = binascii.hexlify(version) + ":" + binascii.hexlify(hash)
         if hash_to_address(version, hash) != addr:
             ret = "INVALID(" + ret + ")"
         return ret
+
+    def q_addresstohash(abe, page, chain):
+        """shows the public key hash encoded in an address."""
+        addr = wsgiref.util.shift_path_info(page['env'])
+        if addr is None:
+            return 'Shows the 160-bit hash encoded in ADDRESS.\n' \
+                'For BBE compatibility, the address is not checked for' \
+                ' validity.  See also /q/decode_address.\n' \
+                '/q/addresstohash/ADDRESS\n'
+        version, hash = decode_address(addr)
+        return binascii.hexlify(hash).upper()
 
     def q_hashtoaddress(abe, page, chain):
         """shows the address with the given version prefix and hash."""
@@ -1266,10 +1278,12 @@ class Abe:
                 'Converts a 160-bit hash and address version to an address.\n' \
                 '/q/hashtoaddress/HASH[/VERSION]\n'
 
-        version, hash = arg.split(":", 1)
+        # VERSION:HASH
+        if arg.find(":") >= 0:
+            version, hash = arg.split(":", 1)
 
         # BBE-compatible HASH/VERSION
-        if version is None:
+        else:
             version, hash = wsgiref.util.shift_path_info(page['env']), arg
 
         if version is None:
@@ -1280,6 +1294,42 @@ class Abe:
         except:
             return 'ERROR: Arguments must be hexadecimal strings of even length'
         return hash_to_address(version, hash)
+
+    def q_hashpubkey(abe, page, chain):
+        """shows the 160-bit hash of the given public key."""
+        pubkey = wsgiref.util.shift_path_info(page['env'])
+        if pubkey is None:
+            return \
+                "Returns the 160-bit hash of PUBKEY.\n" \
+                "For example, the Bitcoin genesis block's output public key," \
+                " seen in its transaction output scriptPubKey, starts with\n" \
+                "04678afdb0fe..., and its hash is" \
+                " 62E907B15CBF27D5425399EBF6F0FB50EBB88F18, corresponding" \
+                " to address 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa.\n" \
+                "/q/hashpubkey/PUBKEY\n"
+        try:
+            pubkey = binascii.unhexlify(pubkey)
+        except:
+            return 'ERROR: invalid hexadecimal byte string.'
+        return binascii.hexlify(util.pubkey_to_hash(pubkey)).upper()
+
+    def q_checkaddress(abe, page, chain):
+        """checks an address for validity."""
+        addr = wsgiref.util.shift_path_info(page['env'])
+        if addr is None:
+            return \
+                "Returns the version encoded in ADDRESS as a hex string.\n" \
+                "If ADDRESS is invalid, returns either X5, SZ, or CK for" \
+                " BBE compatibility.\n" \
+                "/q/checkaddress/ADDRESS\n"
+        if ADDRESS_RE.match(addr):
+            version, hash = decode_address(addr)
+            if hash_to_address(version, hash) == addr:
+                return binascii.hexlify(version).upper()
+            return 'CK'
+        if len(addr) >= 26:
+            return 'X5'
+        return 'SZ'
 
     def q_nethash(abe, page, chain):
         """shows statistics about difficulty and network power."""
