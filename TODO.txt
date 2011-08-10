@@ -4,6 +4,8 @@
 
 * Avoid chain_id clash between new hardcoded ids and generated ids.
 
+* Start a test suite, especially for out-of-order blocks and reorgs.
+
 * Use explicit constraint names.
 
 * Speed up initial load by disabling unneeded constraints temporarily.
@@ -16,10 +18,6 @@
 * Separate HTML from data access.
 
 * Create "short links" as on http://blockexplorer.com.
-
-* /q/nethash
-
-* Start a test suite, especially for out-of-order blocks and reorgs.
 
 * Test on MySQL.
 
@@ -56,11 +54,25 @@
 
 * Test as multithreaded or forking server.
 
-* Perhaps support searching by hash/address substring.
+* Perhaps support searching by hash/address non-initial substring.
 
-* Tools/API like http://blockexplorer.com/q.
+* /q functions:
+  getdifficulty       latesthash          hextarget
+  decimaltarget       probability         hashestowin
+  nextretarget        estimate
+  avgtxsize           avgtxvalue          avgblocksize
+  interval            eta                 avgtxnumber
+  getreceivedbyaddress                    getsentbyaddress
+  addressbalance      addressfirstseen    mytransactions
+  reorglog
+
+* BTC-specific /q functions:
+  bcperblock          changeparams
+  totalbc(future block numbers)
 
 * Perhaps create a BlockExplorer.com compatibility mode.
+
+* Perhaps show nethash interval statistics on the chain summary page.
 
 * Perhaps create an "SQL script" DataStore subclass that outputs flat
   SQL INSERTs.
