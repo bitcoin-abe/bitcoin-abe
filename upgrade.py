@@ -25,8 +25,9 @@ def run_upgrades(store, upgrades):
     for i in xrange(len(upgrades) - 1):
         vers, func = upgrades[i]
         if store.config['schema_version'] == vers:
-            func(store)
             sv = upgrades[i+1][0]
+            print "upgrading schema version: " + sv
+            func(store)
             if sv[:3] == 'Abe':
                 store.sql(
                     "UPDATE configvar SET configvar_value = ?"
@@ -542,6 +543,28 @@ def config_ddl(store):
     store.configure_ddl_implicit_commit()
     store.save_configvar("ddl_implicit_commit")
 
+def config_create_table_epilogue(store):
+    store.configure_create_table_epilogue()
+    store.save_configvar("create_table_epilogue")
+
+def rename_abe_sequences_key(store):
+    """Drop and recreate abe_sequences with key renamed to sequence_key."""
+    # Renaming a column is horribly unportable.
+    try:
+        data = store.selectall("SELECT key, nextid FROM abe_sequences")
+    except:
+        store.rollback()
+        return
+    print "copying sequence positions:", data
+    store.ddl("DROP TABLE abe_sequences")
+    store.ddl("""CREATE TABLE abe_sequences (
+        sequence_key VARCHAR(100) PRIMARY KEY,
+        nextid NUMERIC(30)
+    )""")
+    for row in data:
+        store.sql("INSERT INTO abe_sequences (sequence_key, nextid)"
+                  " VALUES (?, ?)", row)
+
 upgrades = [
     ('6',    add_block_value_in),
     ('6.1',  add_block_value_out),
@@ -595,7 +618,9 @@ upgrades = [
     ('Abe18.2', init_block_tx_sums),     # 5 minutes
     ('Abe18.3', replace_chain_summary),  # Fast
     ('Abe19',   config_ddl),             # Fast
-    ('Abe20',   None),
+    ('Abe20',   config_create_table_epilogue), # Fast
+    ('Abe20.1', rename_abe_sequences_key), # Fast
+    ('Abe21',   None),
 ]
 
 def upgrade_schema(store):

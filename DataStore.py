@@ -23,7 +23,7 @@ import BCDataStream
 import deserialize
 import util
 
-SCHEMA_VERSION = "Abe20"
+SCHEMA_VERSION = "Abe21"
 
 WORK_BITS = 304  # XXX more than necessary.
 
@@ -106,16 +106,17 @@ class DataStore(object):
 
         if store.config is None:
             store.initialize()
-        elif store.config['schema_version'] != SCHEMA_VERSION:
-            if args.upgrade:
-                store._set_sql_flavour()
-                import upgrade
-                upgrade.upgrade_schema(store)
-            else:
-                raise Exception(
-                    "Database schema version (%s) does not match software"
-                    " (%s).  Please run with --upgrade to convert database."
-                    % (store.config['schema_version'], SCHEMA_VERSION))
+        elif store.config['schema_version'] == SCHEMA_VERSION:
+            pass
+        elif args.upgrade:
+            store._set_sql_flavour()
+            import upgrade
+            upgrade.upgrade_schema(store)
+        else:
+            raise Exception(
+                "Database schema version (%s) does not match software"
+                " (%s).  Please run with --upgrade to convert database."
+                % (store.config['schema_version'], SCHEMA_VERSION))
 
         store._set_sql_flavour()
         store._blocks = {}
@@ -293,6 +294,8 @@ class DataStore(object):
         store.cursor.execute(cached, params)
 
     def ddl(store, stmt):
+        if stmt.lstrip().startswith("CREATE TABLE "):
+            stmt += store.config['create_table_epilogue']
         store.sql(stmt)
         if store.config['ddl_implicit_commit'] == 'false':
             store.commit()
@@ -409,19 +412,22 @@ class DataStore(object):
     def _new_id_update(store, key):
         try:
             row = store.selectrow(
-                "SELECT nextid FROM abe_sequences WHERE key = ?", (key,))
+                "SELECT nextid FROM abe_sequences WHERE sequence_key = ?",
+                (key,))
         except store.module.DatabaseError:
+            # XXX Should not rollback in new_id unless configuring.
             store.rollback()
             store.ddl(store._ddl['abe_sequences'])
             row = None
         if row is None:
             (ret,) = store.selectrow("SELECT MAX(" + key + "_id) FROM " + key)
             ret = 1 if ret is None else ret + 1
-            store.sql("INSERT INTO abe_sequences (key, nextid) VALUES (?, ?)",
-                      (key, ret + 1))
+            store.sql("INSERT INTO abe_sequences (sequence_key, nextid)"
+                      " VALUES (?, ?)", (key, ret + 1))
         else:
             ret = int(row[0])
-        store.sql("UPDATE abe_sequences SET nextid = nextid + 1 WHERE key = ?",
+        store.sql("UPDATE abe_sequences SET nextid = nextid + 1"
+                  " WHERE sequence_key = ?",
                   (key,))
         return ret
 
@@ -543,7 +549,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
 
             "abe_sequences":
 """CREATE TABLE abe_sequences (
-    key VARCHAR(100) PRIMARY KEY,
+    sequence_key VARCHAR(100) PRIMARY KEY,
     nextid NUMERIC(30)
 )""",
             }
@@ -559,7 +565,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
 store._ddl['configvar'],
 
 """CREATE TABLE datadir (
-    dirname     VARCHAR(32767) PRIMARY KEY,
+    dirname     VARCHAR(500) PRIMARY KEY,
     blkfile_number NUMERIC(4),
     blkfile_offset NUMERIC(20),
     chain_id    NUMERIC(10) NULL
@@ -792,6 +798,7 @@ store._ddl['txout_approx'],
         store.config = {}
 
         store.configure_ddl_implicit_commit()
+        store.configure_create_table_epilogue()
 
         for val in (
             ['str', 'bytearray', 'buffer', 'hex', '']
@@ -843,6 +850,8 @@ store._ddl['txout_approx'],
         store._drop_if_exists("SEQUENCE", obj)
 
     def configure_ddl_implicit_commit(store):
+        if 'create_table_epilogue' not in store.config:
+            store.config['create_table_epilogue'] = ''
         for val in ['true', 'false']:
             store.config['ddl_implicit_commit'] = val
             store._set_sql_flavour()
@@ -867,6 +876,39 @@ store._ddl['txout_approx'],
             return False
         except Exception, e:
             print "_test_ddl:", store.config['ddl_implicit_commit'] + ":", e
+            store.rollback()
+            return False
+        finally:
+            store._drop_table_if_exists("abe_test_1")
+
+    def configure_create_table_epilogue(store):
+        for val in ['', ' ENGINE=InnoDB']:
+            store.config['create_table_epilogue'] = val
+            store._set_sql_flavour()
+            if store._test_transaction():
+                print "create_table_epilogue='%s'" % (val,)
+                return
+        raise Exception("Can not create a transactional table.")
+
+    def _test_transaction(store):
+        """Test whether CREATE TABLE needs ENGINE=InnoDB for rollback."""
+        store._drop_table_if_exists("abe_test_1")
+        try:
+            store.ddl(
+                "CREATE TABLE abe_test_1 (a NUMERIC(12))")
+            store.sql("INSERT INTO abe_test_1 (a) VALUES (4)")
+            store.commit()
+            store.sql("INSERT INTO abe_test_1 (a) VALUES (5)")
+            store.rollback()
+            data = [int(row[0]) for row in store.selectall(
+                    "SELECT a FROM abe_test_1")]
+            return data == [4]
+        except store.module.DatabaseError, e:
+            store.rollback()
+            return False
+        except Exception, e:
+            print "_test_transaction:", \
+                store.config['create_table_epilogue'] + ":", e
             store.rollback()
             return False
         finally:
@@ -935,15 +977,16 @@ store._ddl['txout_approx'],
         store._drop_table_if_exists("abe_test_1")
         try:
             store.ddl(
-                "CREATE TABLE abe_test_1 ("
-                " abe_test_1_id NUMERIC(12) PRIMARY KEY,"
-                " foo VARCHAR(10))")
+                """CREATE TABLE abe_test_1 (
+                    abe_test_1_id NUMERIC(12) PRIMARY KEY,
+                    foo VARCHAR(10))""")
             id1 = store.new_id('abe_test_1')
             id2 = store.new_id('abe_test_1')
             if int(id1) != int(id2):
                 return True
             return False
         except store.module.DatabaseError, e:
+            print "_test_sequence_type:", store.config['sequence_type'] + ":", e
             store.rollback()
             return False
         except Exception, e:
@@ -961,6 +1004,10 @@ store._ddl['txout_approx'],
     def save_configvar(store, name):
         store.sql("INSERT INTO configvar (configvar_name, configvar_value)"
                   " VALUES (?, ?)", (name, store.config[name]))
+
+    def set_configvar(store, name, value):
+        store.config[name] = value
+        store.save_configvar(name)
 
     def _get_block(store, block_id):
         return store._blocks.get(int(block_id))

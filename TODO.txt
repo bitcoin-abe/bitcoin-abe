@@ -19,8 +19,6 @@
 
 * Create "short links" as on http://blockexplorer.com.
 
-* Test on MySQL.
-
 * Speed up browsing by denormalizing data, perhaps using materialized
   views where available.
 
@@ -100,3 +98,5 @@
 * Perhaps track and report collectible transaction bytes: size of
   transactions whose outputs are all spent, minus Merkle shrubbery
   needed to verify the rest.
+
+* Perhaps support email notification about address activity.
