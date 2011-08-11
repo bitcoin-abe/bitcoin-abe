@@ -910,7 +910,8 @@ class Abe:
             count[txpoint['is_in']] += 1
 
         txpoints = []
-        rows = abe.store.selectall("""
+        rows = []
+        rows += abe.store.selectall("""
             SELECT
                 b.block_nTime,
                 cc.chain_id,
