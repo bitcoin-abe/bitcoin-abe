@@ -26,7 +26,7 @@ def run_upgrades(store, upgrades):
         vers, func = upgrades[i]
         if store.config['schema_version'] == vers:
             sv = upgrades[i+1][0]
-            print "upgrading schema version: " + sv
+            print "Upgrading schema to version: " + sv
             func(store)
             if sv[:3] == 'Abe':
                 store.sql(
