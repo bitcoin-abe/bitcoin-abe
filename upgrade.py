@@ -565,6 +565,9 @@ def rename_abe_sequences_key(store):
         store.sql("INSERT INTO abe_sequences (sequence_key, nextid)"
                   " VALUES (?, ?)", row)
 
+def create_x_txin_txout(store):
+    store.sql("CREATE INDEX x_txin_txout ON txin (txout_id)")
+
 upgrades = [
     ('6',    add_block_value_in),
     ('6.1',  add_block_value_out),
@@ -620,7 +623,8 @@ upgrades = [
     ('Abe19',   config_ddl),             # Fast
     ('Abe20',   config_create_table_epilogue), # Fast
     ('Abe20.1', rename_abe_sequences_key), # Fast
-    ('Abe21',   None),
+    ('Abe21',   create_x_txin_txout),    # 25 seconds
+    ('Abe22',   None),
 ]
 
 def upgrade_schema(store):

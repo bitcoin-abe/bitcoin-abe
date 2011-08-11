@@ -23,7 +23,7 @@ import BCDataStream
 import deserialize
 import util
 
-SCHEMA_VERSION = "Abe21"
+SCHEMA_VERSION = "Abe22"
 
 WORK_BITS = 304  # XXX more than necessary.
 
@@ -708,6 +708,7 @@ store._ddl['configvar'],
     FOREIGN KEY (tx_id)
         REFERENCES tx (tx_id)
 )""",
+"""CREATE INDEX x_txin_txout ON txin (txout_id)""",
 
 # While TXIN.TXOUT_ID can not be found, we must remember TXOUT_POS,
 # a.k.a. PREVOUT_N.
