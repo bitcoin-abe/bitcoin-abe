@@ -1013,7 +1013,7 @@ class Abe:
                      '">', elt['height'], '</a></td><td>',
                      format_time(elt['nTime']), '</td><td>']
             if elt['value'] < 0:
-                body += ['(', format_satoshis(elt['value'], chain), ')']
+                body += ['(', format_satoshis(-elt['value'], chain), ')']
             else:
                 body += [format_satoshis(elt['value'], chain)]
             body += ['</td><td>',
