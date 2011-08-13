@@ -95,7 +95,7 @@ hashesToWin:          expected number of hashes needed to solve a block at this 
 avgIntervalSinceLast: interval seconds divided by blocks
 netHashPerSecond:     estimated network hash rate over interval
 
-Values differ slightly from http://blockexplorer.com/q/nethash.
+Statistical values are approximate and differ slightly from http://blockexplorer.com/q/nethash.
 
 /chain/CHAIN/q/nethash[/INTERVAL[/START[/STOP]]]
 Default INTERVAL=144, START=0, STOP=infinity.
