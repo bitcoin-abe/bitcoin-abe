@@ -383,6 +383,8 @@ class DataStore(object):
                         addr_vers = dircfg.get('address_version')
                         if addr_vers is None:
                             addr_vers = BITCOIN_ADDRESS_VERSION
+                        elif isinstance(addr_vers, unicode):
+                            addr_vers = addr_vers.encode('latin_1')
                         store.sql("""
                             INSERT INTO chain (
                                 chain_id, chain_name, chain_code3,
