@@ -23,7 +23,7 @@ import BCDataStream
 import deserialize
 import util
 
-SCHEMA_VERSION = "Abe22"
+SCHEMA_VERSION = "Abe23"
 
 WORK_BITS = 304  # XXX more than necessary.
 
@@ -339,10 +339,11 @@ class DataStore(object):
     def _init_datadirs(store):
         datadirs = {}
         for row in store.selectall("""
-            SELECT dirname, blkfile_number, blkfile_offset, chain_id
+            SELECT datadir_id, dirname, blkfile_number, blkfile_offset, chain_id
               FROM datadir"""):
-            dir, num, offs, chain_id = row
+            id, dir, num, offs, chain_id = row
             datadirs[dir] = {
+                "id": id,
                 "dirname": dir,
                 "blkfile_number": int(num),
                 "blkfile_offset": int(offs),
@@ -405,6 +406,7 @@ class DataStore(object):
                 chain_id = None
 
             store.datadirs.append({
+                "id": store.new_id("datadir"),
                 "dirname": dirname,
                 "blkfile_number": 1,
                 "blkfile_offset": 0,
@@ -424,6 +426,9 @@ class DataStore(object):
         if row is None:
             (ret,) = store.selectrow("SELECT MAX(" + key + "_id) FROM " + key)
             ret = 1 if ret is None else ret + 1
+            if ret < 100000 and key == "chain":
+                # Avoid clash with future built-in chains.
+                ret = 100000
             store.sql("INSERT INTO abe_sequences (sequence_key, nextid)"
                       " VALUES (?, ?)", (key, ret + 1))
         else:
@@ -567,9 +572,10 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
 store._ddl['configvar'],
 
 """CREATE TABLE datadir (
-    dirname     VARCHAR(500) PRIMARY KEY,
-    blkfile_number NUMERIC(4),
-    blkfile_offset NUMERIC(20),
+    datadir_id  NUMERIC(10) PRIMARY KEY,
+    dirname     VARCHAR(2000) NOT NULL,
+    blkfile_number NUMERIC(4) NULL,
+    blkfile_offset NUMERIC(20) NULL,
     chain_id    NUMERIC(10) NULL
 )""",
 
@@ -1587,8 +1593,10 @@ store._ddl['txout_approx'],
             try:
                 store.catch_up_dir(dircfg)
             except Exception, e:
+                import traceback
+                traceback.print_exc()
                 print ("Warning: failed to catch up %s: %s"
-                       % (dircfg['dirname'], str(e)))
+                       % (dircfg['dirname'], str(e))), dircfg
                 store.rollback()
 
     # Load all blocks starting at the current file and offset.
@@ -1739,15 +1747,15 @@ store._ddl['txout_approx'],
             UPDATE datadir
                SET blkfile_number = ?,
                    blkfile_offset = ?
-             WHERE dirname = ?""",
-                  (dircfg['blkfile_number'], offset, dircfg['dirname']))
+             WHERE datadir_id = ?""",
+                  (dircfg['blkfile_number'], offset, dircfg['id']))
         if store.cursor.rowcount == 0:
             store.sql("""
-                INSERT INTO datadir (dirname, blkfile_number,
+                INSERT INTO datadir (datadir_id, dirname, blkfile_number,
                     blkfile_offset, chain_id)
-                VALUES (?, ?, ?, ?)""",
-                      (dircfg['dirname'], dircfg['blkfile_number'], offset,
-                       dircfg['chain_id']))
+                VALUES (?, ?, ?, ?, ?)""",
+                      (dircfg['id'], dircfg['dirname'],
+                       dircfg['blkfile_number'], offset, dircfg['chain_id']))
         dircfg['blkfile_offset'] = offset
 
     def _refresh_dircfg(store, dircfg):

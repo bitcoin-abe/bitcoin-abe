@@ -2,8 +2,6 @@
   probably limit the kinds of exceptions that catch_up converts to
   warnings.
 
-* Avoid chain_id clash between new hardcoded ids and generated ids.
-
 * Start a test suite, especially for out-of-order blocks and reorgs.
 
 * Use explicit constraint names.

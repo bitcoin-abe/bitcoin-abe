@@ -551,7 +551,9 @@ def rename_abe_sequences_key(store):
     """Drop and recreate abe_sequences with key renamed to sequence_key."""
     # Renaming a column is horribly unportable.
     try:
-        data = store.selectall("SELECT key, nextid FROM abe_sequences")
+        data = store.selectall("""
+            SELECT DISTINCT key, nextid
+              FROM abe_sequences""")
     except:
         store.rollback()
         return
@@ -567,6 +569,37 @@ def rename_abe_sequences_key(store):
 
 def create_x_txin_txout(store):
     store.sql("CREATE INDEX x_txin_txout ON txin (txout_id)")
+
+def save_datadir(store):
+    """Copy the datadir table to recreate it with a new column."""
+    store.sql("CREATE TABLE abe_tmp_datadir AS SELECT * FROM datadir")
+
+def add_datadir_id(store):
+    data = store.selectall("""
+        SELECT dirname, blkfile_number, blkfile_offset, chain_id
+          FROM abe_tmp_datadir""")
+    try:
+        store.ddl("DROP TABLE datadir")
+    except:
+        store.rollback()  # Assume already dropped.
+
+    store.ddl("""CREATE TABLE datadir (
+        datadir_id  NUMERIC(10) PRIMARY KEY,
+        dirname     VARCHAR(2000) NOT NULL,
+        blkfile_number NUMERIC(4) NULL,
+        blkfile_offset NUMERIC(20) NULL,
+        chain_id    NUMERIC(10) NULL
+    )""")
+    for row in data:
+        new_row = [store.new_id("datadir")]
+        new_row += row
+        store.sql("""
+            INSERT INTO datadir (
+                datadir_id, dirname, blkfile_number, blkfile_offset, chain_id
+            ) VALUES (?, ?, ?, ?, ?)""", new_row)
+
+def drop_tmp_datadir(store):
+    store.ddl("DROP TABLE abe_tmp_datadir")
 
 upgrades = [
     ('6',    add_block_value_in),
@@ -624,7 +657,10 @@ upgrades = [
     ('Abe20',   config_create_table_epilogue), # Fast
     ('Abe20.1', rename_abe_sequences_key), # Fast
     ('Abe21',   create_x_txin_txout),    # 25 seconds
-    ('Abe22',   None),
+    ('Abe22',   save_datadir),           # Fast
+    ('Abe22.1', add_datadir_id),         # Fast
+    ('Abe22.2', drop_tmp_datadir),       # Fast
+    ('Abe23',   None),
 ]
 
 def upgrade_schema(store):
