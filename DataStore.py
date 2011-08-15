@@ -1404,21 +1404,16 @@ store._ddl['txout_approx'],
                 ) VALUES (?, ?, ?, ?, ?, ?)""",
                       (txout_id, tx_id, pos, txout['value'],
                        store.binin(txout['scriptPubKey']), pubkey_id))
-            store.sql("""
-                UPDATE txin
-                   SET txout_id = ?
-                 WHERE EXISTS (
-                    SELECT 1
-                      FROM unlinked_txin utxin
-                     WHERE txin.txin_id = utxin.txin_id
-                       AND txout_tx_hash = ?
-                       AND txout_pos = ?)""",
-                      (txout_id, dbhash, pos))
-            if (store.cursor.rowcount or 0) > 0:
-                store.sql("""
-                    DELETE FROM unlinked_txin
-                     WHERE txout_tx_hash = ? AND txout_pos = ?)""",
-                      (dbhash, pos))
+            for row in store.selectall("""
+                SELECT txin_id
+                  FROM unlinked_txin
+                 WHERE txout_tx_hash = ?
+                   AND txout_pos = ?""", (dbhash, pos)):
+                (txin_id,) = row
+                store.sql("UPDATE txin SET txout_id = ? WHERE txin_id = ?",
+                          (txout_id, txin_id))
+                store.sql("DELETE FROM unlinked_txin WHERE txin_id = ?",
+                          (txin_id,))
 
         # Import transaction inputs.
         tx['value_in'] = 0
@@ -1467,19 +1462,18 @@ store._ddl['txout_approx'],
             # this block is in longest; this can happen in database
             # repair scenarios.
             row = store.selectrow("""
-                SELECT b.block_id, b.block_height
+                SELECT b.block_id, b.block_height, b.block_chain_work
                   FROM block b, chain c
                  WHERE c.chain_id = ?
-                   AND ((b.block_id = c.chain_last_block_id
-                         AND b.block_chain_work < ?)
-                        OR c.chain_last_block_id = ?)""",
-                      (chain_id,
-                       store.binin_int(b['top']['chain_work'], WORK_BITS),
-                       b['top']['block_id']))
+                   AND b.block_id = c.chain_last_block_id""", (chain_id,))
+            if row:
+                loser_id, loser_height, loser_work = row
+                if loser_id <> b['top']['block_id'] and \
+                        store.binout_int(loser_work) >= b['top']['chain_work']:
+                    row = None
             if row:
                 # New longest chain.
                 in_longest = 1
-                (loser_id, loser_height) = row
                 to_connect = []
                 to_disconnect = []
                 winner_id = b['top']['block_id']
