@@ -1350,6 +1350,9 @@ class Abe:
         # required range without duplicates if properly constrained.
         # That is the story of the second JOIN.
 
+        if stop is not None:
+            stop_ix = (stop - start) / interval
+
         rows = abe.store.selectall("""
             SELECT b.block_height,
                    b.block_nTime,
@@ -1364,11 +1367,11 @@ class Abe:
              WHERE cc.in_longest = 1
                AND cc.chain_id = ?""" + (
                 "" if stop is None else """
-               AND cc.block_height <= ?""") + """
+               AND ints.block_height <= ?""") + """
              ORDER BY cc.block_height""",
                                    (interval, start, chain['id'])
                                    if stop is None else
-                                   (interval, start, chain['id'], stop))
+                                   (interval, start, chain['id'], stop_ix))
         ret = NETHASH_HEADER
 
         for row in rows:
