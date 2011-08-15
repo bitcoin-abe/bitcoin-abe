@@ -14,8 +14,7 @@ Block Explorer, http://blockexplorer.com/.
 
 Abe draws inspiration from Bitcoin Block Explorer (BBE) and seeks some
 level of compatibility with it but uses a completely new
-implementation.  This software is in "alpha" status and has not yet
-been optimised to run as fast as BBE.
+implementation.
 
 Dependencies
 ------------
