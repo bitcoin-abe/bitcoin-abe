@@ -486,7 +486,7 @@ class Abe:
                                   (block_id,))
 
         if chain is None:
-            page['title'] = ['Block ', height]
+            page['title'] = ['Block ', block_hash[:4], '...', block_hash[-10:]]
         else:
             page['title'] = [escape(chain['name']), ' ', height]
             page['h1'] = ['<a href="', page['dotdot'], 'chain/',
