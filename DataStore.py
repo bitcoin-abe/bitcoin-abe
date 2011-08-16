@@ -22,8 +22,9 @@ import binascii
 import BCDataStream
 import deserialize
 import util
+import warnings
 
-SCHEMA_VERSION = "Abe23"
+SCHEMA_VERSION = "Abe24"
 
 WORK_BITS = 304  # XXX more than necessary.
 
@@ -180,6 +181,8 @@ class DataStore(object):
 
         if store.module.paramstyle in ('format', 'pyformat'):
             transform = store._qmark_to_format(transform)
+        elif store.module.paramstyle == 'named':
+            transform = store._named_to_format(transform)
         elif store.module.paramstyle != 'qmark':
             warnings.warn("Database parameter style is " +
                           "%s, trying qmark" % module.paramstyle)
@@ -296,7 +299,8 @@ class DataStore(object):
     def ddl(store, stmt):
         if stmt.lstrip().startswith("CREATE TABLE "):
             stmt += store.config['create_table_epilogue']
-        store.sql(stmt)
+        stmt = store._sql_fallback_to_lob(store.sql_transform(stmt))
+        store.cursor.execute(stmt)
         if store.config['ddl_implicit_commit'] == 'false':
             store.commit()
 
@@ -305,6 +309,17 @@ class DataStore(object):
         def ret(stmt):
             # XXX Simplified by assuming no literals contain "?".
             return fn(stmt.replace('%', '%%').replace("?", "%s"))
+        return ret
+
+    # Convert standard placeholders to Python "named" style.
+    def _named_to_format(store, fn):
+        def ret(stmt):
+            i = [0]
+            def newname(m):
+                i[0] += 1
+                return ":p%d" % (i[0],)
+            # XXX Simplified by assuming no literals contain "?".
+            return fn(re.sub("\\?", newname, stmt))
         return ret
 
     # Convert the standard BIT type to a hex string for databases
@@ -319,6 +334,27 @@ class DataStore(object):
             # XXX This assumes no string literals match.
             return fn(patt.sub(fixup, stmt).replace("X'", "'"))
         return ret
+
+    # Converts VARCHAR types that are too long to CLOB or similar.
+    def _sql_fallback_to_lob(store, stmt):
+        try:
+            max_varchar = int(store.config['max_varchar'])
+            clob_type = store.config['clob_type']
+        except:
+            return stmt
+        if clob_type == 'BUG_NO_CLOB':
+            clob_type = "VARCHAR(%d)" % (max_varchar,)
+
+        patt = re.compile("VARCHAR\\(([0-9]+)\)")
+
+        def fixup(match):
+            # XXX This assumes no string literals match.
+            width = int(match.group(1))
+            if width > max_varchar:
+                return clob_type
+            return "VARCHAR(%d)" % (width,)
+
+        return patt.sub(fixup, stmt)
 
     def _approximate_txout(store, fn):
         def ret(stmt):
@@ -502,7 +538,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
   JOIN block_tx ON (b.block_id = block_tx.block_id)
   JOIN tx    ON (tx.tx_id = block_tx.tx_id)
   JOIN txout ON (tx.tx_id = txout.tx_id)
-  LEFT JOIN pubkey USING (pubkey_id)""",
+  LEFT JOIN pubkey ON (txout.pubkey_id = pubkey.pubkey_id)""",
 
             "txin_detail":
 """CREATE VIEW txin_detail AS SELECT
@@ -808,6 +844,8 @@ store._ddl['txout_approx'],
 
         store.configure_ddl_implicit_commit()
         store.configure_create_table_epilogue()
+        store.configure_max_varchar()
+        store.configure_clob_type()
 
         for val in (
             ['str', 'bytearray', 'buffer', 'hex', '']
@@ -847,7 +885,7 @@ store._ddl['txout_approx'],
 
     def _drop_if_exists(store, otype, name):
         try:
-            store.ddl("DROP " + otype + " " + name)
+            store.sql("DROP " + otype + " " + name)
         except store.module.DatabaseError:
             store.rollback()
 
@@ -922,6 +960,50 @@ store._ddl['txout_approx'],
             return False
         finally:
             store._drop_table_if_exists("abe_test_1")
+
+    def configure_max_varchar(store):
+        """Find the maximum VARCHAR width, up to 0xffffffff"""
+        lo = 0
+        hi = 1 << 32
+        store.config['max_varchar'] = hi
+        while True:
+            mid = (lo + hi) / 2
+            store._drop_table_if_exists("abe_test_1")
+            try:
+                store.ddl("CREATE TABLE abe_test_1 (a VARCHAR(%d))" % (mid,))
+                store.sql("INSERT INTO abe_test_1 (a) VALUES ('x')")
+                if store.selectrow("SELECT a FROM abe_test_1") == ('x',):
+                    lo = mid
+                else:
+                    hi = mid
+            except store.module.DatabaseError, e:
+                store.rollback()
+                hi = mid
+            except Exception, e:
+                print "configure_max_varchar: %d:" % (mid,), e
+                store.rollback()
+                hi = mid
+            if lo + 1 == hi:
+                store.config['max_varchar'] = str(lo)
+                return
+
+    def configure_clob_type(store):
+        """Find the name of the CLOB type, if any."""
+        long_str = 'x' * 20000
+        for val in ['CLOB', 'LONGTEXT', 'TEXT', 'LONG']:
+            try:
+                store.ddl("CREATE TABLE abe_test_1 (a %s)" % (val,))
+                store.sql("INSERT INTO abe_test_1 (a) VALUES (?)", long_str)
+                if store.selectrow("SELECT a FROM abe_test_1") == (long_str,):
+                    store.config['clob_type'] = val
+                    return
+            except store.module.DatabaseError, e:
+                store.rollback()
+            except Exception, e:
+                print "configure_clob_type: %s:" % (val,), e
+                store.rollback()
+        warnings.warn("No native type found for CLOB.")
+        store.config['clob_type'] = 'BUG_NO_CLOB'
 
     def _test_binary_type(store):
         store._drop_table_if_exists("abe_test_1")
@@ -1183,8 +1265,8 @@ store._ddl['txout_approx'],
         for row in store.selectall("""
             SELECT txin.txin_id, obt.block_id
               FROM block_tx bt
-              JOIN txin USING (tx_id)
-              JOIN txout USING (txout_id)
+              JOIN txin ON (txin.tx_id = bt.tx_id)
+              JOIN txout ON (txin.txout_id = txout.txout_id)
               JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
              WHERE bt.block_id = ?""", (block_id,)):
             (txin_id, oblock_id) = row
@@ -1247,8 +1329,8 @@ store._ddl['txout_approx'],
                 SELECT COALESCE(SUM(txout_approx.txout_approx_value *
                                     (? - b.block_nTime)), 0)
                   FROM block_txin bti
-                  JOIN txin USING (txin_id)
-                  JOIN txout_approx USING (txout_id)
+                  JOIN txin ON (bti.txin_id = txin.txin_id)
+                  JOIN txout_approx ON (txin.txout_id = txout_approx.txout_id)
                   JOIN block_tx obt ON (txout_approx.tx_id = obt.tx_id)
                   JOIN block b ON (obt.block_id = b.block_id)
                  WHERE bti.block_id = ? AND txin.tx_id = ?""",
@@ -1354,18 +1436,18 @@ store._ddl['txout_approx'],
 
     def tx_find_id_and_value(store, tx):
         row = store.selectrow("""
-            SELECT tx_id, SUM(txout.txout_value)
+            SELECT tx.tx_id, SUM(txout.txout_value)
               FROM tx
-              LEFT JOIN txout USING (tx_id)
+              LEFT JOIN txout ON (tx.tx_id = txout.tx_id)
              WHERE tx_hash = ?
-             GROUP BY tx_id""",
+             GROUP BY tx.tx_id""",
                               (store.hashin(tx['hash']),))
         if row:
             tx_id, value_out = row
             (value_in,) = store.selectrow("""
                 SELECT SUM(prevout.txout_value)
                   FROM txin
-                  JOIN txout prevout USING (txout_id)
+                  JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
                  WHERE txin.tx_id = ?""", (tx_id,))
             tx['value_in'] = 0 if value_in is None else int(value_in)
             tx['value_out'] = 0 if value_out is None else int(value_out)

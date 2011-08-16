@@ -601,6 +601,12 @@ def add_datadir_id(store):
 def drop_tmp_datadir(store):
     store.ddl("DROP TABLE abe_tmp_datadir")
 
+def config_clob(store):
+    store.configure_max_varchar()
+    store.save_configvar("max_varchar")
+    store.configure_clob_type()
+    store.save_configvar("clob_type")
+
 upgrades = [
     ('6',    add_block_value_in),
     ('6.1',  add_block_value_out),
@@ -660,7 +666,8 @@ upgrades = [
     ('Abe22',   save_datadir),           # Fast
     ('Abe22.1', add_datadir_id),         # Fast
     ('Abe22.2', drop_tmp_datadir),       # Fast
-    ('Abe23',   None),
+    ('Abe23',   config_clob),            # Fast
+    ('Abe24',   None),
 ]
 
 def upgrade_schema(store):
