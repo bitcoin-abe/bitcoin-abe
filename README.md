@@ -20,11 +20,16 @@ Dependencies
 ------------
 
 Abe depends on Python Crypto modules (Debian package python-crypto)
-and a database such as PostgreSQL (see README-POSTGRES.txt) or SQLite
-(package python-pysqlite2).  Other SQL databases may work with minor
-changes.  You will need a copy of the block file (blk0001.dat in your
-Bitcoin directory).  You may let Abe read the block file while Bitcoin
-runs.
+and an SQL database.  Abe runs on PostgreSQL, MySQL, Oracle, and
+SQLite.  Other SQL databases may work with minor changes.  See the
+comments in abe.conf about dbtype for configuration examples.
+
+You will need a copy of the block file (blk0001.dat in your Bitcoin
+directory).  You may let Abe read the block file while Bitcoin runs,
+assuming Bitcoin only appends to the file (normally true).  If you
+rebuild your block file, you must rebuild Abe's database or at least
+set datadir.blkfile_offset = 0 to force a rescan.  Abe does not
+currently handle block file changes gracefully.
 
 License
 -------
@@ -69,10 +74,9 @@ For JSON syntax, see http://www.json.org.
 Slow startup
 ------------
 
-Reading the block file takes far too long: hours on PostgreSQL and
-days on SQLite3.  (We hope to improve the speed soon.)  However, if
-you use a persistent database, Abe remembers where it stopped reading
-and starts more quickly the second time.
+Reading the block file takes much too long, several hours or even
+days.  However, if you use a persistent database, Abe remembers where
+it stopped reading and starts more quickly the second time.
 
 Web server
 ----------
