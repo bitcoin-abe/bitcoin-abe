@@ -4,6 +4,8 @@
 
 * Start a test suite, especially for out-of-order blocks and reorgs.
 
+* Consider porting to libbitcoin.
+
 * Use explicit constraint names.
 
 * Speed up initial load by disabling unneeded constraints temporarily.
@@ -11,16 +13,9 @@
 * Perhaps rewrite adopt_orphans iteratively to avoid Python's
   recursion limit.
 
-* Profile adopt_orphans and offer_block_to_chain.
-
 * Separate HTML from data access.
 
 * Create "short links" as on http://blockexplorer.com.
-
-* Speed up browsing by denormalizing data, perhaps using materialized
-  views where available.
-
-* Perhaps test on Oracle.
 
 * Use SEQUENCEs where available for synthetic identifiers.
 
@@ -31,8 +26,6 @@
 * Admin interface to reset blkfile_offset, delete chains, etc.
 
 * Configurable logging.
-
-* Think about scaling to BBE loads.
 
 * Add a tool to upload transactions if bitcoind supports it.
 
