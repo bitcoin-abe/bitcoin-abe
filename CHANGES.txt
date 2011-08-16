@@ -1,3 +1,28 @@
+New in 0.4.1 - 2011-08-16
+=========================
+
+* Security enhancement: refer to orphan blocks by hash, not height.
+
+* Fixed bugs affecting new chains defined via the configuration.
+
+* Warn, do not exit, if a block file is missing or unparsable.
+
+* Abe parses the new merged-mining block field, CAuxPow.
+
+* Decrement the value returned by getblockcount for compatibility.
+
+* Bug fix: remove '-' from parenthesized amounts.
+
+* Fixed previous/next block links on /chain/CHAIN/b/NUMBER pages.
+
+* Accept "var += val" in configuration as equivalent to "var = val"
+  where "var" has not been defined.
+
+* Added --commit-bytes option to adjust the database commit interval.
+
+* Minor robustness and cosmetic improvements.
+
+
 Major changes from 0.3 to 0.4 (2011-07-04 to 2011-07-15)
 ========================================================
 
