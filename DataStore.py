@@ -131,7 +131,16 @@ class DataStore(object):
             conn = store.module.connect()
         else:
             if isinstance(cargs, dict):
-                conn = store.module.connect(**cargs)
+                if ""  in cargs:
+                    cargs = cargs.copy()
+                    nkwargs = cargs[""]
+                    del(cargs[""])
+                    if isinstance(nkwargs, list):
+                        conn = store.module.connect(*nkwargs, **cargs)
+                    else:
+                        conn = store.module.connect(nkwargs, **cargs)
+                else:
+                    conn = store.module.connect(**cargs)
             elif isinstance(cargs, list):
                 conn = store.module.connect(*cargs)
             else:
@@ -922,6 +931,7 @@ store._ddl['txout_approx'],
     def _drop_if_exists(store, otype, name):
         try:
             store.sql("DROP " + otype + " " + name)
+            store.commit()
         except store.module.DatabaseError:
             store.rollback()
 
@@ -1076,8 +1086,8 @@ store._ddl['txout_approx'],
             store._drop_table_if_exists("abe_test_1")
 
     def _test_int_type(store):
-        store._drop_table_if_exists("abe_test_1")
         store._drop_view_if_exists("abe_test_v1")
+        store._drop_table_if_exists("abe_test_1")
         try:
             store.ddl(
                 """CREATE TABLE abe_test_1 (test_id NUMERIC(2) PRIMARY KEY,
@@ -1107,8 +1117,8 @@ store._ddl['txout_approx'],
             store.rollback()
             return False
         finally:
-            store._drop_table_if_exists("abe_test_1")
             store._drop_view_if_exists("abe_test_v1")
+            store._drop_table_if_exists("abe_test_1")
 
     def _test_sequence_type(store):
         store._drop_table_if_exists("abe_test_1")
