@@ -323,7 +323,7 @@ class DataStore(object):
             stmt += store.config['create_table_epilogue']
         stmt = store._sql_fallback_to_lob(store.sql_transform(stmt))
         if store.log_sql:
-            print "DDL:", stmt
+            print "SQL DDL:", stmt
         store.cursor.execute(stmt)
         if store.config['ddl_implicit_commit'] == 'false':
             store.commit()
@@ -390,11 +390,17 @@ class DataStore(object):
 
     def selectrow(store, stmt, params=()):
         store.sql(stmt, params)
-        return store.cursor.fetchone()
+        ret = store.cursor.fetchone()
+        if store.log_sql:
+            print "SQL FETCH:", ret
+        return ret
 
     def selectall(store, stmt, params=()):
         store.sql(stmt, params)
-        return store.cursor.fetchall()
+        ret = store.cursor.fetchall()
+        if store.log_sql:
+            print "SQL FETCHALL:", ret
+        return ret
 
     def _init_datadirs(store):
         datadirs = {}
@@ -500,17 +506,17 @@ class DataStore(object):
 
     def commit(store):
         if store.log_sql:
-            print "COMMIT"
+            print "SQL COMMIT"
         store.conn.commit()
 
     def rollback(store):
         if store.log_sql:
-            print "ROLLBACK"
+            print "SQL ROLLBACK"
         store.conn.rollback()
 
     def close(store):
         if store.log_sql:
-            print "CLOSE"
+            print "SQL CLOSE"
         store.conn.close()
 
     def _get_ddl(store):
