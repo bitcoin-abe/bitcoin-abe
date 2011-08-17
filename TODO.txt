@@ -2,6 +2,8 @@
   probably limit the kinds of exceptions that catch_up converts to
   warnings.
 
+* Consider retesting SQL flavour every time on startup.
+
 * Start a test suite, especially for out-of-order blocks and reorgs.
 
 * Consider porting to libbitcoin.
