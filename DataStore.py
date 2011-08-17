@@ -85,21 +85,9 @@ class DataStore(object):
         blk0001.dat to scan for new blocks.
         """
         store.args = args
+        store.log_sql = args.log_sql
         store.module = __import__(args.dbtype)
-        cargs = args.connect_args
-
-        if cargs is None:
-            conn = store.module.connect()
-        else:
-            if isinstance(cargs, dict):
-                conn = store.module.connect(**cargs)
-            elif isinstance(cargs, list):
-                conn = store.module.connect(*cargs)
-            else:
-                conn = store.module.connect(cargs)
-
-        store.conn = conn
-        store.cursor = conn.cursor()
+        store.connect()
         store._ddl = store._get_ddl()
 
         # Read the CONFIG and CONFIGVAR tables if present.
@@ -135,6 +123,34 @@ class DataStore(object):
             store.commit_bytes = 100000
         else:
             store.commit_bytes = int(store.commit_bytes)
+
+    def connect(store):
+        cargs = store.args.connect_args
+
+        if cargs is None:
+            conn = store.module.connect()
+        else:
+            if isinstance(cargs, dict):
+                conn = store.module.connect(**cargs)
+            elif isinstance(cargs, list):
+                conn = store.module.connect(*cargs)
+            else:
+                conn = store.module.connect(cargs)
+
+        store.conn = conn
+        store.cursor = conn.cursor()
+
+    def reconnect(store):
+        print "Reconnecting to database."
+        try:
+            store.cursor.close()
+        except:
+            pass
+        try:
+            store.conn.close()
+        except:
+            pass
+        store.connect()
 
     def _read_config(store):
         # Read table CONFIGVAR if it exists.
@@ -251,9 +267,13 @@ class DataStore(object):
         if itype in (None, 'int'):
             intin = identity
 
-        # Work around sqlite3's integer overflow.
+        elif itype == 'decimal':
+            import decimal
+            intin = decimal.Decimal
+
         elif itype == 'str':
             intin = str
+            # Work around sqlite3's integer overflow.
             transform = store._approximate_txout(transform)
 
         else:
@@ -294,12 +314,16 @@ class DataStore(object):
         if cached is None:
             cached = store.sql_transform(stmt)
             store._sql_cache[stmt] = cached
+        if store.log_sql:
+            print "SQL:", cached, params
         store.cursor.execute(cached, params)
 
     def ddl(store, stmt):
         if stmt.lstrip().startswith("CREATE TABLE "):
             stmt += store.config['create_table_epilogue']
         stmt = store._sql_fallback_to_lob(store.sql_transform(stmt))
+        if store.log_sql:
+            print "DDL:", stmt
         store.cursor.execute(stmt)
         if store.config['ddl_implicit_commit'] == 'false':
             store.commit()
@@ -345,7 +369,7 @@ class DataStore(object):
         if clob_type == 'BUG_NO_CLOB':
             clob_type = "VARCHAR(%d)" % (max_varchar,)
 
-        patt = re.compile("VARCHAR\\(([0-9]+)\)")
+        patt = re.compile("VARCHAR\\(([0-9]+)\\)")
 
         def fixup(match):
             # XXX This assumes no string literals match.
@@ -466,7 +490,7 @@ class DataStore(object):
                 # Avoid clash with future built-in chains.
                 ret = 100000
             store.sql("INSERT INTO abe_sequences (sequence_key, nextid)"
-                      " VALUES (?, ?)", (key, ret + 1))
+                      " VALUES (?, ?)", (key, ret))
         else:
             ret = int(row[0])
         store.sql("UPDATE abe_sequences SET nextid = nextid + 1"
@@ -475,12 +499,18 @@ class DataStore(object):
         return ret
 
     def commit(store):
+        if store.log_sql:
+            print "COMMIT"
         store.conn.commit()
 
     def rollback(store):
+        if store.log_sql:
+            print "ROLLBACK"
         store.conn.rollback()
 
     def close(store):
+        if store.log_sql:
+            print "CLOSE"
         store.conn.close()
 
     def _get_ddl(store):
@@ -863,7 +893,7 @@ store._ddl['txout_approx'],
                 print "binary_type=%s" % (val,)
                 break
 
-        for val in ['int', 'str', '']:
+        for val in ['int', 'decimal', 'str', '']:
             if val == '':
                 raise Exception(
                     "No known large integer representation works")
@@ -972,7 +1002,8 @@ store._ddl['txout_approx'],
             try:
                 store.ddl("CREATE TABLE abe_test_1 (a VARCHAR(%d))" % (mid,))
                 store.sql("INSERT INTO abe_test_1 (a) VALUES ('x')")
-                if store.selectrow("SELECT a FROM abe_test_1") == ('x',):
+                row = store.selectrow("SELECT a FROM abe_test_1")
+                if [x for x in row] == ['x']:
                     lo = mid
                 else:
                     hi = mid
@@ -985,6 +1016,7 @@ store._ddl['txout_approx'],
                 hi = mid
             if lo + 1 == hi:
                 store.config['max_varchar'] = str(lo)
+                print "max_varchar=" + store.config['max_varchar']
                 return
 
     def configure_clob_type(store):
@@ -996,12 +1028,17 @@ store._ddl['txout_approx'],
                 store.sql("INSERT INTO abe_test_1 (a) VALUES (?)", long_str)
                 if store.selectrow("SELECT a FROM abe_test_1") == (long_str,):
                     store.config['clob_type'] = val
+                    print "clob_type=" + val
                     return
             except store.module.DatabaseError, e:
                 store.rollback()
             except Exception, e:
                 print "configure_clob_type: %s:" % (val,), e
-                store.rollback()
+                try:
+                    store.rollback()
+                except:
+                    # Fetching a CLOB really messes up Easysoft ODBC Oracle.
+                    store.reconnect()
         warnings.warn("No native type found for CLOB.")
         store.config['clob_type'] = 'BUG_NO_CLOB'
 
@@ -1037,20 +1074,23 @@ store._ddl['txout_approx'],
         store._drop_view_if_exists("abe_test_v1")
         try:
             store.ddl(
-                "CREATE TABLE abe_test_1 (test_id NUMERIC(2) PRIMARY KEY,"
-                " txout_value NUMERIC(30), i2 NUMERIC(20))")
+                """CREATE TABLE abe_test_1 (test_id NUMERIC(2) PRIMARY KEY,
+                 txout_value NUMERIC(30), i2 NUMERIC(20))""")
             store.ddl(
-                "CREATE VIEW abe_test_v1 AS SELECT test_id,"
-                " txout_value txout_approx_value, i2 FROM abe_test_1")
-            v1 = 1234567890123456789
+                """CREATE VIEW abe_test_v1 AS SELECT test_id,
+                 txout_value txout_approx_value, txout_value i1, i2
+                 FROM abe_test_1""")
+            v1 = 12345678901234567890
             v2 = 1234567890
             store.sql("INSERT INTO abe_test_1 (test_id, txout_value, i2)"
                       " VALUES (?, ?, ?)",
                       (1, store.intin(v1), v2))
-            (prod,) = store.selectrow(
-                "SELECT txout_approx_value * i2 FROM abe_test_v1")
+            store.commit()
+            prod, o1 = store.selectrow(
+                "SELECT txout_approx_value * i2, i1 FROM abe_test_v1")
             prod = int(prod)
-            if prod < v1 * v2 * 1.0001 and prod > v1 * v2 * 0.9999:
+            o1 = int(o1)
+            if prod < v1 * v2 * 1.0001 and prod > v1 * v2 * 0.9999 and o1 == v1:
                 return True
             return False
         except store.module.DatabaseError, e:

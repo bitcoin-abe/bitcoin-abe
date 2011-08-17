@@ -1633,6 +1633,7 @@ def parse_argv(argv):
         "download_name":None,
         "watch_pid":    None,
         "commit_bytes": None,
+        "log_sql":      None,
 
         "template":     DEFAULT_TEMPLATE,
         "template_vars": {
