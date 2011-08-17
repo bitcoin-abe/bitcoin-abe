@@ -631,13 +631,13 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
 # database's SQL quirks, so it must use only the most widely supported
 # features.
 """CREATE TABLE configvar (
-    configvar_name  VARCHAR(100) PRIMARY KEY,
+    configvar_name  VARCHAR(100) NOT NULL PRIMARY KEY,
     configvar_value VARCHAR(255)
 )""",
 
             "abe_sequences":
 """CREATE TABLE abe_sequences (
-    sequence_key VARCHAR(100) PRIMARY KEY,
+    sequence_key VARCHAR(100) NOT NULL PRIMARY KEY,
     nextid NUMERIC(30)
 )""",
             }
@@ -653,7 +653,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
 store._ddl['configvar'],
 
 """CREATE TABLE datadir (
-    datadir_id  NUMERIC(10) PRIMARY KEY,
+    datadir_id  NUMERIC(10) NOT NULL PRIMARY KEY,
     dirname     VARCHAR(2000) NOT NULL,
     blkfile_number NUMERIC(4) NULL,
     blkfile_offset NUMERIC(20) NULL,
@@ -663,20 +663,20 @@ store._ddl['configvar'],
 # MAGIC lists the magic numbers seen in messages and block files, known
 # in the original Bitcoin source as `pchMessageStart'.
 """CREATE TABLE magic (
-    magic_id    NUMERIC(10) PRIMARY KEY,
+    magic_id    NUMERIC(10) NOT NULL PRIMARY KEY,
     magic       BIT(32)     UNIQUE NOT NULL,
     magic_name  VARCHAR(100) UNIQUE NOT NULL
 )""",
 
 # POLICY identifies a block acceptance policy.
 """CREATE TABLE policy (
-    policy_id   NUMERIC(10) PRIMARY KEY,
+    policy_id   NUMERIC(10) NOT NULL PRIMARY KEY,
     policy_name VARCHAR(100) UNIQUE NOT NULL
 )""",
 
 # A block of the type used by Bitcoin.
 """CREATE TABLE block (
-    block_id      NUMERIC(14) PRIMARY KEY,
+    block_id      NUMERIC(14) NOT NULL PRIMARY KEY,
     block_hash    BIT(256)    UNIQUE NOT NULL,
     block_version NUMERIC(10),
     block_hashMerkleRoot BIT(256),
@@ -702,7 +702,7 @@ store._ddl['configvar'],
 # CHAIN_LAST_BLOCK_ID and the referenced block's ancestors) a genesis
 # block, possibly null.  A chain may have a currency code.
 """CREATE TABLE chain (
-    chain_id    NUMERIC(10) PRIMARY KEY,
+    chain_id    NUMERIC(10) NOT NULL PRIMARY KEY,
     magic_id    NUMERIC(10) NULL,
     policy_id   NUMERIC(10) NULL,
     chain_name  VARCHAR(100) UNIQUE NOT NULL,
@@ -720,8 +720,8 @@ store._ddl['configvar'],
 # IN_LONGEST denormalizes information stored canonically in
 # CHAIN.CHAIN_LAST_BLOCK_ID and BLOCK.PREV_BLOCK_ID.
 """CREATE TABLE chain_candidate (
-    chain_id      NUMERIC(10),
-    block_id      NUMERIC(14),
+    chain_id      NUMERIC(10) NOT NULL,
+    block_id      NUMERIC(14) NOT NULL,
     in_longest    NUMERIC(1),
     block_height  NUMERIC(14),
     PRIMARY KEY (chain_id, block_id),
@@ -734,7 +734,7 @@ store._ddl['configvar'],
 
 # An orphan block must remember its hashPrev.
 """CREATE TABLE orphan_block (
-    block_id      NUMERIC(14) PRIMARY KEY,
+    block_id      NUMERIC(14) NOT NULL PRIMARY KEY,
     block_hashPrev BIT(256)   NOT NULL,
     FOREIGN KEY (block_id) REFERENCES block (block_id)
 )""",
@@ -742,8 +742,8 @@ store._ddl['configvar'],
 
 # Denormalize the relationship inverse to BLOCK.PREV_BLOCK_ID.
 """CREATE TABLE block_next (
-    block_id      NUMERIC(14),
-    next_block_id NUMERIC(14),
+    block_id      NUMERIC(14) NOT NULL,
+    next_block_id NUMERIC(14) NOT NULL,
     PRIMARY KEY (block_id, next_block_id),
     FOREIGN KEY (block_id) REFERENCES block (block_id),
     FOREIGN KEY (next_block_id) REFERENCES block (block_id)
@@ -751,7 +751,7 @@ store._ddl['configvar'],
 
 # A transaction of the type used by Bitcoin.
 """CREATE TABLE tx (
-    tx_id         NUMERIC(26) PRIMARY KEY,
+    tx_id         NUMERIC(26) NOT NULL PRIMARY KEY,
     tx_hash       BIT(256)    UNIQUE NOT NULL,
     tx_version    NUMERIC(10),
     tx_lockTime   NUMERIC(10),
@@ -760,8 +760,8 @@ store._ddl['configvar'],
 
 # Presence of transactions in blocks is many-to-many.
 """CREATE TABLE block_tx (
-    block_id      NUMERIC(14),
-    tx_id         NUMERIC(26),
+    block_id      NUMERIC(14) NOT NULL,
+    tx_id         NUMERIC(26) NOT NULL,
     tx_pos        NUMERIC(10) NOT NULL,
     satoshi_seconds_destroyed NUMERIC(28),
     PRIMARY KEY (block_id, tx_id),
@@ -775,9 +775,9 @@ store._ddl['configvar'],
 
 # A transaction out-point.
 """CREATE TABLE txout (
-    txout_id      NUMERIC(26) PRIMARY KEY,
-    tx_id         NUMERIC(26),
-    txout_pos     NUMERIC(10),
+    txout_id      NUMERIC(26) NOT NULL PRIMARY KEY,
+    tx_id         NUMERIC(26) NOT NULL,
+    txout_pos     NUMERIC(10) NOT NULL,
     txout_value   NUMERIC(30) NOT NULL,
     txout_scriptPubKey BIT VARYING(80000),
     pubkey_id     NUMERIC(26),
@@ -787,7 +787,7 @@ store._ddl['configvar'],
 
 # A transaction in-point.
 """CREATE TABLE txin (
-    txin_id       NUMERIC(26) PRIMARY KEY,
+    txin_id       NUMERIC(26) NOT NULL PRIMARY KEY,
     tx_id         NUMERIC(26) NOT NULL,
     txin_pos      NUMERIC(10) NOT NULL,
     txout_id      NUMERIC(26),
@@ -802,7 +802,7 @@ store._ddl['configvar'],
 # While TXIN.TXOUT_ID can not be found, we must remember TXOUT_POS,
 # a.k.a. PREVOUT_N.
 """CREATE TABLE unlinked_txin (
-    txin_id       NUMERIC(26) PRIMARY KEY,
+    txin_id       NUMERIC(26) NOT NULL PRIMARY KEY,
     txout_tx_hash BIT(256)    NOT NULL,
     txout_pos     NUMERIC(10) NOT NULL,
     FOREIGN KEY (txin_id) REFERENCES txin (txin_id)
@@ -823,9 +823,9 @@ store._ddl['configvar'],
 # A public key for sending bitcoins.  PUBKEY_HASH is derivable from a
 # Bitcoin or Testnet address.
 """CREATE TABLE pubkey (
-    pubkey_id     NUMERIC(26) PRIMARY KEY,
+    pubkey_id     NUMERIC(26) NOT NULL PRIMARY KEY,
     pubkey_hash   BIT(160)    UNIQUE NOT NULL,
-    pubkey        BIT(520)    UNIQUE NULL
+    pubkey        BIT(520)    NULL
 )""",
 
 store._ddl['chain_summary'],
@@ -959,7 +959,7 @@ store._ddl['txout_approx'],
         try:
             store.ddl(
                 "CREATE TABLE abe_test_1 ("
-                " abe_test_1_id NUMERIC(12) PRIMARY KEY,"
+                " abe_test_1_id NUMERIC(12) NOT NULL PRIMARY KEY,"
                 " foo VARCHAR(10))")
             store.rollback()
             store.selectall("SELECT MAX(abe_test_1_id) FROM abe_test_1")
@@ -1016,10 +1016,11 @@ store._ddl['txout_approx'],
             mid = (lo + hi) / 2
             store._drop_table_if_exists("abe_test_1")
             try:
-                store.ddl("CREATE TABLE abe_test_1 (a VARCHAR(%d))" % (mid,))
-                store.sql("INSERT INTO abe_test_1 (a) VALUES ('x')")
-                row = store.selectrow("SELECT a FROM abe_test_1")
-                if [x for x in row] == ['x']:
+                store.ddl("""CREATE TABLE abe_test_1
+                           (a VARCHAR(%d), b VARCHAR(%d))""" % (mid, mid))
+                store.sql("INSERT INTO abe_test_1 (a, b) VALUES ('x', 'y')")
+                row = store.selectrow("SELECT a, b FROM abe_test_1")
+                if [x for x in row] == ['x', 'y']:
                     lo = mid
                 else:
                     hi = mid
@@ -1062,7 +1063,7 @@ store._ddl['txout_approx'],
         store._drop_table_if_exists("abe_test_1")
         try:
             store.ddl(
-                "CREATE TABLE abe_test_1 (test_id NUMERIC(2) PRIMARY KEY,"
+                "CREATE TABLE abe_test_1 (test_id NUMERIC(2) NOT NULL PRIMARY KEY,"
                 " test_bit BIT(256), test_varbit BIT VARYING(80000))")
             val = str(''.join(map(chr, range(32))))
             store.sql("INSERT INTO abe_test_1 (test_id, test_bit, test_varbit)"
@@ -1090,7 +1091,7 @@ store._ddl['txout_approx'],
         store._drop_table_if_exists("abe_test_1")
         try:
             store.ddl(
-                """CREATE TABLE abe_test_1 (test_id NUMERIC(2) PRIMARY KEY,
+                """CREATE TABLE abe_test_1 (test_id NUMERIC(2) NOT NULL PRIMARY KEY,
                  txout_value NUMERIC(30), i2 NUMERIC(20))""")
             store.ddl(
                 """CREATE VIEW abe_test_v1 AS SELECT test_id,
@@ -1125,7 +1126,7 @@ store._ddl['txout_approx'],
         try:
             store.ddl(
                 """CREATE TABLE abe_test_1 (
-                    abe_test_1_id NUMERIC(12) PRIMARY KEY,
+                    abe_test_1_id NUMERIC(12) NOT NULL PRIMARY KEY,
                     foo VARCHAR(10))""")
             id1 = store.new_id('abe_test_1')
             id2 = store.new_id('abe_test_1')
