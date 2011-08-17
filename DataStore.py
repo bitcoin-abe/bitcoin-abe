@@ -1300,11 +1300,13 @@ store._ddl['txout_approx'],
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )""",
-            (block_id, store.hashin(b['hash']), b['version'],
-             store.hashin(b['hashMerkleRoot']), b['nTime'],
-             b['nBits'], b['nNonce'], b['height'], prev_block_id,
+            (block_id, store.hashin(b['hash']), store.intin(b['version']),
+             store.hashin(b['hashMerkleRoot']), store.intin(b['nTime']),
+             store.intin(b['nBits']), store.intin(b['nNonce']),
+             b['height'], prev_block_id,
              store.binin_int(b['chain_work'], WORK_BITS),
-             b['value_in'], b['value_out'], b['satoshis'], b['seconds'],
+             store.intin(b['value_in']), store.intin(b['value_out']),
+             store.intin(b['satoshis']), store.intin(b['seconds']),
              len(b['transactions'])))
 
         # List the block's transactions in block_tx.
@@ -1463,8 +1465,8 @@ store._ddl['txout_approx'],
                        block_ss_destroyed = ?
                  WHERE block_id = ?""",
                       (height, store.binin_int(chain_work, WORK_BITS),
-                       seconds, satoshis, store.intin(ss),
-                       store.intin(destroyed), next_id))
+                       store.intin(seconds), store.intin(satoshis),
+                       store.intin(ss), store.intin(destroyed), next_id))
 
             store._update_block(next_id, block_id, height)
 
@@ -1517,7 +1519,8 @@ store._ddl['txout_approx'],
         store.sql("""
             INSERT INTO tx (tx_id, tx_hash, tx_version, tx_lockTime, tx_size)
             VALUES (?, ?, ?, ?, ?)""",
-                  (tx_id, dbhash, tx['version'], tx['lockTime'], len(tx['tx'])))
+                  (tx_id, dbhash, store.intin(tx['version']),
+                   store.intin(tx['lockTime']), len(tx['tx'])))
 
         # Import transaction outputs.
         tx['value_out'] = 0
@@ -1540,7 +1543,7 @@ store._ddl['txout_approx'],
                     txout_id, tx_id, txout_pos, txout_value,
                     txout_scriptPubKey, pubkey_id
                 ) VALUES (?, ?, ?, ?, ?, ?)""",
-                      (txout_id, tx_id, pos, txout['value'],
+                      (txout_id, tx_id, pos, store.intin(txout['value']),
                        store.binin(txout['scriptPubKey']), pubkey_id))
             for row in store.selectall("""
                 SELECT txin_id
@@ -1572,14 +1575,15 @@ store._ddl['txout_approx'],
                     txin_scriptSig, txin_sequence
                 ) VALUES (?, ?, ?, ?, ?, ?)""",
                       (txin_id, tx_id, pos, txout_id,
-                       store.binin(txin['scriptSig']), txin['sequence']))
+                       store.binin(txin['scriptSig']),
+                       store.intin(txin['sequence'])))
             if not is_coinbase and txout_id is None:
                 store.sql("""
                     INSERT INTO unlinked_txin (
                         txin_id, txout_tx_hash, txout_pos
                     ) VALUES (?, ?, ?)""",
                           (txin_id, store.hashin(txin['prevout_hash']),
-                           txin['prevout_n']))
+                           store.intin(txin['prevout_n'])))
 
         # XXX Could populate PUBKEY.PUBKEY with txin scripts...
         # or leave that to an offline process.  Nothing in this program
@@ -1880,14 +1884,16 @@ store._ddl['txout_approx'],
                SET blkfile_number = ?,
                    blkfile_offset = ?
              WHERE datadir_id = ?""",
-                  (dircfg['blkfile_number'], offset, dircfg['id']))
+                  (dircfg['blkfile_number'], store.intin(offset),
+                   dircfg['id']))
         if store.cursor.rowcount == 0:
             store.sql("""
                 INSERT INTO datadir (datadir_id, dirname, blkfile_number,
                     blkfile_offset, chain_id)
                 VALUES (?, ?, ?, ?, ?)""",
                       (dircfg['id'], dircfg['dirname'],
-                       dircfg['blkfile_number'], offset, dircfg['chain_id']))
+                       dircfg['blkfile_number'],
+                       store.intin(offset), dircfg['chain_id']))
         dircfg['blkfile_offset'] = offset
 
     def _refresh_dircfg(store, dircfg):
