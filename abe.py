@@ -362,7 +362,7 @@ class Abe:
                    b.block_total_satoshis, b.block_ss_destroyed,
                    b.block_total_ss
               FROM block b
-              JOIN chain_candidate cc USING (block_id)
+              JOIN chain_candidate cc ON (b.block_id = cc.block_id)
              WHERE cc.chain_id = ?
                AND cc.block_height BETWEEN ? AND ?
                AND cc.in_longest = 1
@@ -692,7 +692,8 @@ class Abe:
         # links on the chain.
         row = abe.store.selectrow("""
             SELECT MIN(cc.chain_id), cc.block_id, cc.block_height
-              FROM chain_candidate cc JOIN block b USING (block_id)
+              FROM chain_candidate cc
+              JOIN block b ON (cc.block_id = b.block_id)
              WHERE b.block_hash = ? AND cc.in_longest = 1
              GROUP BY cc.block_id, cc.block_height""",
             (dbhash,))
@@ -732,9 +733,9 @@ class Abe:
                    b.block_nTime, b.block_height, b.block_hash,
                    block_tx.tx_pos
               FROM chain c
-              JOIN chain_candidate cc USING (chain_id)
-              JOIN block b USING (block_id)
-              JOIN block_tx USING (block_id)
+              JOIN chain_candidate cc ON (cc.chain_id = c.chain_id)
+              JOIN block b ON (b.block_id = cc.block_id)
+              JOIN block_tx ON (block_tx.block_id = b.block_id)
              WHERE block_tx.tx_id = ?
              ORDER BY c.chain_id, cc.in_longest DESC, b.block_hash
         """, (tx_id,))
@@ -786,10 +787,10 @@ class Abe:
                 COALESCE(txout.txout_pos, u.txout_pos),
                 pubkey.pubkey_hash
               FROM txin
-              LEFT JOIN txout USING (txout_id)
-              LEFT JOIN pubkey USING (pubkey_id)
+              LEFT JOIN txout ON (txout.txout_id = txin.txout_id)
+              LEFT JOIN pubkey ON (pubkey.pubkey_id = txout.pubkey_id)
               LEFT JOIN tx prevtx ON (txout.tx_id = prevtx.tx_id)
-              LEFT JOIN unlinked_txin u USING (txin_id)
+              LEFT JOIN unlinked_txin u ON (u.txin_id = txin.txin_id)
              WHERE txin.tx_id = ?
              ORDER BY txin.txin_pos
         """, (tx_id,)))
@@ -804,8 +805,8 @@ class Abe:
                 txin.txin_pos,
                 pubkey.pubkey_hash
               FROM txout
-              LEFT JOIN txin USING (txout_id)
-              LEFT JOIN pubkey USING (pubkey_id)
+              LEFT JOIN txin ON (txin.txout_id = txout.txout_id)
+              LEFT JOIN pubkey ON (pubkey.pubkey_id = txout.pubkey_id)
               LEFT JOIN tx nexttx ON (txin.tx_id = nexttx.tx_id)
              WHERE txout.tx_id = ?
              ORDER BY txout.txout_pos
@@ -922,12 +923,12 @@ class Abe:
                 txin.txin_pos,
                 -prevout.txout_value
               FROM chain_candidate cc
-              JOIN block b USING (block_id)
-              JOIN block_tx USING (block_id)
-              JOIN tx USING (tx_id)
-              JOIN txin USING (tx_id)
+              JOIN block b ON (b.block_id = cc.block_id)
+              JOIN block_tx ON (block_tx.block_id = b.block_id)
+              JOIN tx ON (tx.tx_id = block_tx.tx_id)
+              JOIN txin ON (txin.tx_id = tx.tx_id)
               JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
-              JOIN pubkey USING (pubkey_id)
+              JOIN pubkey ON (pubkey.pubkey_id = txout.pubkey_id)
              WHERE pubkey_hash = ?
                AND cc.in_longest = 1""",
                       (dbhash,))
@@ -942,11 +943,11 @@ class Abe:
                 txout.txout_pos,
                 txout.txout_value
               FROM chain_candidate cc
-              JOIN block b USING (block_id)
-              JOIN block_tx USING (block_id)
-              JOIN tx USING (tx_id)
-              JOIN txout USING (tx_id)
-              JOIN pubkey USING (pubkey_id)
+              JOIN block b ON (b.block_id = cc.block_id)
+              JOIN block_tx ON (block_tx.block_id = b.block_id)
+              JOIN tx ON (tx.tx_id = block_tx.tx_id)
+              JOIN txout ON (txout.tx_id = tx.tx_id)
+              JOIN pubkey ON (pubkey.pubkey_id = txout.pubkey_id)
              WHERE pubkey_hash = ?
                AND cc.in_longest = 1""",
                       (dbhash,))
@@ -1086,8 +1087,8 @@ class Abe:
         return map(process, abe.store.selectall("""
             SELECT c.chain_name, b.block_hash, cc.in_longest
               FROM chain c
-              JOIN chain_candidate cc USING (chain_id)
-              JOIN block b USING (block_id)
+              JOIN chain_candidate cc ON (cc.chain_id = c.chain_id)
+              JOIN block b ON (b.block_id = cc.block_id)
              WHERE cc.block_height = ?
              ORDER BY c.chain_name, cc.in_longest DESC
         """, (n,)))
@@ -1359,7 +1360,7 @@ class Abe:
                    b.block_chain_work,
                    b.block_nBits
               FROM block b
-              JOIN chain_candidate cc USING (block_id)
+              JOIN chain_candidate cc ON (cc.block_id = b.block_id)
               JOIN chain_candidate ints ON (
                        ints.chain_id = cc.chain_id
                    AND ints.in_longest = 1
@@ -1424,7 +1425,7 @@ class Abe:
             row = abe.store.selectrow("""
                 SELECT b.block_total_satoshis
                   FROM chain_candidate cc
-                  LEFT JOIN block b USING (block_id)
+                  LEFT JOIN block b ON (b.block_id = cc.block_id)
                  WHERE cc.chain_id = ?
                    AND cc.block_height = ?
                    AND cc.in_longest = 1

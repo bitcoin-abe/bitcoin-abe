@@ -295,6 +295,15 @@ class DataStore(object):
         else:
             raise Exception("Unsupported sequence-type %s" % stype)
 
+        # Convert Oracle LOB to str.
+        if hasattr(store.module, "LOB") and isinstance(store.module.LOB, type):
+            def fix_lob(fn):
+                def ret(x):
+                    return None if x is None else fn(str(x))
+                return ret
+            binout = fix_lob(binout)
+            binout_hex = fix_lob(binout_hex)
+
         store.sql_transform = transform
         store._sql_cache = {}
 
@@ -1042,11 +1051,14 @@ store._ddl['txout_approx'],
         for val in ['CLOB', 'LONGTEXT', 'TEXT', 'LONG']:
             try:
                 store.ddl("CREATE TABLE abe_test_1 (a %s)" % (val,))
-                store.sql("INSERT INTO abe_test_1 (a) VALUES (?)", long_str)
-                if store.selectrow("SELECT a FROM abe_test_1") == (long_str,):
+                store.sql("INSERT INTO abe_test_1 (a) VALUES (?)", (long_str,))
+                out = store.selectrow("SELECT a FROM abe_test_1")[0]
+                if store.binout(out) == long_str:
                     store.config['clob_type'] = val
                     print "clob_type=" + val
                     return
+                else:
+                    print "out=" + repr(out)
             except store.module.DatabaseError, e:
                 store.rollback()
             except Exception, e:
