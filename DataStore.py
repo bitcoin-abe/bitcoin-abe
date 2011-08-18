@@ -63,6 +63,8 @@ GENESIS_HASH_PREV = "\0" * 32
 SCRIPT_ADDRESS_RE = re.compile("\x76\xa9\x14(.{20})\x88\xac", re.DOTALL)
 SCRIPT_PUBKEY_RE = re.compile("\x41(.{65})\xac", re.DOTALL)
 
+NO_CLOB = 'BUG_NO_CLOB'
+
 class DataStore(object):
 
     """
@@ -110,13 +112,6 @@ class DataStore(object):
         store._set_sql_flavour()
         store._blocks = {}
         store._init_datadirs()
-
-        # XXX could avoid doing this where it doesn't work (SQLite).
-        try:
-            store.sql("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        except:
-            store.rollback()
-            pass
 
         store.commit_bytes = args.commit_bytes
         if store.commit_bytes is None:
@@ -384,15 +379,13 @@ class DataStore(object):
             clob_type = store.config['clob_type']
         except:
             return stmt
-        if clob_type == 'BUG_NO_CLOB':
-            clob_type = "VARCHAR(%d)" % (max_varchar,)
 
         patt = re.compile("VARCHAR\\(([0-9]+)\\)")
 
         def fixup(match):
             # XXX This assumes no string literals match.
             width = int(match.group(1))
-            if width > max_varchar:
+            if width > max_varchar and clob_type != NO_CLOB:
                 return clob_type
             return "VARCHAR(%d)" % (width,)
 
@@ -1021,6 +1014,7 @@ store._ddl['txout_approx'],
         lo = 0
         hi = 1 << 32
         store.config['max_varchar'] = hi
+        store._drop_table_if_exists("abe_test_1")
         while True:
             mid = (lo + hi) / 2
             store._drop_table_if_exists("abe_test_1")
@@ -1043,15 +1037,18 @@ store._ddl['txout_approx'],
             if lo + 1 == hi:
                 store.config['max_varchar'] = str(lo)
                 print "max_varchar=" + store.config['max_varchar']
-                return
+                break
+        store._drop_table_if_exists("abe_test_1")
 
     def configure_clob_type(store):
         """Find the name of the CLOB type, if any."""
-        long_str = 'x' * 20000
+        long_str = 'x' * 10000
+        store._drop_table_if_exists("abe_test_1")
         for val in ['CLOB', 'LONGTEXT', 'TEXT', 'LONG']:
             try:
                 store.ddl("CREATE TABLE abe_test_1 (a %s)" % (val,))
-                store.sql("INSERT INTO abe_test_1 (a) VALUES (?)", (long_str,))
+                store.sql("INSERT INTO abe_test_1 (a) VALUES (?)",
+                          (store.binin(long_str),))
                 out = store.selectrow("SELECT a FROM abe_test_1")[0]
                 if store.binout(out) == long_str:
                     store.config['clob_type'] = val
@@ -1060,6 +1057,7 @@ store._ddl['txout_approx'],
                 else:
                     print "out=" + repr(out)
             except store.module.DatabaseError, e:
+                print "configure_clob_type: %s:" % (val,), e
                 store.rollback()
             except Exception, e:
                 print "configure_clob_type: %s:" % (val,), e
@@ -1068,8 +1066,10 @@ store._ddl['txout_approx'],
                 except:
                     # Fetching a CLOB really messes up Easysoft ODBC Oracle.
                     store.reconnect()
+            finally:
+                store._drop_table_if_exists("abe_test_1")
         warnings.warn("No native type found for CLOB.")
-        store.config['clob_type'] = 'BUG_NO_CLOB'
+        store.config['clob_type'] = NO_CLOB
 
     def _test_binary_type(store):
         store._drop_table_if_exists("abe_test_1")

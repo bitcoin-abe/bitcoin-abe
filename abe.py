@@ -564,13 +564,12 @@ class Abe:
         txs = {}
         block_out = 0
         block_in = 0
-        abe.store.sql("""
+        for row in abe.store.selectall("""
             SELECT tx_id, tx_hash, tx_size, txout_value, pubkey_hash
               FROM txout_detail
              WHERE block_id = ?
              ORDER BY tx_pos, txout_pos
-        """, (block_id,))
-        for row in abe.store.cursor:
+        """, (block_id,)):
             tx_id, tx_hash_hex, tx_size, txout_value, pubkey_hash = (
                 row[0], abe.store.hashout_hex(row[1]), int(row[2]),
                 int(row[3]), abe.store.binout(row[4]))
@@ -592,13 +591,12 @@ class Abe:
                     "value": txout_value,
                     "address": hash_to_address(address_version, pubkey_hash),
                     })
-        abe.store.sql("""
+        for row in abe.store.selectall("""
             SELECT tx_id, txin_value, pubkey_hash
               FROM txin_detail
              WHERE block_id = ?
              ORDER BY tx_pos, txin_pos
-        """, (block_id,))
-        for row in abe.store.cursor:
+        """, (block_id,)):
             tx_id, txin_value, pubkey_hash = (
                 row[0], 0 if row[1] is None else int(row[1]),
                 abe.store.binout(row[2]))
@@ -928,7 +926,7 @@ class Abe:
               JOIN tx ON (tx.tx_id = block_tx.tx_id)
               JOIN txin ON (txin.tx_id = tx.tx_id)
               JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
-              JOIN pubkey ON (pubkey.pubkey_id = txout.pubkey_id)
+              JOIN pubkey ON (pubkey.pubkey_id = prevout.pubkey_id)
              WHERE pubkey_hash = ?
                AND cc.in_longest = 1""",
                       (dbhash,))
