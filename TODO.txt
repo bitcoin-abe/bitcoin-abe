@@ -11,6 +11,8 @@
 
 * Start a test suite, especially for out-of-order blocks and reorgs.
 
+* Add search by date/time within chain.
+
 * Consider porting to libbitcoin.
 
 * Use explicit constraint names.
