@@ -1272,22 +1272,31 @@ class Abe:
 
     def q_hashtoaddress(abe, page, chain):
         """shows the address with the given version prefix and hash."""
-        arg = wsgiref.util.shift_path_info(page['env'])
-        if arg is None:
+        arg1 = wsgiref.util.shift_path_info(page['env'])
+        arg2 = wsgiref.util.shift_path_info(page['env'])
+        if arg1 is None:
             return \
                 'Converts a 160-bit hash and address version to an address.\n' \
                 '/q/hashtoaddress/HASH[/VERSION]\n'
 
-        # VERSION:HASH
-        if arg.find(":") >= 0:
-            version, hash = arg.split(":", 1)
+        if page['env']['PATH_INFO']:
+            return "ERROR: Too many arguments"
 
-        # BBE-compatible HASH/VERSION
+        if arg2 is not None:
+            # BBE-compatible HASH/VERSION
+            version, hash = arg2, arg1
+
+        elif arg1.find(":") >= 0:
+            # VERSION:HASH as returned by /q/decode_address.
+            version, hash = arg1.split(":", 1)
+
+        elif chain:
+            version, hash = binascii.hexlify(chain['address_version']), arg1
+
         else:
-            version, hash = wsgiref.util.shift_path_info(page['env']), arg
+            # Default: Bitcoin address starting with "1".
+            version, hash = '00', arg1
 
-        if version is None:
-            version, hash = '00', arg
         try:
             hash = binascii.unhexlify(hash)
             version = binascii.unhexlify(version)
