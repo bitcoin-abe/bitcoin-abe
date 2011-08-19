@@ -7,3 +7,6 @@ sudo -u postgres createuser USER
 # Replace 8.4 with the PostgreSQL version:
 sudo sh -c "echo local abe USER ident >> /etc/postgresql/8.4/main/pg_hba.conf"
 sudo service postgresql reload
+
+./abe.py --dbtype psycopg2 --connect-args '{"database":"abe"}' \
+         --upgrade --port 2750
