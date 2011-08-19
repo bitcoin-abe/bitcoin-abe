@@ -775,6 +775,14 @@ store._ddl['configvar'],
 )""",
 """CREATE INDEX x_block_tx_tx ON block_tx (tx_id)""",
 
+# A public key for sending bitcoins.  PUBKEY_HASH is derivable from a
+# Bitcoin or Testnet address.
+"""CREATE TABLE pubkey (
+    pubkey_id     NUMERIC(26) NOT NULL PRIMARY KEY,
+    pubkey_hash   BIT(160)    UNIQUE NOT NULL,
+    pubkey        BIT(520)    NULL
+)""",
+
 # A transaction out-point.
 """CREATE TABLE txout (
     txout_id      NUMERIC(26) NOT NULL PRIMARY KEY,
@@ -783,7 +791,9 @@ store._ddl['configvar'],
     txout_value   NUMERIC(30) NOT NULL,
     txout_scriptPubKey BIT VARYING(80000),
     pubkey_id     NUMERIC(26),
-    UNIQUE (tx_id, txout_pos)
+    UNIQUE (tx_id, txout_pos),
+    FOREIGN KEY (pubkey_id)
+        REFERENCES pubkey (pubkey_id)
 )""",
 """CREATE INDEX x_txout_pubkey ON txout (pubkey_id)""",
 
@@ -820,14 +830,6 @@ store._ddl['configvar'],
     FOREIGN KEY (block_id) REFERENCES block (block_id),
     FOREIGN KEY (txin_id) REFERENCES txin (txin_id),
     FOREIGN KEY (out_block_id) REFERENCES block (block_id)
-)""",
-
-# A public key for sending bitcoins.  PUBKEY_HASH is derivable from a
-# Bitcoin or Testnet address.
-"""CREATE TABLE pubkey (
-    pubkey_id     NUMERIC(26) NOT NULL PRIMARY KEY,
-    pubkey_hash   BIT(160)    UNIQUE NOT NULL,
-    pubkey        BIT(520)    NULL
 )""",
 
 store._ddl['chain_summary'],
