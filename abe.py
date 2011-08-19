@@ -56,7 +56,7 @@ DEFAULT_TEMPLATE = """
 </head>
 <body>
     <h1><a href="%(dotdot)schains"><img
-     src="%(dotdot)s%(STATIC_PATH)slogo32.png" alt="ABE logo" /></a> %(h1)s
+     src="%(dotdot)s%(STATIC_PATH)slogo32.png" alt="Abe logo" /></a> %(h1)s
     </h1>
     %(body)s
     <p><a href="%(dotdot)sq">API</a> (machine-readable pages)</p>
