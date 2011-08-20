@@ -19,10 +19,11 @@ implementation.
 Dependencies
 ------------
 
-Abe depends on Python Crypto modules (Debian package python-crypto)
-and an SQL database.  Abe runs on PostgreSQL, MySQL, Oracle, and
-SQLite.  Other SQL databases may work with minor changes.  See the
-comments in abe.conf about dbtype for configuration examples.
+Abe depends on Python 2.7 (or 2.6), the Python Crypto modules, and an
+SQL database supporting ROLLBACK.  Abe runs on PostgreSQL, MySQL's
+InnoDB engine, SQLite, and Oracle.  Other SQL databases may work with
+minor changes.  See the comments in abe.conf about dbtype for
+configuration examples.
 
 You will need a copy of the block file (blk0001.dat in your Bitcoin
 directory).  You may let Abe read the block file while Bitcoin runs,

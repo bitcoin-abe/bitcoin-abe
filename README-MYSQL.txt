@@ -1,12 +1,44 @@
-Abe setup example for MySQL.
+Abe setup for MySQL.
 
-On Debian/Ubuntu, install packages: mysql-server python-mysqldb
+Install Python 2.7 and its Crypto modules.  The Debian/Ubuntu packages
+are python2.7 and python-crypto.
 
-$ mysql -u root
-mysql> create database abe;
-mysql> CREATE USER abe IDENTIFIED BY 'Bitcoin';
-mysql> grant all on abe.* to abe;
-mysql>
+Install MySQL 5.x server and MySQL-Python.  On Debian/Ubuntu:
+mysql-server-5.1 and python-mysqldb.
 
-$ cd bitcoin-abe
-$ ./abe.py --dbtype MySQLdb --connect-args '{"user":"abe","host":"127.0.0.1","db":"abe","passwd":"Bitcoin"}' --port 2750 --upgrade
+Configure the MySQL instance with InnoDB engine support.  Often,
+InnoDB is enabled by default.  To check for InnoDB support, issue
+"SHOW ENGINES" and look in the output for "InnoDB" with "YES" next to
+it.  If "skip-innodb" appears in the server configuration (my.cnf or
+my.ini) then remove it and restart the server.
+
+Log into MySQL as root (e.g.: mysql -u root) and issue the following,
+replacing "PASSWORD" with a password you choose:
+
+    create database abe;
+    CREATE USER abe IDENTIFIED BY 'PASSWORD';
+    grant all on abe.* to abe;
+
+Create file abe-my.conf with the following contents, replacing
+"PASSWORD" as above:
+
+    dbtype MySQLdb
+    connect-args {"user":"abe","db":"abe","passwd":"PASSWORD"}'
+    upgrade
+    port 2750
+
+Run Abe as:
+
+    python abe.py --config abe-my.conf
+
+Look for output such as:
+
+    block_tx 1 1
+    block_tx 2 2
+    ...
+
+This step may take several hours.  When it finishes, you should see:
+
+    Listening on http://localhost:2750
+
+Verify the installation by browsing the URL shown.
