@@ -764,7 +764,7 @@ class Abe:
                 body += ['<a href="../address/', addr, '">', addr, '</a>']
             body += [
                 '</td>\n',
-                '<td>', escape(deserialize.decode_script(row['script'])),
+                '<td>', escape(decode_script(row['script'])),
                 '</td>\n</tr>\n']
 
         # XXX Unneeded outer join.
@@ -1556,6 +1556,12 @@ def decode_address(addr):
     if len(bytes) < 25:
         bytes = ('\0' * (25 - len(bytes))) + bytes
     return bytes[:-24], bytes[-24:-4]
+
+def decode_script(script):
+    try:
+        return deserialize.decode_script(script)
+    except KeyError, e:
+        return 'Nonstandard script'
 
 def b58hex(b58):
     try:
