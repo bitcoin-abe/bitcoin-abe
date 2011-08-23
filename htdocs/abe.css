@@ -10,3 +10,6 @@ td {
 table {
     border-spacing: 0;
 }
+.shortlink {
+    font-size: smaller;
+}

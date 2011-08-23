@@ -24,8 +24,6 @@
 
 * Separate HTML from data access.
 
-* Create "short links" as on http://blockexplorer.com.
-
 * Use SEQUENCEs where available for synthetic identifiers.
 
 * Slight variation in CoinDD et al. among sites indicates a bug.

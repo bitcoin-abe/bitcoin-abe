@@ -163,15 +163,14 @@ class Abe:
             print "fixed path_info"
             return redirect(page)
 
-        obtype = wsgiref.util.shift_path_info(env)
-        if obtype == '':
-            obtype = abe.home
-        handler = getattr(abe, 'handle_' + obtype, None)
+        cmd = wsgiref.util.shift_path_info(env)
+        if cmd == '':
+            cmd = abe.home
+        handler = getattr(abe, 'handle_' + cmd, None)
 
         try:
             if handler is None:
-                return abe.serve_static(obtype + env['PATH_INFO'],
-                                        start_response)
+                return abe.serve_static(cmd + env['PATH_INFO'], start_response)
 
             # Always be up-to-date, even if we means having to wait
             # for a response!  XXX Could use threads, timers, or a
@@ -506,6 +505,9 @@ class Abe:
             page['h1'] = ['<a href="', page['dotdot'], 'chain/',
                           escape(chain['name']), '?hi=', height, '">',
                           escape(chain['name']), '</a> ', height]
+
+        body += short_link(page, 'b/' + block_shortlink(block_hash))
+
         body += ['<p>Hash: ', block_hash, '<br />\n']
 
         if prev_block_hash is not None:
@@ -516,8 +518,6 @@ class Abe:
         for row in next_list:
             hash = abe.store.hashout_hex(row[0])
             body += ['<a href="', dotdotblock, hash, '">', hash, '</a><br />\n']
-
-        
 
         body += [
             'Height: ', height, '<br />\n',
@@ -814,6 +814,7 @@ class Abe:
         value_out = sum_values(out_rows)
         is_coinbase = None
 
+        body += short_link(page, 't/' + hexb58(tx_hash[:14]))
         body += ['<p>Hash: ', tx_hash, '<br />\n']
         chain = None
         for row in block_rows:
@@ -977,6 +978,8 @@ class Abe:
                                    '">', ret[-1], '</a>']
             return ret
 
+        body += short_link(page, 'a/' + address[:10])
+
         body += ['<p>Balance: '] + format_amounts(balance, True)
 
         for chain_id in chain_ids:
@@ -1038,7 +1041,9 @@ class Abe:
         elif ADDR_PREFIX_RE.match(q):found += abe.search_address_prefix(q)
         if HASH_PREFIX_RE.match(q): found += abe.search_hash_prefix(q)
         found += abe.search_general(q)
+        abe.show_search_results(page, found)
 
+    def show_search_results(abe, page, found):
         if not found:
             page['body'] = [
                 '<p>No results found.</p>\n', abe.search_form(page)]
@@ -1049,7 +1054,7 @@ class Abe:
             sn = posixpath.dirname(page['env']['SCRIPT_NAME'])
             if sn == '/': sn = ''
             page['env']['SCRIPT_NAME'] = sn
-            page['env']['PATH_INFO'] = '/' + found[0]['uri']
+            page['env']['PATH_INFO'] = '/' + page['dotdot'] + found[0]['uri']
             del(page['env']['QUERY_STRING'])
             raise Redirect()
 
@@ -1057,7 +1062,7 @@ class Abe:
         body += ['<h3>Search Results</h3>\n<ul>\n']
         for result in found:
             body += [
-                '<li><a href="', escape(result['uri']), '">',
+                '<li><a href="', page['dotdot'], escape(result['uri']), '">',
                 escape(result['name']), '</a></li>\n']
         body += ['</ul>\n']
 
@@ -1083,11 +1088,11 @@ class Abe:
              ORDER BY c.chain_name, cc.in_longest DESC
         """, (n,)))
 
-    def search_hash_prefix(abe, q):
+    def search_hash_prefix(abe, q, types = ('tx', 'block')):
         lo = abe.store.hashin_hex(q + '0' * (64 - len(q)))
         hi = abe.store.hashin_hex(q + 'f' * (64 - len(q)))
         ret = []
-        for t in ('tx', 'block'):
+        for t in types:
             def process(row):
                 hash = abe.store.hashout_hex(row[0])
                 name = 'Transaction' if t == 'tx' else 'Block'
@@ -1186,6 +1191,26 @@ class Abe:
              WHERE UPPER(chain_name) LIKE '%' || ? || '%'
                 OR UPPER(chain_code3) LIKE '%' || ? || '%'
         """, (q.upper(), q.upper())))
+
+    def handle_t(abe, page):
+        abe.show_search_results(
+            page,
+            abe.search_hash_prefix(
+                b58hex(wsgiref.util.shift_path_info(page['env'])),
+                ('tx',)))
+
+    def handle_b(abe, page):
+        abe.show_search_results(
+            page,
+            abe.search_hash_prefix(
+                shortlink_block(wsgiref.util.shift_path_info(page['env'])),
+                ('block',)))
+
+    def handle_a(abe, page):
+        abe.show_search_results(
+            page,
+            abe.search_address_prefix(
+                wsgiref.util.shift_path_info(page['env'])))
 
     def handle_q(abe, page, chain=None):
         cmd = wsgiref.util.shift_path_info(page['env'])
@@ -1531,6 +1556,42 @@ def decode_address(addr):
     if len(bytes) < 25:
         bytes = ('\0' * (25 - len(bytes))) + bytes
     return bytes[:-24], bytes[-24:-4]
+
+def b58hex(b58):
+    try:
+        return base58.b58decode(b58, None).encode('hex_codec')
+    except:
+        raise PageNotFound()
+
+def hexb58(hex):
+    return base58.b58encode(hex.decode('hex_codec'))
+
+def block_shortlink(block_hash):
+    zeroes = 1
+    for c in block_hash:
+        if c == '0':
+            zeroes += 1
+        else:
+            break
+    zeroes &= ~1
+    return hexb58("%02x%s" % (zeroes / 2, block_hash[zeroes : zeroes+12]))
+
+def shortlink_block(link):
+    try:
+        data = base58.b58decode(link, None)
+    except:
+        raise PageNotFound()
+    return ('00' * ord(data[0])) + data[1:].encode('hex_codec')
+
+def short_link(page, link):
+    env = page['env'].copy()
+    env['SCRIPT_NAME'] = posixpath.normpath(
+        posixpath.dirname(env['SCRIPT_NAME'] + env['PATH_INFO'])
+        + '/' + page['dotdot'])
+    env['PATH_INFO'] = link
+    full = wsgiref.util.request_uri(env)
+    return ['<p class="shortlink">Short Link: <a href="',
+            page['dotdot'], link, '">', full, '</a></p>\n']
 
 def flatten(l):
     if isinstance(l, list):
