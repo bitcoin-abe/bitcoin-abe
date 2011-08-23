@@ -137,19 +137,8 @@ class Abe:
         import logging
         abe.log = logging
         abe.log.info('Abe initialized.')
-        abe.handlers = {
-            "": abe.show_world,
-            "chains": abe.show_world,
-            "chain": abe.show_chain,
-            "block": abe.show_block,
-            "tx": abe.show_tx,
-            "address": abe.show_address,
-            "search": abe.search,
-            "q": abe.api,
-            }
-        if args.auto_agpl:
-            abe.handlers["download"] = abe.download_srcdir
-        else:
+        abe.home = "chains"
+        if not args.auto_agpl:
             abe.template_vars['download'] = (
                 abe.template_vars.get('download', ''))
 
@@ -175,7 +164,10 @@ class Abe:
             return redirect(page)
 
         obtype = wsgiref.util.shift_path_info(env)
-        handler = abe.handlers.get(obtype)
+        if obtype == '':
+            obtype = abe.home
+        handler = getattr(abe, 'handle_' + obtype, None)
+
         try:
             if handler is None:
                 return abe.serve_static(obtype + env['PATH_INFO'],
@@ -220,7 +212,7 @@ class Abe:
 
         return page['template'] % tvars
 
-    def show_world(abe, page):
+    def handle_chains(abe, page):
         page['title'] = ABE_APPNAME + ' Search'
         body = page['body']
         body += [
@@ -313,7 +305,7 @@ class Abe:
               FROM chain
              WHERE chain_id = ?""", (chain_id,)))
 
-    def show_chain(abe, page):
+    def handle_chain(abe, page):
         symbol = wsgiref.util.shift_path_info(page['env'])
         chain = abe.chain_lookup_by_name(symbol)
 
@@ -326,7 +318,7 @@ class Abe:
             page['env']['SCRIPT_NAME'] = page['env']['SCRIPT_NAME'][:-1]
             raise Redirect()
         if cmd == 'q':
-            return abe.api(page, chain=chain)
+            return abe.handle_q(page, chain=chain)
         if cmd is not None:
             raise PageNotFound()
 
@@ -670,7 +662,7 @@ class Abe:
                         (chain['id'], height), page, page['dotdot'] + 'block/',
                         chain)
 
-    def show_block(abe, page):
+    def handle_block(abe, page):
         block_hash = wsgiref.util.shift_path_info(page['env'])
         if block_hash in (None, '') or page['env']['PATH_INFO'] != '':
             raise PageNotFound()
@@ -703,7 +695,7 @@ class Abe:
             page['title'] = [escape(chain['name']), ' ', height]
             abe._show_block('block_id = ?', (block_id,), page, '', chain)
 
-    def show_tx(abe, page):
+    def handle_tx(abe, page):
         tx_hash = wsgiref.util.shift_path_info(page['env'])
         if tx_hash in (None, '') or page['env']['PATH_INFO'] != '':
             raise PageNotFound()
@@ -872,7 +864,7 @@ class Abe:
 
         body += ['</table>\n']
 
-    def show_address(abe, page):
+    def handle_address(abe, page):
         address = wsgiref.util.shift_path_info(page['env'])
         if address in (None, '') or page['env']['PATH_INFO'] != '':
             raise PageNotFound()
@@ -1032,7 +1024,7 @@ class Abe:
             '<br />Address or hash search requires at least the first six'
             ' characters.</p></form>\n']
 
-    def search(abe, page):
+    def handle_search(abe, page):
         page['title'] = 'Search'
         q = (page['params'].get('q') or [''])[0]
         if q == '':
@@ -1195,7 +1187,7 @@ class Abe:
                 OR UPPER(chain_code3) LIKE '%' || ? || '%'
         """, (q.upper(), q.upper())))
 
-    def api(abe, page, chain=None):
+    def handle_q(abe, page, chain=None):
         cmd = wsgiref.util.shift_path_info(page['env'])
         if cmd is None:
             return abe.q(page)
@@ -1441,7 +1433,7 @@ class Abe:
                 return 'ERROR: block %d not seen yet' % (height,)
         return format_satoshis(int(row[0]), chain) if row else 0
 
-    def download_srcdir(abe, page):
+    def handle_download(abe, page):
         name = abe.args.download_name
         if name is None:
             name = re.sub(r'\W+', '-', ABE_APPNAME.lower()) + '-' + ABE_VERSION
