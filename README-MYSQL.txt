@@ -1,5 +1,8 @@
 Abe setup for MySQL.
 
+Run the Bitcoin client to ensure that your copy of the block chain is
+up to date.
+
 Install Python 2.7 and its Crypto modules.  The Debian/Ubuntu packages
 are python2.7 and python-crypto.
 
