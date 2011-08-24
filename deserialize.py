@@ -8,6 +8,7 @@ from base58 import public_key_to_bc_address, hash_160_to_bc_address
 import socket
 import time
 from util import short_hex, long_hex
+import struct
 
 def parse_CAddress(vds):
   d = {}
@@ -241,22 +242,22 @@ def script_GetOp(bytes):
         nSize = ord(bytes[i])
         i += 1
       elif opcode == opcodes.OP_PUSHDATA2:
-        nSize = unpack_from('<H', bytes, i)
+        (nSize,) = struct.unpack_from('<H', bytes, i)
         i += 2
       elif opcode == opcodes.OP_PUSHDATA4:
-        nSize = unpack_from('<I', bytes, i)
+        (nSize,) = struct.unpack_from('<I', bytes, i)
         i += 4
       vch = bytes[i:i+nSize]
       i += nSize
 
-    yield (opcode, vch)
+    yield (opcode, vch, i)
 
 def script_GetOpName(opcode):
   return (opcodes.whatis(opcode)).replace("OP_", "")
 
 def decode_script(bytes):
   result = ''
-  for (opcode, vch) in script_GetOp(bytes):
+  for (opcode, vch, i) in script_GetOp(bytes):
     if len(result) > 0: result += " "
     if opcode <= opcodes.OP_PUSHDATA4:
       result += "%d:"%(opcode,)

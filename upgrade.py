@@ -607,6 +607,45 @@ def config_clob(store):
     store.configure_clob_type()
     store.save_configvar("clob_type")
 
+def clear_bad_addresses(store):
+    """Set address=Unknown for the bogus outputs in Bitcoin 71036."""
+    bad_tx = [
+        'a288fec5559c3f73fd3d93db8e8460562ebfe2fcf04a5114e8d0f2920a6270dc',
+        '2a0597e665ac3d1cabeede95cedf907934db7f639e477b3c77b242140d8cf728',
+        'e411dbebd2f7d64dafeef9b14b5c59ec60c36779d43f850e5e347abee1e1a455']
+    for tx_hash in bad_tx:
+        row = store.selectrow("""
+            SELECT tx_id FROM tx WHERE tx_hash = ?""",
+                              (store.hashin_hex(tx_hash),))
+        if row:
+            store.sql("""
+                UPDATE txout SET pubkey_id = NULL
+                 WHERE tx_id = ? AND txout_pos = 1 AND pubkey_id IS NOT NULL""",
+                      (row[0],))
+            if store.cursor.rowcount:
+                print "Cleared txout " + tx_hash
+
+def find_namecoin_addresses(store):
+    updated = 0
+    for tx_id, txout_pos, script in store.selectall("""
+        SELECT tx_id, txout_pos, txout_scriptPubKey
+          FROM txout
+         WHERE pubkey_id IS NULL"""):
+        pubkey_id = store.script_to_pubkey_id(store.binout(script))
+        if pubkey_id is not None:
+            store.sql("""
+                UPDATE txout
+                   SET pubkey_id = ?
+                 WHERE tx_id = ?
+                   AND txout_pos = ?""", (pubkey_id, tx_id, txout_pos))
+            updated += 1
+            if updated % 1000 == 0:
+                store.commit()
+                print "Found %d addresses" % (updated,)
+    if updated % 1000 > 0:
+        store.commit()
+        print "Found %d addresses" % (updated,)
+
 upgrades = [
     ('6',    add_block_value_in),
     ('6.1',  add_block_value_out),
@@ -667,7 +706,9 @@ upgrades = [
     ('Abe22.1', add_datadir_id),         # Fast
     ('Abe22.2', drop_tmp_datadir),       # Fast
     ('Abe23',   config_clob),            # Fast
-    ('Abe24',   None),
+    ('Abe24',   clear_bad_addresses),    # Fast
+    ('Abe24.1', find_namecoin_addresses), # 2 minutes if you have Namecoin
+    ('Abe25',   None),
 ]
 
 def upgrade_schema(store):

@@ -24,7 +24,7 @@ import deserialize
 import util
 import warnings
 
-SCHEMA_VERSION = "Abe24"
+SCHEMA_VERSION = "Abe25"
 
 WORK_BITS = 304  # XXX more than necessary.
 
@@ -60,8 +60,16 @@ BEER_ADDRESS_VERSION = "\xf2"
 
 GENESIS_HASH_PREV = "\0" * 32
 
-SCRIPT_ADDRESS_RE = re.compile("\x76\xa9\x14(.{20})\x88\xac", re.DOTALL)
-SCRIPT_PUBKEY_RE = re.compile("\x41(.{65})\xac", re.DOTALL)
+# Regex to match a pubkey hash ("Bitcoin address transaction") in
+# txout_scriptPubKey.  Tolerate OP_NOP (0x61) at the end, seen in Bitcoin
+# 127630 and 128239.
+SCRIPT_ADDRESS_RE = re.compile("\x76\xa9\x14(.{20})\x88\xac\x61?\\Z", re.DOTALL)
+
+# Regex to match a pubkey ("IP address transaction") in txout_scriptPubKey.
+SCRIPT_PUBKEY_RE = re.compile("\x41(.{65})\xac\\Z", re.DOTALL)
+
+# Script that can never be redeemed, used in Namecoin.
+SCRIPT_NETWORK_FEE = '\x6a'
 
 NO_CLOB = 'BUG_NO_CLOB'
 
@@ -1544,14 +1552,7 @@ store._ddl['txout_approx'],
             tx['value_out'] += txout['value']
             txout_id = store.new_id("txout")
 
-            pubkey_id = None
-            match = SCRIPT_ADDRESS_RE.match(txout['scriptPubKey'])
-            if match:
-                pubkey_id = store.pubkey_hash_to_id(match.group(1))
-            else:
-                match = SCRIPT_PUBKEY_RE.match(txout['scriptPubKey'])
-                if match:
-                    pubkey_id = store.pubkey_to_id(match.group(1))
+            pubkey_id = store.script_to_pubkey_id(txout['scriptPubKey'])
 
             store.sql("""
                 INSERT INTO txout (
@@ -1716,6 +1717,42 @@ store._ddl['txout_approx'],
                AND txout.txout_pos = ?""",
                   (store.hashin(tx_hash), txout_pos))
         return (None, 0) if row is None else (row[0], int(row[1]))
+
+    def script_to_pubkey_id(store, script):
+        """Extract address from transaction output script."""
+        match = SCRIPT_ADDRESS_RE.match(script)
+        if match:
+            return store.pubkey_hash_to_id(match.group(1))
+        match = SCRIPT_PUBKEY_RE.match(script)
+        if match:
+            return store.pubkey_to_id(match.group(1))
+
+        # Not a standard Bitcoin script as of 2011-08-23.  Namecoin operation?
+        # Ignore leading pushes, pops, and nops so long as stack does not
+        # underflow and ends up empty.
+        opcodes = deserialize.opcodes
+        drops = (opcodes.OP_NOP, opcodes.OP_DROP, opcodes.OP_2DROP)
+        start = 0
+        sp = 0
+        for opcode, data, i in deserialize.script_GetOp(script):
+            if data is not None or \
+                    opcode == opcodes.OP_0 or \
+                    opcode == opcodes.OP_1NEGATE or \
+                    (opcode >= opcodes.OP_1 and opcode <= opcodes.OP_16):
+                sp += 1
+                continue
+            if opcode in drops:
+                to_drop = drops.index(opcode)
+                if sp < to_drop:
+                    break
+                sp -= to_drop
+                start = i
+                continue
+            if sp != 0 or start == 0:
+                break
+            return store.script_to_pubkey_id(script[start:])
+
+        return None
 
     def pubkey_hash_to_id(store, pubkey_hash):
         return store._pubkey_id(pubkey_hash, None)

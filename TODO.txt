@@ -2,9 +2,6 @@
   probably limit the kinds of exceptions that catch_up converts to
   warnings.
 
-* Bitcoin 71036 strange transactions incorrectly showing as output to
-  Bitcoin address.
-
 * Test for a portable "begin transaction" and use it.
 
 * Consider retesting SQL flavour every time on startup.
