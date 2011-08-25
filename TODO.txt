@@ -40,7 +40,7 @@
 
 * Add a tool to upload transactions if bitcoind supports it.
 
-* Perhaps write a validation module to check db data.
+* Perhaps write a validation module to check db data.  Begun as verify.py.
 
 * Abstract SQL into the DataStore class.
 
@@ -48,7 +48,7 @@
 
 * Store and report block size, address type, raw objects, etc.
 
-* Compute Merkle trees and verify transaction Merkle roots.
+* Consider verifying transaction Merkle roots on block import.
 
 * Report the Merkle branch of a particular transaction to support SPV.
 

@@ -58,7 +58,8 @@ BEER_POLICY_ID = 5
 BEER_CHAIN_ID = 5
 BEER_ADDRESS_VERSION = "\xf2"
 
-GENESIS_HASH_PREV = "\0" * 32
+NULL_HASH = "\0" * 32
+GENESIS_HASH_PREV = NULL_HASH
 
 # Regex to match a pubkey hash ("Bitcoin address transaction") in
 # txout_scriptPubKey.  Tolerate OP_NOP (0x61) at the end, seen in Bitcoin
