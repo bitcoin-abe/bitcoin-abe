@@ -581,7 +581,7 @@ class Abe:
             block_out += txout_value
             tx['out'].append({
                     "value": txout_value,
-                    "address": hash_to_address(address_version, pubkey_hash),
+                    "pubkey_hash": pubkey_hash,
                     })
         for row in abe.store.selectall("""
             SELECT tx_id, txin_value, pubkey_hash
@@ -612,7 +612,7 @@ class Abe:
             block_in += txin_value
             tx['in'].append({
                     "value": txin_value,
-                    "address": hash_to_address(address_version, pubkey_hash),
+                    "pubkey_hash": pubkey_hash,
                     })
 
         body += ['<table><tr><th>Transaction</th><th>Fee</th>'
@@ -637,14 +637,15 @@ class Abe:
                          ' + ', format_satoshis(fees, chain), ' total fees']
             else:
                 for txin in tx['in']:
-                    body += ['<a href="', page['dotdot'], 'address/',
-                             txin['address'], '">', txin['address'], '</a>: ',
-                             format_satoshis(txin['value'], chain), '<br />']
+                    body += hash_to_address_link(
+                        address_version, txin['pubkey_hash'], page['dotdot'])
+                    body += [': ', format_satoshis(txin['value'], chain),
+                             '<br />']
             body += ['</td><td>']
             for txout in tx['out']:
-                body += ['<a href="', page['dotdot'], 'address/',
-                         txout['address'], '">', txout['address'], '</a>: ',
-                         format_satoshis(txout['value'], chain), '<br />']
+                body += hash_to_address_link(
+                    address_version, txout['pubkey_hash'], page['dotdot'])
+                body += [': ', format_satoshis(txout['value'], chain), '<br />']
             body += ['</td></tr>\n']
         body += '</table>\n'
 
@@ -760,8 +761,8 @@ class Abe:
             if row['binaddr'] is None:
                 body += ['Unknown']
             else:
-                addr = hash_to_address(chain['address_version'], row['binaddr'])
-                body += ['<a href="../address/', addr, '">', addr, '</a>']
+                body += hash_to_address_link(chain['address_version'],
+                                             row['binaddr'], '../')
             body += [
                 '</td>\n',
                 '<td>', escape(decode_script(row['script'])),
@@ -1543,6 +1544,14 @@ def hash_to_address(version, hash):
         return 'UNKNOWN'
     vh = version + hash
     return base58.b58encode(vh + util.double_sha256(vh)[:4])
+
+def hash_to_address_link(version, hash, dotdot):
+    if hash == DataStore.NULL_PUBKEY_HASH:
+        return 'Destroyed'
+    if hash is None:
+        return 'UNKNOWN'
+    addr = hash_to_address(version, hash)
+    return ['<a href="', dotdot, 'address/', addr, '">', addr, '</a>']
 
 def decode_check_address(address):
     if ADDRESS_RE.match(address):

@@ -24,7 +24,7 @@ import deserialize
 import util
 import warnings
 
-SCHEMA_VERSION = "Abe25"
+SCHEMA_VERSION = "Abe26"
 
 WORK_BITS = 304  # XXX more than necessary.
 
@@ -60,6 +60,10 @@ BEER_ADDRESS_VERSION = "\xf2"
 
 NULL_HASH = "\0" * 32
 GENESIS_HASH_PREV = NULL_HASH
+
+NULL_PUBKEY_HASH = "\0" * 20
+NULL_PUBKEY_ID = 0
+PUBKEY_ID_NETWORK_FEE = NULL_PUBKEY_ID
 
 # Regex to match a pubkey hash ("Bitcoin address transaction") in
 # txout_scriptPubKey.  Tolerate OP_NOP (0x61) at the end, seen in Bitcoin
@@ -98,7 +102,8 @@ class DataStore(object):
         store.args = args
         store.log_sql = args.log_sql
         store.module = __import__(args.dbtype)
-        store.connect()
+        store.conn = store.connect()
+        store.cursor = store.conn.cursor()
         store._ddl = store._get_ddl()
 
         # Read the CONFIG and CONFIGVAR tables if present.
@@ -150,8 +155,7 @@ class DataStore(object):
             else:
                 conn = store.module.connect(cargs)
 
-        store.conn = conn
-        store.cursor = conn.cursor()
+        return conn
 
     def reconnect(store):
         print "Reconnecting to database."
@@ -163,7 +167,8 @@ class DataStore(object):
             store.conn.close()
         except:
             pass
-        store.connect()
+        store.conn = store.connect()
+        store.cursor = store.conn.cursor()
 
     def _read_config(store):
         # Read table CONFIGVAR if it exists.
@@ -845,12 +850,19 @@ store._ddl['chain_summary'],
 store._ddl['txout_detail'],
 store._ddl['txin_detail'],
 store._ddl['txout_approx'],
+
+"""CREATE TABLE abe_lock (
+    lock_id       NUMERIC(10) NOT NULL PRIMARY KEY,
+    pid           VARCHAR(255) NULL
+)""",
 ):
             try:
                 store.ddl(stmt)
             except:
                 print "Failed:", stmt
                 raise
+
+        store.sql("INSERT INTO abe_lock (lock_id) VALUES (1)")
 
         ins_magic = """INSERT INTO magic (magic_id, magic, magic_name)
             VALUES (?, ?, ?)"""
@@ -893,6 +905,10 @@ store._ddl['txout_approx'],
         store.sql(ins_chain,
                   (BEER_CHAIN_ID, BEER_MAGIC_ID, BEER_POLICY_ID,
                    'BeerTokens', 'BER', store.binin(BEER_ADDRESS_VERSION)))
+
+        store.sql("""
+            INSERT INTO pubkey (pubkey_id, pubkey_hash) VALUES (?, ?)""",
+                  (NULL_PUBKEY_ID, store.binin(NULL_PUBKEY_HASH)))
 
         store.save_config()
         store.commit()
@@ -1721,6 +1737,8 @@ store._ddl['txout_approx'],
 
     def script_to_pubkey_id(store, script):
         """Extract address from transaction output script."""
+        if script == SCRIPT_NETWORK_FEE:
+            return PUBKEY_ID_NETWORK_FEE
         match = SCRIPT_ADDRESS_RE.match(script)
         if match:
             return store.pubkey_hash_to_id(match.group(1))

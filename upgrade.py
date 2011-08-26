@@ -19,9 +19,9 @@
 
 import os
 import sys
-import abe
+import DataStore
 
-def run_upgrades(store, upgrades):
+def run_upgrades_locked(store, upgrades):
     for i in xrange(len(upgrades) - 1):
         vers, func = upgrades[i]
         if store.config['schema_version'] == vers:
@@ -41,6 +41,35 @@ def run_upgrades(store, upgrades):
                     (sv,))
             store.commit()
             store.config['schema_version'] = sv
+
+def run_upgrades(store, upgrades):
+    lock = get_lock(store)
+    try:
+        run_upgrades_locked(store, upgrades)
+    finally:
+        release_lock(lock)
+
+def get_lock(store):
+    if version_below(store, 'Abe26'):
+        return None
+    conn = store.connect()
+    cur = conn.cursor()
+    cur.execute("UPDATE abe_lock SET pid = %d WHERE lock_id = 1"
+                % (os.getpid(),))
+    if cur.rowcount != 1:
+        raise Exception("unexpected rowcount")
+    cur.close()
+    return conn
+
+def release_lock(conn):
+    if conn:
+        conn.rollback()
+        conn.close()
+
+def version_below(store, vers):
+    sv = store.config['schema_version'].replace('Abe', '')
+    vers = vers.replace('Abe', '')
+    return float(sv) < float(vers)
 
 def add_block_value_in(store):
     store.sql("ALTER TABLE block ADD block_value_in NUMERIC(30)")
@@ -646,6 +675,47 @@ def find_namecoin_addresses(store):
         store.commit()
         print "Found %d addresses" % (updated,)
 
+def create_abe_lock(store):
+    store.ddl("""CREATE TABLE abe_lock (
+        lock_id       NUMERIC(10) NOT NULL PRIMARY KEY,
+        pid           VARCHAR(255) NULL
+    )""")
+
+def create_abe_lock_row(store):
+    store.sql("INSERT INTO abe_lock (lock_id) VALUES (1)")
+
+def insert_null_pubkey(store):
+    dbnull = store.binin(DataStore.NULL_PUBKEY_HASH)
+    row = store.selectrow("SELECT pubkey_id FROM pubkey WHERE pubkey_hash = ?",
+                          (dbnull,))
+    if row:
+        # Null hash seen in a transaction.  Go to some trouble to
+        # set its pubkey_id = 0 without violating constraints.
+        old_id = row[0]
+        import random  # No need for cryptographic strength here.
+        temp_hash = "".join([chr(random.randint(0, 255)) for x in xrange(20)])
+        store.sql("INSERT INTO pubkey (pubkey_id, pubkey_hash) VALUES (?, ?)",
+                  (DataStore.NULL_PUBKEY_ID, store.binin(temp_hash)))
+        store.sql("UPDATE txout SET pubkey_id = ? WHERE pubkey_id = ?",
+                  (DataStore.NULL_PUBKEY_ID, old_id))
+        store.sql("DELETE FROM pubkey WHERE pubkey_id = ?", (old_id,))
+        store.sql("UPDATE pubkey SET pubkey_hash = ? WHERE pubkey_id = ?",
+                  (dbnull, DataStore.NULL_PUBKEY_ID))
+    else:
+        store.sql("""
+            INSERT INTO pubkey (pubkey_id, pubkey_hash) VALUES (?, ?)""",
+                  (DataStore.NULL_PUBKEY_ID, dbnull))
+
+def set_netfee_pubkey_id(store):
+    print "Updating network fee output address to 'Destroyed'..."
+    store.sql("""
+        UPDATE txout
+           SET pubkey_id = ?
+         WHERE txout_scriptPubKey = ?""",
+              (DataStore.NULL_PUBKEY_ID,
+               store.binin(DataStore.SCRIPT_NETWORK_FEE)))
+    print "...rows updated: %d" % (store.cursor.rowcount,)
+
 upgrades = [
     ('6',    add_block_value_in),
     ('6.1',  add_block_value_out),
@@ -708,7 +778,11 @@ upgrades = [
     ('Abe23',   config_clob),            # Fast
     ('Abe24',   clear_bad_addresses),    # Fast
     ('Abe24.1', find_namecoin_addresses), # 2 minutes if you have Namecoin
-    ('Abe25',   None),
+    ('Abe25',   create_abe_lock),        # Fast
+    ('Abe25.1', create_abe_lock_row),    # Fast
+    ('Abe25.2', insert_null_pubkey),     # 1 second
+    ('Abe25.3', set_netfee_pubkey_id),   # Seconds
+    ('Abe26',   None),
 ]
 
 def upgrade_schema(store):

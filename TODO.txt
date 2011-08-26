@@ -2,8 +2,6 @@
   probably limit the kinds of exceptions that catch_up converts to
   warnings.
 
-* Mutex the upgrade code.
-
 * Deduct transactions to OP_RETURN (Namecoin network fees) from total
   coins and coin days.
 
