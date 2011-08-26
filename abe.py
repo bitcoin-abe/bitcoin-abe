@@ -1458,6 +1458,63 @@ class Abe:
                 return 'ERROR: block %d not seen yet' % (height,)
         return format_satoshis(row[0], chain) if row else 0
 
+    def q_getreceivedbyaddress(abe, page, chain):
+        """getreceivedbyaddress"""
+        addr = wsgiref.util.shift_path_info(page['env'])
+        if chain is None or addr is None:
+            return 'returns amount of money received by given address (not balance, sends are not subtracted)\n' \
+                '/chain/CHAIN/q/getreceivedbyaddress/ADDRESS\n'
+
+        if ADDRESS_RE.match(addr):
+            version, hash = decode_address(addr)
+            sql = """
+                SELECT COALESCE(SUM(txout.txout_value), 0)
+                  FROM pubkey
+                  JOIN txout ON txout.pubkey_id=pubkey.pubkey_id
+                  JOIN block_tx ON block_tx.tx_id=txout.tx_id
+                  JOIN block b ON b.block_id=block_tx.block_id
+                  JOIN chain_candidate cc ON cc.block_id=b.block_id
+                  WHERE
+                      pubkey.pubkey_hash = ? AND
+                      cc.chain_id = ? AND
+                      cc.in_longest = 1"""
+            row = abe.store.selectrow(
+                sql, (abe.store.binin(hash), chain['id']))
+            ret = format_satoshis(row[0], chain);
+        else:
+            ret = 'ERROR: address invalid'
+
+        return ret
+
+    def q_getsentbyaddress(abe, page, chain):
+        """getsentbyaddress"""
+        addr = wsgiref.util.shift_path_info(page['env'])
+        if chain is None or addr is None:
+            return 'returns amount of money sent from given address\n' \
+                '/chain/CHAIN/q/getsentbyaddress/ADDRESS\n'
+
+        if ADDRESS_RE.match(addr):
+            version, hash = decode_address(addr)
+            sql = """
+                SELECT COALESCE(SUM(txout.txout_value), 0)
+                  FROM pubkey
+                  JOIN txout txout on txout.pubkey_id=pubkey.pubkey_id
+                  JOIN txin on txin.txout_id=txout.txout_id
+                  JOIN block_tx on block_tx.tx_id=txout.tx_id
+                  JOIN block b on b.block_id=block_tx.block_id
+                  JOIN chain_candidate cc on cc.block_id=b.block_id
+                  WHERE
+                      pubkey.pubkey_hash = ? AND
+                      cc.chain_id = ? AND
+                      cc.in_longest = 1"""
+            row = abe.store.selectrow(
+                sql, (abe.store.binin(hash), chain['id']))
+            ret = format_satoshis(row[0], chain);
+        else:
+            ret = 'ERROR: address invalid'
+
+        return ret
+
     def handle_download(abe, page):
         name = abe.args.download_name
         if name is None:

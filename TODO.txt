@@ -60,7 +60,6 @@
   nextretarget        estimate
   avgtxsize           avgtxvalue          avgblocksize
   interval            eta                 avgtxnumber
-  getreceivedbyaddress                    getsentbyaddress
   addressbalance      addressfirstseen    mytransactions
   reorglog
 
@@ -86,7 +85,7 @@
 
 * Present Namecoin name operations as an optional add-on.
 
-* ixcoin, i0coin, ???
+* ixcoin, i0coin, StableCoin, ???
 
 * Import transactions from the pool.
 
