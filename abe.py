@@ -538,7 +538,7 @@ class Abe:
 
             '' if destroyed is None else
             ['Coin-days Destroyed: ',
-             format_satoshis(int(destroyed / 86400.0), chain), '<br />\n'],
+             format_satoshis(destroyed / 86400.0, chain), '<br />\n'],
 
             ['Cumulative Coin-days Destroyed: %6g%%<br />\n' %
              (100 * (1 - float(ss) / total_ss),)]
@@ -1456,7 +1456,7 @@ class Abe:
             """, (chain['id'], height))
             if not row:
                 return 'ERROR: block %d not seen yet' % (height,)
-        return format_satoshis(int(row[0]), chain) if row else 0
+        return format_satoshis(row[0], chain) if row else 0
 
     def handle_download(abe, page):
         name = abe.args.download_name
@@ -1524,6 +1524,7 @@ def format_satoshis(satoshis, chain):
         return ''
     if satoshis < 0:
         return '-' + format_satoshis(-satoshis, chain)
+    satoshis = int(satoshis)
     integer = satoshis / COIN
     frac = satoshis % COIN
     return (str(integer) +
