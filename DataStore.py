@@ -1862,6 +1862,18 @@ store._ddl['txout_approx'],
                 chain_id = WEEDS_CHAIN_ID
             elif magic == BEER_MAGIC:
                 chain_id = BEER_CHAIN_ID
+            elif magic[0] == chr(0):
+                # Skip NUL bytes at block end.
+                ds.read_cursor = offset
+                while ds.read_cursor < len(ds.input):
+                    size = min(len(ds.input) - ds.read_cursor, 1000)
+                    data = ds.read_bytes(size).lstrip("\0")
+                    if (data != ""):
+                        ds.read_cursor -= len(data)
+                        break
+                print "Skipped %d NUL bytes at block end" % (
+                    ds.read_cursor - offset,)
+                continue
             else:
                 filename = store.blkfile_name(dircfg)
                 print "chain not found for magic", repr(magic), \
