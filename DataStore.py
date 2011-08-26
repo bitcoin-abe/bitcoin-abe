@@ -1977,7 +1977,6 @@ store._ddl['txout_approx'],
             if (number > dircfg['blkfile_number'] or
                 (number == dircfg['blkfile_number'] and
                  offset > dircfg['blkfile_offset'])):
-                print "skipped to", dircfg['dirname'], number, offset
                 dircfg['blkfile_number'] = number
                 dircfg['blkfile_offset'] = offset
 

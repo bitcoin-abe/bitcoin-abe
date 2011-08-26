@@ -1169,7 +1169,6 @@ class Abe:
                 hl, hh = hh, hl
             bl = abe.store.binin(hl)
             bh = abe.store.binin(hh)
-            print "address search", repr(vl)+":"+abe.store.binout_hex(bl), repr(vl)+":"+abe.store.binout_hex(bh)
             ret += filter(None, map(process, abe.store.selectall(
                 "SELECT pubkey_hash FROM pubkey WHERE pubkey_hash" +
                 # XXX hardcoded limit.
