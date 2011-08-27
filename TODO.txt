@@ -1,3 +1,5 @@
+* Show auxiliary proof-of-work data.
+
 * Bitcoin 140176 failed to catch up: str(exception) == "1".  Should
   probably limit the kinds of exceptions that catch_up converts to
   warnings.
