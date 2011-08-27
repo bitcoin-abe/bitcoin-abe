@@ -24,7 +24,7 @@ import deserialize
 import util
 import warnings
 
-SCHEMA_VERSION = "Abe26"
+SCHEMA_VERSION = "Abe27"
 
 WORK_BITS = 304  # XXX more than necessary.
 
@@ -1273,6 +1273,7 @@ store._ddl['txout_approx'],
         # Import new transactions.
         b['value_in'] = 0
         b['value_out'] = 0
+        b['value_destroyed'] = 0
         tx_hash_array = []
         for pos in xrange(len(b['transactions'])):
             tx = b['transactions'][pos]
@@ -1283,6 +1284,7 @@ store._ddl['txout_approx'],
                            store.import_tx(tx, pos == 0))
             b['value_in'] += tx['value_in']
             b['value_out'] += tx['value_out']
+            b['value_destroyed'] += tx['value_destroyed']
 
         # Verify Merkle root.
         if b['hashMerkleRoot'] != util.merkle(tx_hash_array):
@@ -1310,7 +1312,8 @@ store._ddl['txout_approx'],
         if prev_satoshis is None:
             b['satoshis'] = None
         else:
-            b['satoshis'] = prev_satoshis + b['value_out'] - b['value_in']
+            b['satoshis'] = prev_satoshis + b['value_out'] - b['value_in'] \
+                - b['value_destroyed']
 
         # Insert the block table row.
         store.sql(
@@ -1517,21 +1520,26 @@ store._ddl['txout_approx'],
 
     def tx_find_id_and_value(store, tx):
         row = store.selectrow("""
-            SELECT tx.tx_id, SUM(txout.txout_value)
+            SELECT tx.tx_id, SUM(txout.txout_value), SUM(
+                       CASE WHEN txout.pubkey_id > 0 THEN txout.txout_value
+                            ELSE 0 END)
               FROM tx
               LEFT JOIN txout ON (tx.tx_id = txout.tx_id)
              WHERE tx_hash = ?
              GROUP BY tx.tx_id""",
                               (store.hashin(tx['hash']),))
         if row:
-            tx_id, value_out = row
+            tx_id, value_out, undestroyed = row
+            value_out = 0 if value_out is None else int(value_out)
+            undestroyed = 0 if undestroyed is None else int(undestroyed)
             (value_in,) = store.selectrow("""
                 SELECT SUM(prevout.txout_value)
                   FROM txin
                   JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
                  WHERE txin.tx_id = ?""", (tx_id,))
             tx['value_in'] = 0 if value_in is None else int(value_in)
-            tx['value_out'] = 0 if value_out is None else int(value_out)
+            tx['value_out'] = value_out
+            tx['value_destroyed'] = value_out - undestroyed
             return tx_id
 
         return None
@@ -1547,12 +1555,15 @@ store._ddl['txout_approx'],
 
         # Import transaction outputs.
         tx['value_out'] = 0
+        tx['value_destroyed'] = 0
         for pos in xrange(len(tx['txOut'])):
             txout = tx['txOut'][pos]
             tx['value_out'] += txout['value']
             txout_id = store.new_id("txout")
 
             pubkey_id = store.script_to_pubkey_id(txout['scriptPubKey'])
+            if pubkey_id is not None and pubkey_id <= 0:
+                tx['value_destroyed'] += txout['value']
 
             store.sql("""
                 INSERT INTO txout (

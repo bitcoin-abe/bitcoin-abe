@@ -59,6 +59,21 @@ def get_lock(store):
     if cur.rowcount != 1:
         raise Exception("unexpected rowcount")
     cur.close()
+
+    # Check whether database supports concurrent updates.  Where it
+    # doesn't (SQLite) we get exclusive access automatically.
+    try:
+        import random
+        letters = "".join([chr(random.randint(65, 90)) for x in xrange(10)])
+        store.sql("""
+            INSERT INTO configvar (configvar_name, configvar_value)
+            VALUES (?, ?)""",
+                  ("upgrade-lock-" + letters, 'x'))
+    except:
+        release_lock(conn)
+        conn = None
+
+    store.rollback()
     return conn
 
 def release_lock(conn):
@@ -273,7 +288,7 @@ def set_0_satoshi_seconds_destroyed(store):
             UPDATE block_tx bt SET satoshi_seconds_destroyed = 0
              WHERE block_id = ? AND tx_id = ?""", row)
 
-def init_block_satoshi_seconds(store):
+def init_block_satoshi_seconds(store, ):
     print "Calculating satoshi-seconds."
     cur = store.conn.cursor()
     stats = {}
@@ -286,6 +301,7 @@ def init_block_satoshi_seconds(store):
          GROUP BY b.block_id, b.block_total_satoshis, b.block_nTime,
                b.prev_block_id, b.block_height
          ORDER BY b.block_height"""))
+    count = 0
     for row in cur:
         block_id, satoshis, nTime, prev_id, destroyed, height = row
         satoshis = int(satoshis)
@@ -309,10 +325,17 @@ def init_block_satoshi_seconds(store):
         store.sql("""
             UPDATE block
                SET block_satoshi_seconds = ?,
-                   block_total_ss = ?
+                   block_total_ss = ?,
+                   block_ss_destroyed = ?
              WHERE block_id = ?""",
                   (stats[block_id]['ss'], stats[block_id]['total_ss'],
-                   block_id))
+                   store.intin(destroyed), block_id))
+        count += 1
+        if count % 1000 == 0:
+            store.commit()
+            print "Updated %d blocks" % (count,)
+    if count % 1000 != 0:
+        print "Updated %d blocks" % (count,)
 
 def index_block_nTime(store):
     print "Indexing block_nTime."
@@ -716,6 +739,53 @@ def set_netfee_pubkey_id(store):
                store.binin(DataStore.SCRIPT_NETWORK_FEE)))
     print "...rows updated: %d" % (store.cursor.rowcount,)
 
+def adjust_block_total_satoshis(store):
+    print "Adjusting value outstanding for lost coins."
+    block = {}
+    block_ids = []
+
+    print "...getting block relationships."
+    for block_id, prev_id in store.selectall("""
+        SELECT block_id, prev_block_id
+          FROM block
+         WHERE block_height IS NOT NULL
+         ORDER BY block_height"""):
+        block[block_id] = {"prev_id": prev_id}
+        block_ids.append(block_id)
+
+    print "...getting lossage per block."
+    for block_id, lost in store.selectall("""
+        SELECT block_tx.block_id, SUM(txout.txout_value)
+          FROM block_tx
+          JOIN txout ON (block_tx.tx_id = txout.tx_id)
+         WHERE txout.pubkey_id <= 0
+         GROUP BY block_tx.block_id"""):
+        if block_id in block:
+            block[block_id]["lost"] = lost
+
+    print "...calculating adjustments."
+    for block_id in block_ids:
+        b = block[block_id]
+        prev_id = b["prev_id"]
+        prev_lost = 0 if prev_id is None else block[prev_id]["cum_lost"]
+        b["cum_lost"] = b.get("lost", 0) + prev_lost
+
+    print "...applying adjustments."
+    count = 0
+    for block_id in block_ids:
+        adj = block[block_id]["cum_lost"]
+        if adj != 0:
+            store.sql("""
+                UPDATE block
+                  SET block_total_satoshis = block_total_satoshis - ?
+                WHERE block_id = ?""",
+                      (adj, block_id))
+        count += 1
+        if count % 1000 == 0:
+            print "Adjusted %d of %d blocks." % (count, len(block_ids))
+    if count % 1000 != 0:
+        print "Adjusted %d of %d blocks." % (count, len(block_ids))
+
 upgrades = [
     ('6',    add_block_value_in),
     ('6.1',  add_block_value_out),
@@ -736,7 +806,7 @@ upgrades = [
     ('6.16', init_block_totals),
     ('6.17', init_satoshi_seconds_destroyed),
     ('6.18', set_0_satoshi_seconds_destroyed),
-    ('6.19', init_block_satoshi_seconds),
+    ('6.19', noop),
     ('6.20', index_block_nTime),
     ('6.21', replace_chain_summary),
     ('7',    replace_chain_summary),
@@ -744,7 +814,7 @@ upgrades = [
     ('7.2',  init_block_txin),    # abe.py put bad data there.
     ('7.3',  init_satoshi_seconds_destroyed),
     ('7.4',  set_0_satoshi_seconds_destroyed),
-    ('7.5',  init_block_satoshi_seconds),
+    ('7.5',  noop),
     ('7.6',  drop_block_ss_columns),
     ('8',    add_fk_block_txin_block_id),
     ('8.1',  add_fk_block_txin_tx_id),
@@ -782,7 +852,9 @@ upgrades = [
     ('Abe25.1', create_abe_lock_row),    # Fast
     ('Abe25.2', insert_null_pubkey),     # 1 second
     ('Abe25.3', set_netfee_pubkey_id),   # Seconds
-    ('Abe26',   None),
+    ('Abe26',   adjust_block_total_satoshis), # 1-3 minutes
+    ('Abe26.1', init_block_satoshi_seconds), # 3-10 minutes
+    ('Abe27',   None),
 ]
 
 def upgrade_schema(store):
@@ -792,6 +864,7 @@ def upgrade_schema(store):
     if sv != curr:
         raise Exception('Can not upgrade from schema version %s to %s\n'
                         % (sv, curr))
+    print "Upgrade complete."
 
 if __name__ == '__main__':
     print "Run ./abe.py with --upgrade added to the usual arguments."

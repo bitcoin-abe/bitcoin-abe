@@ -2,9 +2,6 @@
   probably limit the kinds of exceptions that catch_up converts to
   warnings.
 
-* Deduct transactions to OP_RETURN (Namecoin network fees) from total
-  coins and coin days.
-
 * Test for a portable "begin transaction" and use it.
 
 * Consider retesting SQL flavour every time on startup.
