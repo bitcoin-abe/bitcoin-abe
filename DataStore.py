@@ -1816,37 +1816,36 @@ store._ddl['txout_approx'],
 
             # Assume blocks obey the respective policy if they get here.
             chain_id = dircfg['chain_id']
-            if chain_id is not None:
-                pass
-            elif magic == BITCOIN_MAGIC:
-                chain_id = BITCOIN_CHAIN_ID
-            elif magic == TESTNET_MAGIC:
-                chain_id = TESTNET_CHAIN_ID
-            elif magic == NAMECOIN_MAGIC:
-                chain_id = NAMECOIN_CHAIN_ID
-            elif magic == WEEDS_MAGIC:
-                chain_id = WEEDS_CHAIN_ID
-            elif magic == BEER_MAGIC:
-                chain_id = BEER_CHAIN_ID
-            elif magic[0] == chr(0):
-                # Skip NUL bytes at block end.
-                ds.read_cursor = offset
-                while ds.read_cursor < len(ds.input):
-                    size = min(len(ds.input) - ds.read_cursor, 1000)
-                    data = ds.read_bytes(size).lstrip("\0")
-                    if (data != ""):
-                        ds.read_cursor -= len(data)
-                        break
-                print "Skipped %d NUL bytes at block end" % (
-                    ds.read_cursor - offset,)
-                continue
-            else:
+            if chain_id is None:
+                rows = store.selectall("""
+                    SELECT chain.chain_id
+                      FROM chain
+                      JOIN magic ON (chain.magic_id = magic.magic_id)
+                     WHERE magic.magic = ?""",
+                                       (store.binin(magic),))
+                if len(rows) == 1:
+                    chain_id = rows[0][0]
+            if chain_id is None:
+                if magic[0] == chr(0):
+                    # Skip NUL bytes at block end.
+                    ds.read_cursor = offset
+                    while ds.read_cursor < len(ds.input):
+                        size = min(len(ds.input) - ds.read_cursor, 1000)
+                        data = ds.read_bytes(size).lstrip("\0")
+                        if (data != ""):
+                            ds.read_cursor -= len(data)
+                            break
+                    print "Skipped %d NUL bytes at block end" % (
+                        ds.read_cursor - offset,)
+                    continue
+
                 filename = store.blkfile_name(dircfg)
                 print "chain not found for magic", repr(magic), \
                     "in block file", filename, "at offset", offset
                 print ("If file contents have changed, consider forcing a"
-                       " rescan: UPDATE datadir SET blkfile_offset=0"
-                       " WHERE dirname='%s'" % (dircfg['dirname'],))
+                       " rescan: UPDATE datadir SET blkfile_number=1,"
+                       " blkfile_offset=0 WHERE dirname='%s'"
+                       % (dircfg['dirname'],))
                 ds.read_cursor = offset
                 break
 
