@@ -95,7 +95,7 @@ Input
 -----
 
 To display Namecoin or any block chain with data somewhere other than
-the default Bitcoin directory specify "datadir" in abe.conf, e.g.:
+the default Bitcoin directory, specify "datadir" in abe.conf, e.g.:
 
     datadir = /home/bitcoin/.namecoin
 
