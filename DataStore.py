@@ -28,35 +28,18 @@ SCHEMA_VERSION = "Abe26"
 
 WORK_BITS = 304  # XXX more than necessary.
 
-BITCOIN_MAGIC = "\xf9\xbe\xb4\xd9"
-BITCOIN_MAGIC_ID = 1
-BITCOIN_POLICY_ID = 1
-BITCOIN_CHAIN_ID = 1
-BITCOIN_ADDRESS_VERSION = "\0"
-
-TESTNET_MAGIC = "\xfa\xbf\xb5\xda"
-TESTNET_MAGIC_ID = 2
-TESTNET_POLICY_ID = 2
-TESTNET_CHAIN_ID = 2
-TESTNET_ADDRESS_VERSION = "\x6f"
-
-NAMECOIN_MAGIC = "\xf9\xbe\xb4\xfe"
-NAMECOIN_MAGIC_ID = 3
-NAMECOIN_POLICY_ID = 3
-NAMECOIN_CHAIN_ID = 3
-NAMECOIN_ADDRESS_VERSION = "\x34"
-
-WEEDS_MAGIC = "\xf8\xbf\xb5\xda"
-WEEDS_MAGIC_ID = 4
-WEEDS_POLICY_ID = 4
-WEEDS_CHAIN_ID = 4
-WEEDS_ADDRESS_VERSION = "\xf3"
-
-BEER_MAGIC = "\xf7\xbf\xb5\xdb"
-BEER_MAGIC_ID = 5
-BEER_POLICY_ID = 5
-BEER_CHAIN_ID = 5
-BEER_ADDRESS_VERSION = "\xf2"
+CHAIN_CONFIG = [
+    {"chain":"Bitcoin",
+     "code3":"BTC", "address_version":"\x00", "magic":"\xf9\xbe\xb4\xd9"},
+    {"chain":"Testnet",
+     "code3":"BC0", "address_version":"\x6f", "magic":"\xfa\xbf\xb5\xda"},
+    {"chain":"Namecoin",
+     "code3":"NMC", "address_version":"\x34", "magic":"\xf9\xbe\xb4\xfe"},
+    {"chain":"Weeds", "network":"Weedsnet",
+     "code3":"WDS", "address_version":"\xf3", "magic":"\xf8\xbf\xb5\xda"},
+    {"chain":"BeerTokens",
+     "code3":"BER", "address_version":"\xf2", "magic":"\xf7\xbf\xb5\xdb"},
+    ]
 
 NULL_HASH = "\0" * 32
 GENESIS_HASH_PREV = NULL_HASH
@@ -474,7 +457,7 @@ class DataStore(object):
                                 chain_id,)
                         addr_vers = dircfg.get('address_version')
                         if addr_vers is None:
-                            addr_vers = BITCOIN_ADDRESS_VERSION
+                            addr_vers = "\0"
                         elif isinstance(addr_vers, unicode):
                             addr_vers = addr_vers.encode('latin_1')
                         store.sql("""
@@ -517,9 +500,6 @@ class DataStore(object):
         if row is None:
             (ret,) = store.selectrow("SELECT MAX(" + key + "_id) FROM " + key)
             ret = 1 if ret is None else ret + 1
-            if ret < 100000 and key == "chain":
-                # Avoid clash with future built-in chains.
-                ret = 100000
             store.sql("INSERT INTO abe_sequences (sequence_key, nextid)"
                       " VALUES (?, ?)", (key, ret))
         else:
@@ -864,47 +844,33 @@ store._ddl['txout_approx'],
 
         store.sql("INSERT INTO abe_lock (lock_id) VALUES (1)")
 
-        ins_magic = """INSERT INTO magic (magic_id, magic, magic_name)
-            VALUES (?, ?, ?)"""
-        ins_policy = """INSERT INTO policy (policy_id, policy_name)
-            VALUES (?, ?)"""
-        ins_chain = """
-            INSERT INTO chain (
-                chain_id, magic_id, policy_id, chain_name, chain_code3,
-                chain_address_version
-            ) VALUES (?, ?, ?, ?, ?, ?)"""
-
         # Some public data.
-        store.sql(ins_magic, (BITCOIN_MAGIC_ID, store.binin(BITCOIN_MAGIC),
-                              "Bitcoin"))
-        store.sql(ins_magic, (TESTNET_MAGIC_ID, store.binin(TESTNET_MAGIC),
-                              "Testnet"))
-        store.sql(ins_magic, (NAMECOIN_MAGIC_ID,
-                              store.binin(NAMECOIN_MAGIC), "Namecoin"))
-        store.sql(ins_magic, (WEEDS_MAGIC_ID,
-                              store.binin(WEEDS_MAGIC), "Weedsnet"))
-        store.sql(ins_magic, (BEER_MAGIC_ID,
-                              store.binin(BEER_MAGIC), "BeerTokens"))
-        store.sql(ins_policy, (BITCOIN_POLICY_ID, "Bitcoin policy"))
-        store.sql(ins_policy, (TESTNET_POLICY_ID, "Testnet policy"))
-        store.sql(ins_policy, (NAMECOIN_POLICY_ID, "Namecoin policy"))
-        store.sql(ins_policy, (WEEDS_POLICY_ID, "Weedsnet policy"))
-        store.sql(ins_policy, (BEER_POLICY_ID, "BeerTokens policy"))
-        store.sql(ins_chain,
-                  (BITCOIN_CHAIN_ID, BITCOIN_MAGIC_ID, BITCOIN_POLICY_ID,
-                   'Bitcoin', 'BTC', store.binin(BITCOIN_ADDRESS_VERSION)))
-        store.sql(ins_chain,
-                  (TESTNET_CHAIN_ID, TESTNET_MAGIC_ID, TESTNET_POLICY_ID,
-                   'Testnet', 'BC0', store.binin(TESTNET_ADDRESS_VERSION)))
-        store.sql(ins_chain,
-                  (NAMECOIN_CHAIN_ID, NAMECOIN_MAGIC_ID, NAMECOIN_POLICY_ID,
-                   'Namecoin', 'NMC', store.binin(NAMECOIN_ADDRESS_VERSION)))
-        store.sql(ins_chain,
-                  (WEEDS_CHAIN_ID, WEEDS_MAGIC_ID, WEEDS_POLICY_ID,
-                   'Weedsnet', 'WDS', store.binin(WEEDS_ADDRESS_VERSION)))
-        store.sql(ins_chain,
-                  (BEER_CHAIN_ID, BEER_MAGIC_ID, BEER_POLICY_ID,
-                   'BeerTokens', 'BER', store.binin(BEER_ADDRESS_VERSION)))
+        for conf in CHAIN_CONFIG:
+            for thing in "magic", "policy", "chain":
+                if thing + "_id" not in conf:
+                    conf[thing + "_id"] = store.new_id(thing)
+            if "network" not in conf:
+                conf["network"] = conf["chain"]
+            for thing in "magic", "policy":
+                if thing + "_name" not in conf:
+                    conf[thing + "_name"] = conf["network"] + " " + thing
+            store.sql("""
+                INSERT INTO magic (magic_id, magic, magic_name)
+                VALUES (?, ?, ?)""",
+                      (conf["magic_id"], store.binin(conf["magic"]),
+                       conf["magic_name"]))
+            store.sql("""
+                INSERT INTO policy (policy_id, policy_name)
+                VALUES (?, ?)""",
+                      (conf["policy_id"], conf["policy_name"]))
+            store.sql("""
+                INSERT INTO chain (
+                    chain_id, magic_id, policy_id, chain_name, chain_code3,
+                    chain_address_version
+                ) VALUES (?, ?, ?, ?, ?, ?)""",
+                      (conf["chain_id"], conf["magic_id"], conf["policy_id"],
+                       conf["chain"], conf["code3"],
+                       store.binin(conf["address_version"])))
 
         store.sql("""
             INSERT INTO pubkey (pubkey_id, pubkey_hash) VALUES (?, ?)""",
@@ -1136,7 +1102,7 @@ store._ddl['txout_approx'],
                 """CREATE VIEW abe_test_v1 AS SELECT test_id,
                  txout_value txout_approx_value, txout_value i1, i2
                  FROM abe_test_1""")
-            v1 = 12345678901234567890
+            v1 = 2099999999999999
             v2 = 1234567890
             store.sql("INSERT INTO abe_test_1 (test_id, txout_value, i2)"
                       " VALUES (?, ?, ?)",
