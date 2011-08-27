@@ -42,7 +42,7 @@ def verify_tx_merkle_hashes(store, logger, chain_id):
         if len(tree) != num_tx:
             logger.warning("block %d: block_num_tx=%d but found %d",
                            block_id, num_tx, len(tree))
-        root = merkle(tree, util.double_sha256) or DataStore.NULL_HASH
+        root = util.merkle(tree) or DataStore.NULL_HASH
         if root != merkle_root:
             logger.error("block %d: block_hashMerkleRoot mismatch.",
                          block_id)
@@ -53,19 +53,6 @@ def verify_tx_merkle_hashes(store, logger, chain_id):
     if checked % 1000 > 0:
         logger.info("%d Merkle trees, %d bad", checked, bad)
     return checked, bad
-
-# Based on CBlock::BuildMerkleTree().
-def merkle(hashes, hash_fn):
-    while True:
-        size = len(hashes)
-        if size <= 1:
-            break
-        out = []
-        for i in xrange(0, size, 2):
-            i2 = min(i + 1, size - 1)
-            out.append(hash_fn(hashes[i] + hashes[i2]))
-        hashes = out
-    return hashes and hashes[0]
 
 def main(argv):
     logging.basicConfig(level=logging.DEBUG)

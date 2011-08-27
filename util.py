@@ -33,6 +33,19 @@ def short_hex(bytes):
 def double_sha256(s):
     return SHA256.new(SHA256.new(s).digest()).digest()
 
+# Based on CBlock::BuildMerkleTree().
+def merkle(hashes):
+    while True:
+        size = len(hashes)
+        if size <= 1:
+            break
+        out = []
+        for i in xrange(0, size, 2):
+            i2 = min(i + 1, size - 1)
+            out.append(double_sha256(hashes[i] + hashes[i2]))
+        hashes = out
+    return hashes and hashes[0]
+
 def pubkey_to_hash(pubkey):
     return RIPEMD160.new(SHA256.new(pubkey).digest()).digest()
 

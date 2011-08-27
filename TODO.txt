@@ -46,8 +46,6 @@
 
 * Store and report block size, address type, raw objects, etc.
 
-* Consider verifying transaction Merkle roots on block import.
-
 * Report the Merkle branch of a particular transaction to support SPV.
 
 * Test as multithreaded or forking server.

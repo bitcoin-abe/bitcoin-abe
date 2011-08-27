@@ -61,6 +61,17 @@ SCRIPT_NETWORK_FEE = '\x6a'
 
 NO_CLOB = 'BUG_NO_CLOB'
 
+# XXX This belongs in another module.
+class InvalidBlock(Exception):
+    pass
+class MerkleRootMismatch(InvalidBlock):
+    def __init__(ex, block_hash, tx_hashes):
+        ex.block_hash = block_hash
+        ex.tx_hashes = tx_hashes
+    def __str__(ex):
+        return 'Block header Merkle root does not match its transactions. ' \
+            'block hash=%s' % (binascii.hexlify(ex.block_hash),)
+
 class DataStore(object):
 
     """
@@ -1262,14 +1273,20 @@ store._ddl['txout_approx'],
         # Import new transactions.
         b['value_in'] = 0
         b['value_out'] = 0
+        tx_hash_array = []
         for pos in xrange(len(b['transactions'])):
             tx = b['transactions'][pos]
             if 'hash' not in tx:
                 tx['hash'] = util.double_sha256(tx['tx'])
+            tx_hash_array.append(tx['hash'])
             tx['tx_id'] = (store.tx_find_id_and_value(tx) or
                            store.import_tx(tx, pos == 0))
             b['value_in'] += tx['value_in']
             b['value_out'] += tx['value_out']
+
+        # Verify Merkle root.
+        if b['hashMerkleRoot'] != util.merkle(tx_hash_array):
+            raise MerkleRootMismatch(b['hash'], tx_hash_array)
 
         # Look for the parent block.
         hashPrev = b['hashPrev']
