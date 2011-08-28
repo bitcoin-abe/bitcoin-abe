@@ -27,6 +27,7 @@ import time
 import binascii
 
 import DataStore
+import readconf
 
 # bitcointools -- modified deserialize.py to return raw transaction
 import deserialize
@@ -1748,25 +1749,17 @@ def process_is_alive(pid):
             return False # no such process.
         raise
 
-def parse_argv(argv):
+def main(argv):
     conf = {
-        "config":       None,
-        "datadir":      None,
-        "dbtype":       None,
-        "connect_args": None,
-        "binary_type":  None,
         "port":         None,
         "host":         None,
         "no_serve":     None,
-        "upgrade":      None,
         "debug":        None,
         "static_path":  None,
         "document_root":None,
         "auto_agpl":    None,
         "download_name":None,
         "watch_pid":    None,
-        "commit_bytes": None,
-        "log_sql":      None,
 
         "template":     DEFAULT_TEMPLATE,
         "template_vars": {
@@ -1780,92 +1773,41 @@ def parse_argv(argv):
             "DONATIONS_NMC": DONATIONS_NMC,
             },
         }
-    args = lambda var: conf[var]
-    args.func_dict = conf
+    conf.update(DataStore.CONFIG_DEFAULTS)
 
-    i = 0
-    while i < len(argv):
-        arg = argv[i]
-        i += 1
-
-        # Handle --help and --version.
-        if arg in ('-h', '--help'):
-            print ("""Usage: abe.py [-h] [--config=FILE] [--CONFIGVAR=VALUE]...
+    args, argv = readconf.parse_argv(argv, conf)
+    if not argv:
+        pass
+    elif argv[0] in ('-h', '--help'):
+        print ("""Usage: abe.py [-h] [--config=FILE] [--CONFIGVAR=VALUE]...
 
 A Bitcoin block chain browser.
 
-  -h, --help            Show this help message and exit.
+  --help                Show this help message and exit.
+  --version             Show the program version and exit.
   --config FILE         Read options from FILE.
 
 All configuration variables may be given as command arguments.
 See abe.conf for commented examples.""")
-            return None
-        if arg in ('-v', '--version'):
-            print ABE_APPNAME, ABE_VERSION
-            print "Schema version", DataStore.SCHEMA_VERSION
-            return None
-
-        # Strip leading "--" to form a config variable.
-        if arg[:2] != '--':
-            raise ValueError(
-                "Usage: abe.py [--CONFIGVAR=VALUE]...\n"
-                "See `abe.py --help' for more information.")
-
-        # --var=val and --var val are the same.  --var+=val is different.
-        split = arg[2:].split('=', 1)
-        add = False
-        if len(split) == 1:
-            var = split[0]
-            if i < len(argv) and argv[i][:2] != '--':
-                val = argv[i]
-                i += 1
-            else:
-                val = True
-        else:
-            var, val = split
-            if var[-1:] == '+':
-                var = var[:-1]
-                add = True
-
-        if val is not True and val[:1] in ('"', '[', '{'):
-            import json
-            val = json.loads(val)
-
-        var = var.replace('-', '_')
-        if var == 'config':
-            import readconf
-            readconf.include(val, conf)
-        elif var not in conf:
-            raise ValueError(
-                "Unknown option: `--" + var + "'")
-        elif add:
-            import readconf
-            readconf.add(conf, var, val)
-        else:
-            conf[var] = val
+        return 0
+    elif argv[0] in ('-v', '--version'):
+        print ABE_APPNAME, ABE_VERSION
+        print "Schema version", DataStore.SCHEMA_VERSION
+        return 0
+    else:
+        sys.stderr.write(
+            "Error: unknown option `%s'\n"
+            "See `abe.py --help' for more information.\n"
+            % (argv[0],))
+        return 1
 
     conf['serve'] = not conf['no_serve']
-
-    if args.datadir is None:
-        args.datadir = util.determine_db_dir()
-    if isinstance(args.datadir, str):
-        args.datadir = [args.datadir]
-
-    if args.dbtype is None:
-        raise TypeError("dbtype is required; please see abe.conf for examples")
 
     if args.auto_agpl:
         import tarfile
 
-    # XXX Should validate option types.
-    return args
-
-def main(argv):
-    args = parse_argv(argv)
-    if not args:
-        return 0
     store = make_store(args)
-    if (args.serve):
+    if (not args.no_serve):
         serve(store)
     return 0
 

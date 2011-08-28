@@ -14,10 +14,60 @@
 # along with this program.  If not, see
 # <http://www.gnu.org/licenses/gpl.html>.
 
-def include(filename, conf):
-    _include(set(), filename, conf)
+def parse_argv(argv, conf={}, config_name='config', strict=False):
+    arg_dict = conf.copy()
+    args = lambda var: arg_dict[var]
+    args.func_dict = arg_dict
 
-def _include(seen, filename, conf):
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+
+        if arg == '--':
+            i += 1
+            break
+        if arg[:2] != '--':
+            break
+
+        # Strip leading "--" to form a config variable.
+        # --var=val and --var val are the same.  --var+=val is different.
+        split = arg[2:].split('=', 1)
+        add = False
+        if len(split) == 1:
+            var = split[0]
+            if i + 1 < len(argv) and argv[i + 1][:2] != '--':
+                i += 1
+                val = argv[i]
+            else:
+                val = True
+        else:
+            var, val = split
+            if var[-1:] == '+':
+                var = var[:-1]
+                add = True
+
+        if val is not True and val[:1] in ('"', '[', '{'):
+            import json
+            val = json.loads(val)
+
+        var = var.replace('-', '_')
+        if var == config_name:
+            include(val, arg_dict, strict=strict)
+        elif var not in conf:
+            break
+        elif add:
+            add(arg_dict, var, val)
+        else:
+            arg_dict[var] = val
+        i += 1
+
+    return args, argv[i:]
+
+def include(filename, conf={}, config_name='config', strict=False):
+    _include(set(), filename, conf, config_name, strict)
+    return conf
+
+def _include(seen, filename, conf, config_name, strict):
     if filename in seen:
         raise Exception('Config file recursion')
 
@@ -25,11 +75,16 @@ def _include(seen, filename, conf):
         entries = read(fp)
     for var, val, additive in entries:
         var = var.replace('-', '_')
-        if var == 'config':
+        if var == config_name:
             import os
             _include(seen | set(filename),
-                     os.path.join(os.path.dirname(filename), val), conf)
-        elif additive and conf.get(var) is not None:
+                     os.path.join(os.path.dirname(filename), val), conf,
+                     config_name, strict)
+        elif var not in conf:
+            if strict:
+                raise ValueError(
+                    "Unknown parameter `%s' in %s" % (var, filename))
+        elif additive and conf[var] is not None:
             add(conf, var, val)
         else:
             conf[var] = val

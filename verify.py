@@ -21,7 +21,7 @@ import sys
 import DataStore
 import util
 import logging
-import abe  # for parse_argv
+import readconf
 
 def verify_tx_merkle_hashes(store, logger, chain_id):
     checked, bad = 0, 0
@@ -56,8 +56,10 @@ def verify_tx_merkle_hashes(store, logger, chain_id):
 
 def main(argv):
     logging.basicConfig(level=logging.DEBUG)
-    args = abe.parse_argv(argv)
-    if not args:
+    args, argv = readconf.parse_argv(argv, DataStore.CONFIG_DEFAULTS,
+                                     strict=False)
+    if argv and argv[0] in ('-h', '--help'):
+        print "Usage: verify.py --dbtype=MODULE --connect-args=ARGS"
         return 0
     store = DataStore.new(args)
     logger = logging.getLogger("verify")
@@ -69,6 +71,7 @@ def main(argv):
         checked += checked1
         bad += bad1
     logger.info("All chains: %d Merkle trees, %d bad", checked, bad)
+    return bad and 1
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv[1:]))

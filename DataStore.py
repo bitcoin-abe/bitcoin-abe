@@ -26,6 +26,16 @@ import warnings
 
 SCHEMA_VERSION = "Abe27"
 
+CONFIG_DEFAULTS = {
+    "dbtype":       None,
+    "connect_args": None,
+    "binary_type":  None,
+    "upgrade":      None,
+    "commit_bytes": None,
+    "log_sql":      None,
+    "datadir":      None,
+}
+
 WORK_BITS = 304  # XXX more than necessary.
 
 CHAIN_CONFIG = [
@@ -39,6 +49,12 @@ CHAIN_CONFIG = [
      "code3":"WDS", "address_version":"\xf3", "magic":"\xf8\xbf\xb5\xda"},
     {"chain":"BeerTokens",
      "code3":"BER", "address_version":"\xf2", "magic":"\xf7\xbf\xb5\xdb"},
+    {"chain":"SolidCoin",
+     "code3":"SCN", "address_version":"\x7d", "magic":"\xde\xad\xba\xbe"},
+    {"chain":"ScTestnet",
+     "code3":"SC0", "address_version":"\x6f", "magic":"\xca\xfe\xba\xbe"},
+    #{"chain":"",
+    # "code3":"", "address_version":"\x", "magic":""},
     ]
 
 NULL_HASH = "\0" * 32
@@ -93,6 +109,15 @@ class DataStore(object):
         args.datadir names Bitcoin data directories containing
         blk0001.dat to scan for new blocks.
         """
+        if args.dbtype is None:
+            raise TypeError(
+                "dbtype is required; please see abe.conf for examples")
+
+        if args.datadir is None:
+            args.datadir = util.determine_db_dir()
+        if isinstance(args.datadir, str):
+            args.datadir = [args.datadir]
+
         store.args = args
         store.log_sql = args.log_sql
         store.module = __import__(args.dbtype)
