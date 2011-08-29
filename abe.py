@@ -1188,13 +1188,15 @@ class Abe:
         Currently, this is limited to chain names and currency codes."""
         def process(row):
             (name, code3) = row
-            return { 'name': name + ' (' + code3 + ')', 'uri': 'chain/' + name }
-        return map(process, abe.store.selectall("""
+            return { 'name': name + ' (' + code3 + ')',
+                     'uri': 'chain/' + str(name) }
+        ret = map(process, abe.store.selectall("""
             SELECT chain_name, chain_code3
               FROM chain
              WHERE UPPER(chain_name) LIKE '%' || ? || '%'
                 OR UPPER(chain_code3) LIKE '%' || ? || '%'
         """, (q.upper(), q.upper())))
+        return ret
 
     def handle_t(abe, page):
         abe.show_search_results(

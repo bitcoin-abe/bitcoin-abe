@@ -328,8 +328,10 @@ def init_block_satoshi_seconds(store, ):
                    block_total_ss = ?,
                    block_ss_destroyed = ?
              WHERE block_id = ?""",
-                  (stats[block_id]['ss'], stats[block_id]['total_ss'],
-                   store.intin(destroyed), block_id))
+                  (store.intin(stats[block_id]['ss']),
+                   store.intin(stats[block_id]['total_ss']),
+                   store.intin(destroyed),
+                   block_id))
         count += 1
         if count % 1000 == 0:
             store.commit()
