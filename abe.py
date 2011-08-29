@@ -331,6 +331,7 @@ class Abe:
         page['title'] = chain['name']
 
         body = page['body']
+        body += abe.search_form(page)
 
         count = get_int_param(page, 'count') or 20
         hi = get_int_param(page, 'hi')
