@@ -229,16 +229,17 @@ class Abe:
             '</tr>\n']
         now = time.time()
 
-        for row in abe.store.selectall("""
+        rows = abe.store.selectall("""
             SELECT c.chain_name, b.block_height, b.block_nTime,
                    b.block_total_seconds, b.block_total_satoshis,
                    b.block_satoshi_seconds, b.block_hash,
                    b.block_total_ss, c.chain_id, c.chain_code3,
                    c.chain_address_version, c.chain_last_block_id
               FROM chain c
-              LEFT JOIN block b ON (c.chain_last_block_id = b.block_id)
+              JOIN block b ON (c.chain_last_block_id = b.block_id)
              ORDER BY c.chain_name
-        """):
+        """)
+        for row in rows:
             name = row[0]
             chain = abe._row_to_chain((row[8], name, row[9], row[10], row[11]))
             body += [
@@ -277,6 +278,8 @@ class Abe:
                     '<td>', percent_destroyed, '</td>']
             body += ['</tr>\n']
         body += ['</table>\n']
+        if len(rows) == 0:
+            body += ['<p>No block data found.</p>\n']
 
     def _chain_fields(abe):
         return ["id", "name", "code3", "address_version", "last_block_id"]
