@@ -1,5 +1,3 @@
-* Show auxiliary proof-of-work data.
-
 * Bitcoin 140176 failed to catch up: str(exception) == "1".  Should
   probably limit the kinds of exceptions that catch_up converts to
   warnings.
@@ -11,6 +9,8 @@
 * Start a test suite, especially for out-of-order blocks and reorgs.
 
 * Add search by date/time within chain.
+
+* Show auxiliary proof-of-work data.
 
 * Consider porting to libbitcoin.
 

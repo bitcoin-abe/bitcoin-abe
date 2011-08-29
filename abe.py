@@ -26,16 +26,19 @@ import wsgiref.util
 import time
 import binascii
 
-import DataStore
-import readconf
+from Abe import version
+from Abe import DataStore
+from Abe import readconf
 
 # bitcointools -- modified deserialize.py to return raw transaction
-import deserialize
-import util  # Added functions.
-import base58
+from Abe import deserialize
+from Abe import util  # Added functions.
+from Abe import base58
+
+__version__ = version.__version__
 
 ABE_APPNAME = "Abe"
-ABE_VERSION = '0.6pre'
+ABE_VERSION = __version__
 ABE_URL = 'https://github.com/jtobey/bitcoin-abe'
 
 COPYRIGHT_YEARS = '2011'
