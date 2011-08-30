@@ -27,7 +27,7 @@ Create file abe-pg.conf with contents:
 
 Run Abe as:
 
-    python abe.py --config abe-pg.conf
+    python -m Abe.abe --config abe-pg.conf
 
 Look for output such as:
 

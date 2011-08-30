@@ -41,14 +41,16 @@ available to users of the server.  You may do this by forking the
 Github project (if you received this code from Github.com), keeping
 your modifications in the new project, and linking to it in the page
 template.  Or you may wish to satisfy the requirement by simply
-passing "--auto-agpl" to "abe.py".  This option makes all files in the
-directory containing abe.py and its subdirectories available to
-clients.  See the comments in abe.conf for more information.
+passing "--auto-agpl" to "python -m Abe.abe".  This option makes all
+files in the directory containing abe.py and its subdirectories
+available to clients.  See the comments in abe.conf for more
+information.
 
 Database
 --------
 
-For usage, run "abe.py --help" and see the comments in abe.conf.
+For usage, run "python -m Abe.abe --help" and see the comments in
+abe.conf.
 
 You will have to specify a database driver and connection arguments
 (dbtype and connect-args in abe.conf).  The dbtype is the name of a

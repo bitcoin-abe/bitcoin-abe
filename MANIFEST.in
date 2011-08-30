@@ -1,3 +1,2 @@
 include abe.conf
 include README-*.txt
-recursive-include htdocs *

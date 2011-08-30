@@ -3,8 +3,8 @@ Abe setup for MySQL.
 Run the Bitcoin client to ensure that your copy of the block chain is
 up to date.
 
-Install Python 2.7 and its Crypto modules.  The Debian/Ubuntu packages
-are python2.7 and python-crypto.
+Install Python 2.7 and pycrypto.  The Debian/Ubuntu packages are
+python2.7 and python-crypto.
 
 Install MySQL 5.x server and MySQL-Python.  On Debian/Ubuntu:
 mysql-server-5.1 and python-mysqldb.
@@ -32,7 +32,7 @@ Create file abe-my.conf with the following contents, replacing
 
 Run Abe as:
 
-    python abe.py --config abe-my.conf
+    python -m Abe.abe --config abe-my.conf
 
 Look for output such as:
 

@@ -869,5 +869,5 @@ def upgrade_schema(store):
     print "Upgrade complete."
 
 if __name__ == '__main__':
-    print "Run ./abe.py with --upgrade added to the usual arguments."
+    print "Run Abe with --upgrade added to the usual arguments."
     sys.exit(2)

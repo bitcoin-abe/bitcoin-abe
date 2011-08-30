@@ -1,26 +1,47 @@
 Apache 2 FastCGI setup on Debian/Ubuntu
 =======================================
 
+This document describes how to install and run Abe as a FastCGI
+process under Apache 2 on a Debian GNU/Linux or Ubuntu system.
+Advantages of FastCGI over the built-in HTTP server include:
+
+    * lets browsers cache static content for better performance;
+    * can integrate with an existing website, no :2750 in URLs.
+
+These instructions assume root privileges.  To begin a privileged
+session in a terminal window, issue "sudo -i" (Ubuntu) or "su -"
+(Debian).
+
 Install required packages:
 
     apt-get install apache2 libapache2-mod-fcgid python-flup
     apt-get install python-crypto
+
+Change directory to the Abe distribution and install Abe:
+
+    cd bitcoin-abe
+    python setup.py install
 
 Replace YOUR.ABE.DOMAIN below with a domain that resolves to this
 host.  The site will be http://YOUR.ABE.DOMAIN/.  To embed Abe in an
 existing site (e.g., http://YOUR.DOMAIN/abe/) simply prepend a path
 (e.g., "/abe") in the Alias directives and place them in your existing
 sites-available file instead of a new VirtualHost.
-Replace ABE/DIRECTORY/htdocs with the directory containing abe.css;
-the Apache process must have permission to read it.
-Replace "/usr/lib/cgi-bin" with another directory if you prefer;
+
+Replace HTDOCS/DIRECTORY below with the directory containing abe.css;
+the Apache process must have permission to read it.  The following
+command displays the correct value:
+
+    python -m Abe.abe --print-htdocs-directory
+
+Optionally, replace "/usr/lib/cgi-bin" below with another directory;
 Apache must have the directory configured with Options +ExecCGI.
 
 Create file /etc/apache2/sites-available/abe with these contents:
 
     <VirtualHost *>
         ServerName YOUR.ABE.DOMAIN
-        Alias /static/ ABE/DIRECTORY/htdocs/
+        Alias /static/ HTDOCS/DIRECTORY
         Alias / /usr/lib/cgi-bin/abe.fcgi/
 
         # Raise this if you get server errors mentioning "mod_fcgid:
@@ -60,15 +81,17 @@ Put configuration such as database connection parameters in
 abe.conf in the Abe distribution for file format.  IMPORTANT: Make
 sure the configuration does NOT contain a "host" or "port" option.
 
-Replace ABE/DIRECTORY with the directory containing abe.py and create
-file /home/USER/cgi-bin/abe with these contents:
+Create file /home/USER/cgi-bin/abe with these contents:
 
     #! /bin/sh
-    PYTHONUNBUFFERED=1 exec ABE/DIRECTORY/abe.py \
+    PYTHONUNBUFFERED=1 exec python -m Abe.abe \
     --config /home/USER/abe.conf --static-path static/ --watch-pid="$1"
 
 Make the file executable:
 
     chmod +x /home/USER/cgi-bin/abe
 
-Abe should be reachable at http://YOUR.ABE.DOMAIN/.
+Abe should be reachable at http://YOUR.ABE.DOMAIN/.  Exit the
+privileged session:
+
+    exit

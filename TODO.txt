@@ -1,3 +1,5 @@
+* Defunct abe.fcgi processes not letting abe.py exit.
+
 * Bitcoin 140176 failed to catch up: str(exception) == "1".  Should
   probably limit the kinds of exceptions that catch_up converts to
   warnings.
@@ -82,7 +84,9 @@
 
 * Present Namecoin name operations as an optional add-on.
 
-* ixcoin, i0coin, StableCoin, ???
+* Extract info from MultiCoin config files.
+
+* Support new currencies.
 
 * Import transactions from the pool.
 

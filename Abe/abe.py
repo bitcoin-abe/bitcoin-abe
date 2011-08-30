@@ -26,14 +26,14 @@ import wsgiref.util
 import time
 import binascii
 
-from Abe import version
-from Abe import DataStore
-from Abe import readconf
+import version
+import DataStore
+import readconf
 
 # bitcointools -- modified deserialize.py to return raw transaction
-from Abe import deserialize
-from Abe import util  # Added functions.
-from Abe import base58
+import deserialize
+import util  # Added functions.
+import base58
 
 __version__ = version.__version__
 
@@ -130,8 +130,7 @@ class Abe:
     def __init__(abe, store, args):
         abe.store = store
         abe.args = args
-        abe.htdocs = os.path.join(os.path.split(__file__)[0],
-                                  args.document_root or 'htdocs')
+        abe.htdocs = args.document_root or find_htdocs()
         abe.static_path = '' if args.static_path is None else args.static_path
         abe.template_vars = args.template_vars.copy()
         abe.template_vars['STATIC_PATH'] = (
@@ -1565,6 +1564,9 @@ class Abe:
     def is_address_version(abe, v):
         return len(v) == 1
 
+def find_htdocs():
+    return os.path.join(os.path.split(__file__)[0], 'htdocs')
+
 def get_int_param(page, name):
     vals = page['params'].get(name)
     return vals and int(vals[0])
@@ -1722,12 +1724,11 @@ def serve(store):
         # FastCGI server.
         from flup.server.fcgi import WSGIServer
 
-        # In the case where the web server starts abe.py but can't
-        # signal it on server shutdown (because Abe runs as a
-        # different user) we arrange the following.  FastCGI script
-        # passes its pid as --watch-pid=PID and enters an infinite
-        # loop.  We check every minute whether it has terminated and
-        # exit when it has.
+        # In the case where the web server starts Abe but can't signal
+        # it on server shutdown (because Abe runs as a different user)
+        # we arrange the following.  FastCGI script passes its pid as
+        # --watch-pid=PID and enters an infinite loop.  We check every
+        # minute whether it has terminated and exit when it has.
         wpid = args.watch_pid
         if wpid is not None:
             wpid = int(wpid)
@@ -1788,13 +1789,14 @@ def main(argv):
     if not argv:
         pass
     elif argv[0] in ('-h', '--help'):
-        print ("""Usage: abe.py [-h] [--config=FILE] [--CONFIGVAR=VALUE]...
+        print ("""Usage: python -m Abe.abe [-h] [--config=FILE] [--CONFIGVAR=VALUE]...
 
 A Bitcoin block chain browser.
 
-  --help                Show this help message and exit.
-  --version             Show the program version and exit.
-  --config FILE         Read options from FILE.
+  --help                    Show this help message and exit.
+  --version                 Show the program version and exit.
+  --print-htdocs-directory  Show the static content directory name and exit.
+  --config FILE             Read options from FILE.
 
 All configuration variables may be given as command arguments.
 See abe.conf for commented examples.""")
@@ -1803,10 +1805,13 @@ See abe.conf for commented examples.""")
         print ABE_APPNAME, ABE_VERSION
         print "Schema version", DataStore.SCHEMA_VERSION
         return 0
+    elif argv[0] == '--print-htdocs-directory':
+        print find_htdocs()
+        return 0
     else:
         sys.stderr.write(
             "Error: unknown option `%s'\n"
-            "See `abe.py --help' for more information.\n"
+            "See `python -m Abe.abe --help' for more information.\n"
             % (argv[0],))
         return 1
 

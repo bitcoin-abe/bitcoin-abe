@@ -5,8 +5,9 @@ execfile("Abe/version.py")
 setup(
     name         = "Abe",
     version      = __version__,
+    requires     = ['Crypto.Hash'],
     packages     = ["Abe"],
-    py_modules   = ["abe"],
+    package_data = {'Abe': ['htdocs/*']},
     author       = "John Tobey",
     author_email = "John.Tobey@gmail.com",
     url          = "https://github.com/jtobey/bitcoin-abe",
