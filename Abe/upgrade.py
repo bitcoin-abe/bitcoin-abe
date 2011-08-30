@@ -297,12 +297,15 @@ def init_block_satoshi_seconds(store, ):
                b.prev_block_id, SUM(bt.satoshi_seconds_destroyed),
                b.block_height
           FROM block b
-          JOIN block_tx bt USING (block_id)
+          JOIN block_tx bt ON (b.block_id = bt.block_id)
          GROUP BY b.block_id, b.block_total_satoshis, b.block_nTime,
                b.prev_block_id, b.block_height
          ORDER BY b.block_height"""))
     count = 0
-    for row in cur:
+    while True:
+        row = cur.fetchone()
+        if row is None:
+            break
         block_id, satoshis, nTime, prev_id, destroyed, height = row
         satoshis = int(satoshis)
         destroyed = int(destroyed)
