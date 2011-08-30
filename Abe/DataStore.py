@@ -196,9 +196,8 @@ class DataStore(object):
             store.cursor.execute("""
                 SELECT configvar_name, configvar_value
                   FROM configvar""")
-            for row in store.cursor.fetchall():
-                name, value = row
-                config[name] = value
+            for name, value in store.cursor.fetchall():
+                config[name] = '' if value is None else value
             if config:
                 return config
 
