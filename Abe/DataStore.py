@@ -1228,7 +1228,6 @@ store._ddl['txout_approx'],
             rows = store.selectall(
                 """SELECT abe_test_1_id FROM abe_test_1 ORDER BY abe_test_1_id
                     LIMIT 3""")
-            print "got here %s" % (store.config['limit_style'],), rows
             return [int(row[0]) for row in rows] == [2, 4, 6]
         except store.module.DatabaseError, e:
             store.rollback()
