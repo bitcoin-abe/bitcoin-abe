@@ -1,3 +1,32 @@
+New in 0.6 - 2011-08-31
+=======================
+
+* Python packaging; abe.py moved; run as "python -m Abe.abe".
+
+* Big speed improvements (c. 10x) for MySQL and SQLite.
+
+* ODBC tested successfully.
+
+* IBM DB2 tested successfully.
+
+* HTTP API functions: getreceivedbyaddress getsentbyaddress.
+
+* Verify transaction Merkle roots on block import.
+
+* Show Namecoin-style network fees and name transaction outputs.
+
+* Adjust coins outstanding and coin-days destroyed for Namecoin-style
+  network fees.
+
+* Native SolidCoin support.
+
+* Suppress display of empty chains on home page.
+
+* Show the search form on /chain/CHAIN pages.
+
+* Many minor improvements; see the Git log.
+
+
 New in 0.5 - 2011-08-16
 =======================
 
