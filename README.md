@@ -16,13 +16,19 @@ Abe draws inspiration from Bitcoin Block Explorer (BBE) and seeks some
 level of compatibility with it but uses a completely new
 implementation.
 
-Dependencies
+Installation
 ------------
 
-Abe depends on Python 2.7 (or 2.6), the Python Crypto modules, and an
-SQL database supporting ROLLBACK.  Abe runs on PostgreSQL, MySQL's
-InnoDB engine, SQLite, some ODBC configurations, Oracle, and IBM DB2.
-Other SQL databases may work with minor changes.  See the comments in
+Issue:
+
+    python setup.py install
+
+or simply run Abe from the directory containing setup.py.
+
+Abe depends on Python 2.7 (or 2.6), the pycrypto package, and an SQL
+database supporting ROLLBACK.  Abe runs on PostgreSQL, MySQL's InnoDB
+engine, SQLite, some ODBC configurations, Oracle, and IBM DB2.  Other
+SQL databases may work with minor changes.  See the comments in
 abe.conf about dbtype for configuration examples.
 
 You will need a copy of the block file (blk0001.dat in your Bitcoin
