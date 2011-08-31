@@ -24,7 +24,7 @@ import deserialize
 import util
 import warnings
 
-SCHEMA_VERSION = "Abe27"
+SCHEMA_VERSION = "Abe28"
 
 CONFIG_DEFAULTS = {
     "dbtype":       None,
@@ -230,6 +230,7 @@ class DataStore(object):
         def identity(x):
             return x
         transform = identity
+        selectall = store._selectall
 
         if store.module.paramstyle in ('format', 'pyformat'):
             transform = store._qmark_to_format(transform)
@@ -255,9 +256,9 @@ class DataStore(object):
         def from_hex_rev(x):
             return None if x is None else binascii.unhexlify(x)[::-1]
 
-        btype = store.config.get('binary_type')
+        val = store.config.get('binary_type')
 
-        if btype in (None, 'str'):
+        if val in (None, 'str'):
             binin       = identity
             binin_hex   = from_hex
             binout      = identity
@@ -267,8 +268,8 @@ class DataStore(object):
             hashout     = rev
             hashout_hex = to_hex
 
-        elif btype in ("buffer", "bytearray"):
-            if btype == "buffer":
+        elif val in ("buffer", "bytearray"):
+            if val == "buffer":
                 def to_btype(x):
                     return None if x is None else buffer(x)
             else:
@@ -284,7 +285,7 @@ class DataStore(object):
             hashout     = rev
             hashout_hex = to_hex
 
-        elif btype == "hex":
+        elif val == "hex":
             transform = store._sql_binary_as_hex(transform)
             binin       = to_hex
             binin_hex   = identity
@@ -296,31 +297,31 @@ class DataStore(object):
             hashout_hex = identity
 
         else:
-            raise Exception("Unsupported binary-type %s" % btype)
+            raise Exception("Unsupported binary-type %s" % (val,))
 
-        itype = store.config.get('int_type')
+        val = store.config.get('int_type')
 
-        if itype in (None, 'int'):
+        if val in (None, 'int'):
             intin = identity
 
-        elif itype == 'decimal':
+        elif val == 'decimal':
             import decimal
             intin = decimal.Decimal
 
-        elif itype == 'str':
+        elif val == 'str':
             intin = str
             # Work around sqlite3's integer overflow.
             transform = store._approximate_txout(transform)
 
         else:
-            raise Exception("Unsupported int-type %s" % itype)
+            raise Exception("Unsupported int-type %s" % (val,))
 
-        stype = store.config.get('sequence_type')
-        if stype in (None, 'update'):
+        val = store.config.get('sequence_type')
+        if val in (None, 'update'):
             new_id = lambda key: store._new_id_update(key)
 
         else:
-            raise Exception("Unsupported sequence-type %s" % stype)
+            raise Exception("Unsupported sequence-type %s" % (val,))
 
         # Convert Oracle LOB to str.
         if hasattr(store.module, "LOB") and isinstance(store.module.LOB, type):
@@ -331,7 +332,14 @@ class DataStore(object):
             binout = fix_lob(binout)
             binout_hex = fix_lob(binout_hex)
 
+        val = store.config.get('limit_style')
+        if val in (None, 'native'):
+            pass
+        elif val == 'emulated':
+            selectall = store.emulate_limit(selectall)
+
         store.sql_transform = transform
+        store.selectall = selectall
         store._sql_cache = {}
 
         store.binin       = binin
@@ -431,6 +439,21 @@ class DataStore(object):
                     stmt))
         return ret
 
+    def emulate_limit(store, selectall):
+        limit_re = re.compile(r"(.*)\bLIMIT\s+(\?|\d+)\s*\Z", re.DOTALL)
+        def ret(stmt, params=()):
+            match = limit_re.match(stmt)
+            if match:
+                if match.group(2) == '?':
+                    n = params[-1]
+                    params = params[:-1]
+                else:
+                    n = int(match.group(2))
+                store.sql(match.group(1), params)
+                return [ store.cursor.fetchone() for i in xrange(n) ]
+            return selectall(stmt, params)
+        return ret
+
     def selectrow(store, stmt, params=()):
         store.sql(stmt, params)
         ret = store.cursor.fetchone()
@@ -438,7 +461,7 @@ class DataStore(object):
             print "SQL FETCH:", ret
         return ret
 
-    def selectall(store, stmt, params=()):
+    def _selectall(store, stmt, params=()):
         store.sql(stmt, params)
         ret = store.cursor.fetchall()
         if store.log_sql:
@@ -879,7 +902,7 @@ store._ddl['txout_approx'],
 
         store.sql("INSERT INTO abe_lock (lock_id) VALUES (1)")
 
-        # Some public data.
+        # Insert some well-known chain metadata.
         for conf in CHAIN_CONFIG:
             for thing in "magic", "policy", "chain":
                 if thing + "_id" not in conf:
@@ -921,42 +944,44 @@ store._ddl['txout_approx'],
         store.configure_create_table_epilogue()
         store.configure_max_varchar()
         store.configure_clob_type()
+        store.configure_binary_type()
+        store.configure_int_type()
+        store.configure_sequence_type()
+        store.configure_limit_style()
 
+    def configure_binary_type(store):
         for val in (
-            ['str', 'bytearray', 'buffer', 'hex', '']
+            ['str', 'bytearray', 'buffer', 'hex']
             if store.args.binary_type is None else
-            [ store.args.binary_type, '' ]):
+            [ store.args.binary_type ]):
 
-            if val == '':
-                raise Exception(
-                    "No known binary data representation works"
-                    if store.args.binary_type is None else
-                    "Binary type " + store.args.binary_type + " fails test")
             store.config['binary_type'] = val
             store._set_sql_flavour()
             if store._test_binary_type():
                 print "binary_type=%s" % (val,)
-                break
+                return
+        raise Exception(
+            "No known binary data representation works"
+            if store.args.binary_type is None else
+            "Binary type " + store.args.binary_type + " fails test")
 
-        for val in ['int', 'decimal', 'str', '']:
-            if val == '':
-                raise Exception(
-                    "No known large integer representation works")
+    def configure_int_type(store):
+        for val in ['int', 'decimal', 'str']:
             store.config['int_type'] = val
             store._set_sql_flavour()
             if store._test_int_type():
                 print "int_type=%s" % (val,)
-                break
+                return
+        raise Exception("No known large integer representation works")
 
-        for val in ['update', '']:
-            if val == '':
-                raise Exception(
-                    "No known sequence type works")
+    def configure_sequence_type(store):
+        for val in ['update']:
             store.config['sequence_type'] = val
             store._set_sql_flavour()
             if store._test_sequence_type():
                 print "sequence_type=%s" % (val,)
-                break
+                return
+        raise Exception("No known sequence type works")
 
     def _drop_if_exists(store, otype, name):
         try:
@@ -1085,7 +1110,6 @@ store._ddl['txout_approx'],
                 else:
                     print "out=" + repr(out)
             except store.module.DatabaseError, e:
-                print "configure_clob_type: %s:" % (val,), e
                 store.rollback()
             except Exception, e:
                 print "configure_clob_type: %s:" % (val,), e
@@ -1174,11 +1198,43 @@ store._ddl['txout_approx'],
                 return True
             return False
         except store.module.DatabaseError, e:
-            print "_test_sequence_type:", store.config['sequence_type'] + ":", e
             store.rollback()
             return False
         except Exception, e:
             print "_test_sequence_type:", store.config['sequence_type'] + ":", e
+            store.rollback()
+            return False
+        finally:
+            store._drop_table_if_exists("abe_test_1")
+
+    def configure_limit_style(store):
+        for val in ['native', 'emulated']:
+            store.config['limit_style'] = val
+            store._set_sql_flavour()
+            if store._test_limit_style():
+                print "limit_style=%s" % (val,)
+                return
+        raise Exception("Can not emulate LIMIT.")
+
+    def _test_limit_style(store):
+        store._drop_table_if_exists("abe_test_1")
+        try:
+            store.ddl(
+                """CREATE TABLE abe_test_1 (
+                    abe_test_1_id NUMERIC(12) NOT NULL PRIMARY KEY)""")
+            for id in (2, 4, 6, 8):
+                store.sql("INSERT INTO abe_test_1 (abe_test_1_id) VALUES (?)",
+                          (id,))
+            rows = store.selectall(
+                """SELECT abe_test_1_id FROM abe_test_1 ORDER BY abe_test_1_id
+                    LIMIT 3""")
+            print "got here %s" % (store.config['limit_style'],), rows
+            return [int(row[0]) for row in rows] == [2, 4, 6]
+        except store.module.DatabaseError, e:
+            store.rollback()
+            return False
+        except Exception, e:
+            print "_test_limit_style:", store.config['limit_style'] + ":", e
             store.rollback()
             return False
         finally:

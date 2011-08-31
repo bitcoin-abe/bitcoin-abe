@@ -736,6 +736,12 @@ def insert_null_pubkey(store):
 
 def set_netfee_pubkey_id(store):
     print "Updating network fee output address to 'Destroyed'..."
+    # XXX This doesn't work for Oracle because of LOB weirdness.
+    # There, you could probably get away with:
+    # UPDATE txout SET pubkey_id = 0 WHERE txout_scriptPubKey BETWEEN 1 AND 2;
+    # UPDATE configvar SET configvar_value = 'Abe26' WHERE configvar_name =
+    #     'schema_version' AND configvar_value = 'Abe25.3';
+    # COMMIT;
     store.sql("""
         UPDATE txout
            SET pubkey_id = ?
@@ -790,6 +796,10 @@ def adjust_block_total_satoshis(store):
             print "Adjusted %d of %d blocks." % (count, len(block_ids))
     if count % 1000 != 0:
         print "Adjusted %d of %d blocks." % (count, len(block_ids))
+
+def config_limit_style(store):
+    store.configure_limit_style()
+    store.save_configvar("limit_style")
 
 upgrades = [
     ('6',    add_block_value_in),
@@ -859,7 +869,8 @@ upgrades = [
     ('Abe25.3', set_netfee_pubkey_id),   # Seconds
     ('Abe26',   adjust_block_total_satoshis), # 1-3 minutes
     ('Abe26.1', init_block_satoshi_seconds), # 3-10 minutes
-    ('Abe27',   None),
+    ('Abe27',   config_limit_style),
+    ('Abe28',   None),
 ]
 
 def upgrade_schema(store):
