@@ -47,8 +47,7 @@ def parse_argv(argv, conf={}, config_name='config', strict=False):
                 add = True
 
         if val is not True and val[:1] in ('"', '[', '{'):
-            import json
-            val = json.loads(val)
+            val = parse_json(val, var)
 
         var = var.replace('-', '_')
         if var == config_name:
@@ -149,8 +148,7 @@ def read(fp):
 
         if c in ('"', '[', '{'):
             js, c = scan_json(fp, c)
-            import json
-            store(name, json.loads(js), additive)
+            store(name, parse_json(js, name), additive)
             continue
 
         # Unquoted, one-line string.
@@ -243,3 +241,10 @@ def scan_json(fp, c):
     if cs == '':
         raise SyntaxError('Invalid initial JSON character: ' + c)
     return cs, c
+
+def parse_json(js, context):
+    try:
+        import json
+        return json.loads(js)
+    except Exception, e:
+        raise SyntaxError('Invalid JSON for %s: %s' % (context, e))
