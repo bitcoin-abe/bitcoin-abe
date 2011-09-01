@@ -8,7 +8,7 @@
 
 * Consider retesting SQL flavour every time on startup.
 
-* Start a test suite, especially for out-of-order blocks and reorgs.
+* Write a test suite.  Include reorgs and upgrades.
 
 * Add search by date/time within chain.
 
