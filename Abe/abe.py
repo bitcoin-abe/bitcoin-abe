@@ -103,6 +103,7 @@ Statistical values are approximate and differ slightly from http://blockexplorer
 
 /chain/CHAIN/q/nethash[/INTERVAL[/START[/STOP]]]
 Default INTERVAL=144, START=0, STOP=infinity.
+Negative values back from the last block.
 
 blockNumber,time,target,avgTargetSinceLast,difficulty,hashesToWin,avgIntervalSinceLast,netHashPerSecond
 START DATA
@@ -1247,11 +1248,7 @@ class Abe:
             page['body'] += ['</li>\n']
         page['body'] += ['</ul>\n']
 
-    def q_getblockcount(abe, page, chain):
-        """shows the current block number."""
-        if chain is None:
-            return 'Shows the greatest block height in CHAIN.\n' \
-                '/chain/CHAIN/q/getblockcount\n'
+    def get_max_block_height(abe, chain):
         # "getblockcount" traditionally returns max(block_height),
         # which is one less than the actual block count.
         (height,) = abe.store.selectrow("""
@@ -1259,7 +1256,14 @@ class Abe:
               FROM chain_candidate
              WHERE chain_id = ?
                AND in_longest = 1""", (chain['id'],))
-        return -1 if height is None else height
+        return -1 if height is None else int(height)
+
+    def q_getblockcount(abe, page, chain):
+        """shows the current block number."""
+        if chain is None:
+            return 'Shows the greatest block height in CHAIN.\n' \
+                '/chain/CHAIN/q/getblockcount\n'
+        return abe.get_max_block_height(chain)
 
     def q_translate_address(abe, page, chain):
         """shows the address in a given chain with a given address's hash."""
@@ -1370,10 +1374,27 @@ class Abe:
         """shows statistics about difficulty and network power."""
         if chain is None:
             return 'Shows statistics every INTERVAL blocks.\n' \
+                'Negative values count back from the last block.\n' \
                 '/chain/CHAIN/q/nethash[/INTERVAL[/START[/STOP]]]\n'
-        interval = path_info_uint(page, 144) or 144
-        start = path_info_uint(page, 0)
-        stop = path_info_uint(page, None)
+        interval = path_info_int(page, 144)
+        start = path_info_int(page, 0)
+        stop = path_info_int(page, None)
+
+        if stop == 0:
+            stop = None
+
+        if interval < 0 and start != 0:
+            return 'ERROR: Negative INTERVAL requires 0 START.'
+
+        if interval < 0 or start < 0 or (stop is not None and stop < 0):
+            count = abe.get_max_block_height(chain)
+            if start < 0:
+                start += count
+            if stop is not None and stop < 0:
+                stop += count
+            if interval < 0:
+                interval = -interval
+                start = count - (count / interval) * interval
 
         # Select every INTERVAL blocks from START to STOP.
         # Standard SQL lacks an "every Nth row" feature, so we
@@ -1572,16 +1593,19 @@ def get_int_param(page, name):
     return vals and int(vals[0])
 
 def path_info_uint(page, default):
+    ret = path_info_int(page, None)
+    if ret is None or ret < 0:
+        return default
+    return ret
+
+def path_info_int(page, default):
     s = wsgiref.util.shift_path_info(page['env'])
     if s is None:
         return default
     try:
-        ret = int(s)
-    except:
+        return int(s)
+    except ValueError:
         return default
-    if ret < 0:
-        return default
-    return ret
 
 def format_time(nTime):
     import time
