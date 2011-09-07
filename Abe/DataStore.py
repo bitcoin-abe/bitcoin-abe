@@ -1964,7 +1964,7 @@ store._ddl['txout_approx'],
 
             length = ds.read_int32()
             if ds.read_cursor + length > len(ds.input):
-                print "incomplete block of length", length
+                print "incomplete block of length", length, "chain", chain_id
                 ds.read_cursor = offset
                 break
 
