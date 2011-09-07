@@ -1509,6 +1509,8 @@ store._ddl['txout_approx'],
 
     # Propagate cumulative values to descendant blocks.  Return info
     # about the longest chain rooted at b.
+    # XXX "longest chain" is relative to chain_id, need to consult
+    # chain_candidate.
     def adopt_orphans(store, b, orphan_work):
         block_id = b['block_id']
         next_blocks = store.find_next_blocks(block_id)
@@ -1762,6 +1764,10 @@ store._ddl['txout_approx'],
             store._add_block_chain(b['block_id'], chain_id)
 
         if in_longest > 0:
+            # XXX problems when (chain_id, b['top']['block_id']) is not
+            # in chain_candidate, i.e., b['top'] is not in this chain.
+            # adopt_orphans needs to return a dict mapping chain to
+            # block as b['top'], not just one block.
             store.sql("""
                 UPDATE chain
                    SET chain_last_block_id = ?

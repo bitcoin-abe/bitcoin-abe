@@ -1,3 +1,5 @@
+* Bug: reorg may assign a block not in chain as chain_last_block_id.
+
 * Defunct abe.fcgi processes not letting abe.py exit.
 
 * Bitcoin 140176 failed to catch up: str(exception) == "1".  Should
