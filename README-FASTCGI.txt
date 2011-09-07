@@ -42,6 +42,8 @@ Create file /etc/apache2/sites-available/abe with these contents:
     <VirtualHost *>
         ServerName YOUR.ABE.DOMAIN
         Alias /static/ HTDOCS/DIRECTORY
+        Alias /robots.txt HTDOCS/DIRECTORY/robots.txt
+        Alias /favicon.ico HTDOCS/DIRECTORY/favicon.ico
         Alias / /usr/lib/cgi-bin/abe.fcgi/
 
         # Raise this if you get server errors mentioning "mod_fcgid:
