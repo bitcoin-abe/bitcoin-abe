@@ -857,7 +857,8 @@ class Abe:
             'Fee: ', format_satoshis(0 if is_coinbase else
                                      (value_in and value_out and
                                       value_in - value_out), chain),
-            '<br />\n']
+            '<br />\n',
+            '<a href="../rawtx/', tx_hash, '">Raw transaction</a><br />\n']
         body += ['</p>\n',
                  '<a name="inputs"><h3>Inputs</h3></a>\n<table>\n',
                  '<tr><th>Index</th><th>Previous output</th><th>Amount</th>',
@@ -873,6 +874,21 @@ class Abe:
             row_to_html(row, 'o', 'i', 'Not yet redeemed')
 
         body += ['</table>\n']
+
+    def handle_rawtx(abe, page):
+        abe.do_raw(page, abe.do_rawtx(page))
+
+    def do_rawtx(abe, page):
+        tx_hash = wsgiref.util.shift_path_info(page['env'])
+        if tx_hash in (None, '') or page['env']['PATH_INFO'] != '' \
+                or not HASH_PREFIX_RE.match(tx_hash):
+            return 'ERROR: Not in correct format'  # BBE compatible
+
+        tx = abe.store.export_tx(tx_hash=tx_hash)
+        if tx is None:
+            return 'ERROR: Transaction does not exist.'  # BBE compatible
+        import json
+        return json.dumps(tx, sort_keys=True, indent=2)
 
     def handle_address(abe, page):
         address = wsgiref.util.shift_path_info(page['env'])
@@ -1222,6 +1238,11 @@ class Abe:
             abe.search_address_prefix(
                 wsgiref.util.shift_path_info(page['env'])))
 
+    def do_raw(abe, page, body):
+        page['content_type'] = 'text/plain'
+        page['template'] = '%(body)s'
+        page['body'] = body
+
     def handle_q(abe, page, chain=None):
         cmd = wsgiref.util.shift_path_info(page['env'])
         if cmd is None:
@@ -1231,9 +1252,7 @@ class Abe:
         if func is None:
             raise PageNotFound()
 
-        page['content_type'] = 'text/plain'
-        page['template'] = '%(body)s'
-        page['body'] = func(page, chain)
+        abe.do_raw(page, func(page, chain))
 
     def q(abe, page):
         page['body'] = ['<p>Supported APIs:</p>\n<ul>\n']
@@ -1581,7 +1600,7 @@ class Abe:
         except IOError:
             raise PageNotFound()
 
-    # Change this if you want multi-byte address versions.
+    # Change this if you want empty or multi-byte address versions.
     def is_address_version(abe, v):
         return len(v) == 1
 

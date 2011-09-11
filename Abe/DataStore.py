@@ -1698,6 +1698,78 @@ store._ddl['txout_approx'],
         # requires them.
         return tx_id
 
+    def export_tx(store, tx_id=None, tx_hash=None, decimals=8):
+        """Return a dict as seen by /rawtx or None if not found."""
+
+        tx = {}
+
+        if tx_id is not None:
+            row = store.selectrow("""
+                SELECT tx_hash, tx_version, tx_lockTime, tx_size
+                  FROM tx
+                 WHERE tx_id = ?
+            """, (tx_id,))
+            if row is None:
+                return None
+            tx['hash'] = store.hashout_hex(row[0])
+
+        elif tx_hash is not None:
+            row = store.selectrow("""
+                SELECT tx_id, tx_version, tx_lockTime, tx_size
+                  FROM tx
+                 WHERE tx_hash = ?
+            """, (store.hashin_hex(tx_hash),))
+            if row is None:
+                return None
+            tx['hash'] = tx_hash
+            tx_id = row[0]
+
+        else:
+            raise ValueError("export_tx requires either tx_id or tx_hash.")
+
+        tx['ver']       = int(row[1])
+        tx['lock_time'] = int(row[2])
+        tx['size']      = int(row[3])
+
+        tx['in'] = []
+        for prevout_hash, prevout_n, scriptSig, sequence in store.selectall("""
+            SELECT
+                COALESCE(tx.tx_hash, uti.txout_tx_hash),
+                COALESCE(txout.txout_pos, uti.txout_pos),
+                txin_scriptSig,
+                txin_sequence
+            FROM txin
+            LEFT JOIN txout ON (txin.txout_id = txout.txout_id)
+            LEFT JOIN tx ON (txout.tx_id = tx.tx_id)
+            LEFT JOIN unlinked_txin uti ON (txin.txin_id = uti.txin_id)
+            WHERE txin.tx_id = ?
+            ORDER BY txin.txin_pos""", (tx_id,)):
+            tx['in'].append({
+                    'prev_out': {
+                        'hash': store.hashout_hex(prevout_hash),
+                        'n': int(prevout_n)},
+                    'raw_scriptSig': store.binout_hex(scriptSig),
+                    'sequence': int(sequence)})
+        tx['vin_sz'] = len(tx['in'])
+
+        tx['out'] = []
+        for satoshis, scriptPubKey in store.selectall("""
+            SELECT txout_value, txout_scriptPubKey
+              FROM txout
+             WHERE tx_id = ?
+            ORDER BY txout_pos""", (tx_id,)):
+
+            coin = 10 ** decimals
+            satoshis = int(satoshis)
+            integer = satoshis / coin
+            frac = satoshis % coin
+            tx['out'].append({
+                    'value': ("%%d.%%0%dd" % (decimals,)) % (integer, frac),
+                    'raw_scriptPubKey': store.binout_hex(scriptPubKey)})
+        tx['vout_sz'] = len(tx['out'])
+
+        return tx
+
     # Called to indicate that the given block has the correct magic
     # number and policy for the given chain.  Updates CHAIN_CANDIDATE
     # and CHAIN.CHAIN_LAST_BLOCK_ID as appropriate.
