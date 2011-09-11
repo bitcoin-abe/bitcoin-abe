@@ -22,6 +22,9 @@
 
 * Speed up initial load by disabling unneeded constraints temporarily.
 
+* Consider showing amount of time ago along with or instead of
+  absolute times.
+
 * Perhaps rewrite adopt_orphans iteratively to avoid Python's
   recursion limit.
 
