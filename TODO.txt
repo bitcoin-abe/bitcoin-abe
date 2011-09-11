@@ -30,6 +30,12 @@
 
 * Separate HTML from data access.
 
+* Consider denormalization for performance: prevout_hash in txin,
+  pubkey_hash in txout, etc.
+
+* Support PostgreSQL BYTEA and similar binary types for improved space
+  use and memory footprint.
+
 * Factor the coin-days destroyed feature as an optional add-on.
 
 * Use SEQUENCEs where available for synthetic identifiers.
@@ -77,8 +83,6 @@
 
 * Perhaps create an "SQL script" DataStore subclass that outputs flat
   SQL INSERTs.
-
-* Perhaps provide a postgresql-bytea binary type.
 
 * Perhaps compress scriptPubKey by representing as a pubkey_id and
   address type.
