@@ -2142,5 +2142,13 @@ store._ddl['txout_approx'],
                 dircfg['blkfile_number'] = number
                 dircfg['blkfile_offset'] = offset
 
+    def get_block_number(store, chain_id):
+        (height,) = store.selectrow("""
+            SELECT MAX(block_height)
+              FROM chain_candidate
+             WHERE chain_id = ?
+               AND in_longest = 1""", (chain_id,))
+        return -1 if height is None else int(height)
+
 def new(args):
     return DataStore(args)

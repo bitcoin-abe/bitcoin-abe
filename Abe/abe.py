@@ -1270,12 +1270,7 @@ class Abe:
     def get_max_block_height(abe, chain):
         # "getblockcount" traditionally returns max(block_height),
         # which is one less than the actual block count.
-        (height,) = abe.store.selectrow("""
-            SELECT MAX(block_height)
-              FROM chain_candidate
-             WHERE chain_id = ?
-               AND in_longest = 1""", (chain['id'],))
-        return -1 if height is None else int(height)
+        return abe.store.get_block_number(chain['id'])
 
     def q_getblockcount(abe, page, chain):
         """shows the current block number."""
