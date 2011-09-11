@@ -56,7 +56,8 @@
 
 * Highlight any objects that are not in the main chain as such.
 
-* Store and report block size, address type, raw objects, etc.
+* Report block size, raw blocks, average transactions per block, fees
+  per block, ...
 
 * Report the Merkle branch of a particular transaction to support SPV.
 
