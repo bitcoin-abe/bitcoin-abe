@@ -3,6 +3,9 @@
 * Avoid duplicate in/out points on block pages by using DISTINCT or
   equivalent.
 
+* Consider fixing: /block/HASH returns "Block not found" for block not
+  in any chain.
+
 * Defunct abe.fcgi processes not letting abe.py exit.
 
 * Bitcoin 140176 failed to catch up: str(exception) == "1".  Should
