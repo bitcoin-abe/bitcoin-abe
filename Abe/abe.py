@@ -66,9 +66,7 @@ DEFAULT_TEMPLATE = """
     <p><a href="%(dotdot)sq">API</a> (machine-readable pages)</p>
     <p style="font-size: smaller">
         <span style="font-style: italic">
-            <a href="%(ABE_URL)s">%(APPNAME)s</a>
-            %(VERSION)s &#169; %(COPYRIGHT_YEARS)s
-            <a href="%(COPYRIGHT_URL)s">%(COPYRIGHT)s</a>
+            Powered by <a href="%(ABE_URL)s">%(APPNAME)s</a>
         </span>
         %(download)s
         Tips appreciated!
