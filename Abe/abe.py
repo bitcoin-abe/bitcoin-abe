@@ -48,10 +48,13 @@ COPYRIGHT_URL = "mailto:John.Tobey@gmail.com"
 DONATIONS_BTC = '1PWC7PNHL1SgvZaN7xEtygenKjWobWsCuf'
 DONATIONS_NMC = 'NJ3MSELK1cWnqUa6xhF2wUYAnz3RSrWXcK'
 
+# Abe-generated content should all be valid HTML and XHTML fragments.
+# Configurable templates may contain either.  HTML seems better supported
+# under Internet Explorer.
+DEFAULT_CONTENT_TYPE = "text/html"
 DEFAULT_TEMPLATE = """
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
-  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<!DOCTYPE html>
+<html lang="en">
 <head>
     <link rel="stylesheet" type="text/css"
      href="%(dotdot)s%(STATIC_PATH)sabe.css" />
@@ -155,7 +158,7 @@ class Abe:
             "params": {},
             "dotdot": "../" * (env['PATH_INFO'].count('/') - 1),
             "start_response": start_response,
-            "content_type": 'application/xhtml+xml',
+            "content_type": str(abe.template_vars['CONTENT_TYPE']),
             "template": abe.template,
             }
         if 'QUERY_STRING' in env:
@@ -1817,6 +1820,7 @@ def main(argv):
             "COPYRIGHT_URL": COPYRIGHT_URL,
             "DONATIONS_BTC": DONATIONS_BTC,
             "DONATIONS_NMC": DONATIONS_NMC,
+            "CONTENT_TYPE": DEFAULT_CONTENT_TYPE,
             },
         }
     conf.update(DataStore.CONFIG_DEFAULTS)
