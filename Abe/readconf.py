@@ -185,6 +185,15 @@ def _scan_json_string(fp):
         c = fp.read(1)
         if c == '':
             raise SyntaxError('End of file in JSON string')
+
+        # Accept raw control characters for readability.
+        if c == '\n':
+            c = '\\n'
+        if c == '\r':
+            c = '\\r'
+        if c == '\t':
+            c = '\\t'
+
         ret += c
         if c == '"':
             return ret, fp.read(1)
