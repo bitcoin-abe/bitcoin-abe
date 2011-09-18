@@ -677,6 +677,7 @@ class Abe:
         if block_hash in (None, '') or page['env']['PATH_INFO'] != '':
             raise PageNotFound()
 
+        block_hash = block_hash.lower()  # Case-insensitive, BBE compatible
         page['title'] = 'Block'
 
         if not HASH_PREFIX_RE.match(block_hash):
@@ -710,6 +711,7 @@ class Abe:
         if tx_hash in (None, '') or page['env']['PATH_INFO'] != '':
             raise PageNotFound()
 
+        tx_hash = tx_hash.lower()  # Case-insensitive, BBE compatible
         page['title'] = ['Transaction ', tx_hash[:10], '...', tx_hash[-4:]]
         body = page['body']
 
@@ -885,7 +887,7 @@ class Abe:
                 or not HASH_PREFIX_RE.match(tx_hash):
             return 'ERROR: Not in correct format'  # BBE compatible
 
-        tx = abe.store.export_tx(tx_hash=tx_hash)
+        tx = abe.store.export_tx(tx_hash=tx_hash.lower())
         if tx is None:
             return 'ERROR: Transaction does not exist.'  # BBE compatible
         import json
@@ -1115,6 +1117,7 @@ class Abe:
         """, (n,)))
 
     def search_hash_prefix(abe, q, types = ('tx', 'block')):
+        q = q.lower()
         lo = abe.store.hashin_hex(q + '0' * (64 - len(q)))
         hi = abe.store.hashin_hex(q + 'f' * (64 - len(q)))
         ret = []
