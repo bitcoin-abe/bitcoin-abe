@@ -1693,7 +1693,7 @@ def hexb58(hex):
     return base58.b58encode(hex.decode('hex_codec'))
 
 def block_shortlink(block_hash):
-    zeroes = 1
+    zeroes = 0
     for c in block_hash:
         if c == '0':
             zeroes += 1
