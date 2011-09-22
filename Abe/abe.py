@@ -146,6 +146,7 @@ class Abe:
         if not args.auto_agpl:
             abe.template_vars['download'] = (
                 abe.template_vars.get('download', ''))
+        abe.base_url = args.base_url
 
     def __call__(abe, env, start_response):
         import urlparse
@@ -515,7 +516,7 @@ class Abe:
                           escape(chain['name']), '?hi=', height, '">',
                           escape(chain['name']), '</a> ', height]
 
-        body += short_link(page, 'b/' + block_shortlink(block_hash))
+        body += abe.short_link(page, 'b/' + block_shortlink(block_hash))
 
         body += ['<p>Hash: ', block_hash, '<br />\n']
 
@@ -826,7 +827,7 @@ class Abe:
         value_out = sum_values(out_rows)
         is_coinbase = None
 
-        body += short_link(page, 't/' + hexb58(tx_hash[:14]))
+        body += abe.short_link(page, 't/' + hexb58(tx_hash[:14]))
         body += ['<p>Hash: ', tx_hash, '<br />\n']
         chain = None
         for row in block_rows:
@@ -1006,7 +1007,7 @@ class Abe:
                                    '">', ret[-1], '</a>']
             return ret
 
-        body += short_link(page, 'a/' + address[:10])
+        body += abe.short_link(page, 'a/' + address[:10])
 
         body += ['<p>Balance: '] + format_amounts(balance, True)
 
@@ -1603,6 +1604,21 @@ class Abe:
     def is_address_version(abe, v):
         return len(v) == 1
 
+    def short_link(abe, page, link):
+        base = abe.base_url
+        if base is None:
+            env = page['env'].copy()
+            env['SCRIPT_NAME'] = posixpath.normpath(
+                posixpath.dirname(env['SCRIPT_NAME'] + env['PATH_INFO'])
+                + '/' + page['dotdot'])
+            env['PATH_INFO'] = link
+            full = wsgiref.util.request_uri(env)
+        else:
+            full = base + link
+
+        return ['<p class="shortlink">Short Link: <a href="',
+                page['dotdot'], link, '">', full, '</a></p>\n']
+
 def find_htdocs():
     return os.path.join(os.path.split(__file__)[0], 'htdocs')
 
@@ -1709,16 +1725,6 @@ def shortlink_block(link):
         raise PageNotFound()
     return ('00' * ord(data[0])) + data[1:].encode('hex_codec')
 
-def short_link(page, link):
-    env = page['env'].copy()
-    env['SCRIPT_NAME'] = posixpath.normpath(
-        posixpath.dirname(env['SCRIPT_NAME'] + env['PATH_INFO'])
-        + '/' + page['dotdot'])
-    env['PATH_INFO'] = link
-    full = wsgiref.util.request_uri(env)
-    return ['<p class="shortlink">Short Link: <a href="',
-            page['dotdot'], link, '">', full, '</a></p>\n']
-
 def flatten(l):
     if isinstance(l, list):
         return ''.join(map(flatten, l))
@@ -1812,6 +1818,7 @@ def main(argv):
         "auto_agpl":    None,
         "download_name":None,
         "watch_pid":    None,
+        "base_url":     None,
 
         "template":     DEFAULT_TEMPLATE,
         "template_vars": {
