@@ -98,6 +98,8 @@
 
 * Simplify the process of adding new chains.
 
+* Standardise on binascii or str methods for hex conversion.
+
 * Present Namecoin name operations as an optional add-on.
 
 * Extract info from MultiCoin config files.
