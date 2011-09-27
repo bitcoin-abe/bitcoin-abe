@@ -1744,10 +1744,16 @@ store._ddl['txout_approx'],
             LEFT JOIN unlinked_txin uti ON (txin.txin_id = uti.txin_id)
             WHERE txin.tx_id = ?
             ORDER BY txin.txin_pos""", (tx_id,)):
+            if prevout_hash is None:
+                prev_out = {
+                    'hash': "0" * 64,  # XXX should store this?
+                    'n': 0xffffffff}   # XXX should store this?
+            else:
+                prev_out = {
+                    'hash': store.hashout_hex(prevout_hash),
+                    'n': int(prevout_n)}
             tx['in'].append({
-                    'prev_out': {
-                        'hash': store.hashout_hex(prevout_hash),
-                        'n': int(prevout_n)},
+                    'prev_out': prev_out,
                     'raw_scriptSig': store.binout_hex(scriptSig),
                     'sequence': int(sequence)})
         tx['vin_sz'] = len(tx['in'])
