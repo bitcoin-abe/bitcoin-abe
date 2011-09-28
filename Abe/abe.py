@@ -88,7 +88,8 @@ ADDRESS_RE = re.compile('[1-9A-HJ-NP-Za-km-z]{26,}\\Z')
 # It is fun to change "6" to "3" and search lots of addresses.
 ADDR_PREFIX_RE = re.compile('[1-9A-HJ-NP-Za-km-z]{6,}\\Z')
 HEIGHT_RE = re.compile('(?:0|[1-9][0-9]*)\\Z')
-HASH_PREFIX_RE = re.compile('[0-9a-fA-F]{6,64}\\Z')
+HASH_PREFIX_RE = re.compile('[0-9a-fA-F]{0,64}\\Z')
+HASH_PREFIX_MIN = 6
 
 NETHASH_HEADER = """\
 blockNumber:          height of last block in interval + 1
@@ -681,7 +682,7 @@ class Abe:
         block_hash = block_hash.lower()  # Case-insensitive, BBE compatible
         page['title'] = 'Block'
 
-        if not HASH_PREFIX_RE.match(block_hash):
+        if not is_hash_prefix(block_hash):
             page['body'] += ['<p class="error">Not a valid block hash.</p>']
             return
 
@@ -716,7 +717,7 @@ class Abe:
         page['title'] = ['Transaction ', tx_hash[:10], '...', tx_hash[-4:]]
         body = page['body']
 
-        if not HASH_PREFIX_RE.match(tx_hash):
+        if not is_hash_prefix(tx_hash):
             body += ['<p class="error">Not a valid transaction hash.</p>']
             return
 
@@ -885,7 +886,7 @@ class Abe:
     def do_rawtx(abe, page):
         tx_hash = wsgiref.util.shift_path_info(page['env'])
         if tx_hash in (None, '') or page['env']['PATH_INFO'] != '' \
-                or not HASH_PREFIX_RE.match(tx_hash):
+                or not is_hash_prefix(tx_hash):
             return 'ERROR: Not in correct format'  # BBE compatible
 
         tx = abe.store.export_tx(tx_hash=tx_hash.lower())
@@ -1048,13 +1049,13 @@ class Abe:
     def search_form(abe, page):
         q = (page['params'].get('q') or [''])[0]
         return [
-            '<p>Search by address, block number, block or transaction hash,'
-            ' or chain name:</p>\n'
+            '<p>Search by address, block number or hash, transaction or'
+            ' public key hash, or chain name:</p>\n'
             '<form action="', page['dotdot'], 'search"><p>\n'
             '<input name="q" size="64" value="', escape(q), '" />'
             '<button type="submit">Search</button>\n'
-            '<br />Address or hash search requires at least the first six'
-            ' characters.</p></form>\n']
+            '<br />Address or hash search requires at least the first ',
+            HASH_PREFIX_MIN, ' characters.</p></form>\n']
 
     def handle_search(abe, page):
         page['title'] = 'Search'
@@ -1068,7 +1069,7 @@ class Abe:
         if HEIGHT_RE.match(q):      found += abe.search_number(int(q))
         if ADDRESS_RE.match(q):     found += abe.search_address(q)
         elif ADDR_PREFIX_RE.match(q):found += abe.search_address_prefix(q)
-        if HASH_PREFIX_RE.match(q): found += abe.search_hash_prefix(q)
+        if is_hash_prefix(q):       found += abe.search_hash_prefix(q)
         found += abe.search_general(q)
         abe.show_search_results(page, found)
 
@@ -1117,19 +1118,35 @@ class Abe:
              ORDER BY c.chain_name, cc.in_longest DESC
         """, (n,)))
 
-    def search_hash_prefix(abe, q, types = ('tx', 'block')):
+    def search_hash_prefix(abe, q, types = ('tx', 'block', 'pubkey')):
         q = q.lower()
-        lo = abe.store.hashin_hex(q + '0' * (64 - len(q)))
-        hi = abe.store.hashin_hex(q + 'f' * (64 - len(q)))
         ret = []
         for t in types:
             def process(row):
+                if   t == 'tx':    name = 'Transaction'
+                elif t == 'block': name = 'Block'
+                else:
+                    # XXX Use Bitcoin address version until we implement
+                    # /pubkey/... for this to link to.
+                    addr = hash_to_address('\0', abe.store.binout(row[0]))
+                    return {
+                        'name': 'Address ' + addr,
+                        'uri': 'address/' + addr}
                 hash = abe.store.hashout_hex(row[0])
-                name = 'Transaction' if t == 'tx' else 'Block'
                 return {
                     'name': name + ' ' + hash,
                     'uri': t + '/' + hash,
                     }
+
+            if t == 'pubkey':
+                if len(q) > 40:
+                    continue
+                lo = abe.store.binin_hex(q + '0' * (40 - len(q)))
+                hi = abe.store.binin_hex(q + 'f' * (40 - len(q)))
+            else:
+                lo = abe.store.hashin_hex(q + '0' * (64 - len(q)))
+                hi = abe.store.hashin_hex(q + 'f' * (64 - len(q)))
+
             ret += map(process, abe.store.selectall(
                 "SELECT " + t + "_hash FROM " + t + " WHERE " + t +
                 # XXX hardcoded limit.
@@ -1724,6 +1741,9 @@ def shortlink_block(link):
     except:
         raise PageNotFound()
     return ('00' * ord(data[0])) + data[1:].encode('hex_codec')
+
+def is_hash_prefix(s):
+    return HASH_PREFIX_RE.match(s) and len(s) >= HASH_PREFIX_MIN
 
 def flatten(l):
     if isinstance(l, list):
