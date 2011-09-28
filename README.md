@@ -33,10 +33,7 @@ abe.conf about dbtype for configuration examples.
 
 You will need a copy of the block file (blk0001.dat in your Bitcoin
 directory).  You may let Abe read the block file while Bitcoin runs,
-assuming Bitcoin only appends to the file (normally true).  If you
-rebuild your block file, you must rebuild Abe's database or at least
-set datadir.blkfile_offset = 0 to force a rescan.  Abe does not
-currently handle block file changes gracefully.
+assuming Bitcoin only appends to the file (normally true).
 
 License
 -------
@@ -86,6 +83,23 @@ Slow startup
 Reading the block file takes much too long, several hours or even
 days.  However, if you use a persistent database, Abe remembers where
 it stopped reading and starts more quickly the second time.
+
+Replacing the Block File
+------------------------
+
+Abe does not currently handle block file changes gracefully.  If you
+replace your copy of the block chain, you must rebuild Abe's database
+or (quicker) reset the file offset in the database to force a rescan.
+To reset the offset, issue SQL:
+
+    UPDATE datadir SET blkfile_number=1, blkfile_offset=0 WHERE dirname='...';
+
+Replace "..." with the relevant directory name as shown by:
+
+    SELECT dirname FROM datadir;
+
+For example: UPDATE datadir SET blkfile_number=1, blkfile_offset=0
+WHERE dirname='/home/abe/.bitcoin';
 
 Web server
 ----------
