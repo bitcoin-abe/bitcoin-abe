@@ -24,9 +24,10 @@ Change directory to the Abe distribution and install Abe:
 
 Replace YOUR.ABE.DOMAIN below with a domain that resolves to this
 host.  The site will be http://YOUR.ABE.DOMAIN/.  To embed Abe in an
-existing site (e.g., http://YOUR.DOMAIN/abe/) simply prepend a path
-(e.g., "/abe") in the Alias directives and place them in your existing
-sites-available file instead of a new VirtualHost.
+existing site (e.g., http://YOUR.DOMAIN/abe/) prepend a path (e.g.,
+"/abe") in the Alias directives, place them in your existing
+sites-available file instead of a new VirtualHost, and merge or create
+your sites /robots.txt with adjusted paths from Abe/htdocs/robots.txt.
 
 Replace HTDOCS/DIRECTORY below with the directory containing abe.css;
 the Apache process must have permission to read it.  The following
