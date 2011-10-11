@@ -1,5 +1,7 @@
 * Bug: reorg may assign a block not in chain as chain_last_block_id.
 
+* Consider adjusting statistics for duplicate coinbase transactions.
+
 * Avoid duplicate in/out points on block pages by using DISTINCT or
   equivalent.
 

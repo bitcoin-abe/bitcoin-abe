@@ -1424,14 +1424,17 @@ store._ddl['txout_approx'],
                       (block_id, tx['tx_id'], tx_pos))
             print "block_tx", block_id, tx['tx_id']
 
-        # Create rows in block_txin.
+        # Create rows in block_txin.  In case of duplicate transactions,
+        # choose the one with the lowest block ID.  XXX For consistency,
+        # it should be the lowest height instead of block ID.
         for row in store.selectall("""
-            SELECT txin.txin_id, obt.block_id
+            SELECT txin.txin_id, MIN(obt.block_id)
               FROM block_tx bt
               JOIN txin ON (txin.tx_id = bt.tx_id)
               JOIN txout ON (txin.txout_id = txout.txout_id)
               JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
-             WHERE bt.block_id = ?""", (block_id,)):
+             WHERE bt.block_id = ?
+             GROUP BY txin.txin_id""", (block_id,)):
             (txin_id, oblock_id) = row
             if store.is_descended_from(block_id, oblock_id):
                 store.sql("""
