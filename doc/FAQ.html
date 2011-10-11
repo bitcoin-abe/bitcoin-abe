@@ -1,0 +1,25 @@
+<html>
+<head>
+ <title>Abe: Frequently Asked Questions</title>
+ <style>
+   p.q { font-weight: bold; margin-top: 1em; }
+ </style>
+ </head>
+<body>
+<ul>
+<li><a href="#pubkey_hash">Where in the database are bitcoin addresses?</a></li>
+</ul>
+
+<p class="q"><a name="pubkey_hash">Where in the database are bitcoin
+    addresses?</a></p>
+<p class="a">A <a href="https://en.bitcoin.it/wiki/Address">bitcoin
+  address</a> is an encoding of
+  the <a href="https://en.bitcoin.it/wiki/Hash">hash</a> of the public
+  part of a keypair in
+  someone's <a href="https://en.bitcoin.it/wiki/Wallet">wallet</a>.
+  Abe stores only the public key hash,
+  in <code>pubkey.pubkey_hash</code>.  Abe converts hash values to
+  bitcoin addresses as needed using the <code>hash_to_address</code>
+  function in abe.py.</p>
+</body>
+</html>
