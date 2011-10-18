@@ -23,6 +23,7 @@ import BCDataStream
 import deserialize
 import util
 import warnings
+import threading
 
 SCHEMA_VERSION = "Abe28"
 
@@ -118,6 +119,7 @@ class DataStore(object):
         if isinstance(args.datadir, str):
             args.datadir = [args.datadir]
 
+        store.lock = threading.Lock()
         store.args = args
         store.log_sql = args.log_sql
         store.module = __import__(args.dbtype)

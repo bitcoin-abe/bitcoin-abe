@@ -111,9 +111,22 @@ blockNumber,time,target,avgTargetSinceLast,difficulty,hashesToWin,avgIntervalSin
 START DATA
 """
 
+def catch_up_thread(store):
+    while True:
+        store.lock.acquire()
+        try:
+            store.catch_up()
+        finally:
+            store.lock.release()
+        time.sleep(10)
+
 def make_store(args):
+    import thread
     store = DataStore.new(args)
-    store.catch_up()
+    if not args.no_update:
+        thread.start_new_thread(catch_up_thread,(store,))
+    else:
+        print "running in no_update mode", args.no_update
     return store
 
 class NoSuchChainError(Exception):
@@ -175,18 +188,18 @@ class Abe:
             cmd = abe.home
         handler = getattr(abe, 'handle_' + cmd, None)
 
+        abe.store.lock.acquire()
+        ret = None
         try:
             if handler is None:
-                return abe.serve_static(cmd + env['PATH_INFO'], start_response)
-
-            # Always be up-to-date, even if we means having to wait
-            # for a response!  XXX Could use threads, timers, or a
-            # cron job.
-            abe.store.catch_up()
-
-            handler(page)
+                ret = abe.serve_static(cmd + env['PATH_INFO'], start_response)
+            elif cmd in ['counter','fundraiser_img']: 
+                ret = handler(page)
+            else:
+                handler(page)
         except PageNotFound:
             status = '404 Not Found'
+            page['title'] = status
             page["body"] = ['<p class="error">Sorry, ', env['SCRIPT_NAME'],
                             env['PATH_INFO'],
                             ' does not exist on this server.</p>']
@@ -195,14 +208,17 @@ class Abe:
                 '<p class="error">'
                 'Sorry, I don\'t know about that chain!</p>\n']
         except Redirect:
-            return redirect(page)
+            ret = redirect(page)
         except Streamed:
-            return ''
+            ret = ''
         except:
-            abe.store.rollback()
             raise
+        finally:
+            abe.store.rollback()  # Close imlicitly opened transaction.
+            abe.store.lock.release()
 
-        abe.store.rollback()  # Close imlicitly opened transaction.
+        if ret:
+            return ret
 
         start_response(status, [('Content-type', page['content_type']),
                                 ('Cache-Control', 'max-age=30')])
