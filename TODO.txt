@@ -64,7 +64,7 @@
 
 * Abstract SQL into the DataStore class.
 
-* Highlight any objects that are not in the main chain as such.
+* Highlight any objects that are not in a main chain as such.
 
 * Report block size, raw blocks, average transactions per block, fees
   per block, ...
