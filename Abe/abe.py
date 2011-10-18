@@ -1855,6 +1855,7 @@ def main(argv):
         "download_name":None,
         "watch_pid":    None,
         "base_url":     None,
+        "no_update":    None,
 
         "template":     DEFAULT_TEMPLATE,
         "template_vars": {
