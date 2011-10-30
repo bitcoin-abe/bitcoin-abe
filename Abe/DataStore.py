@@ -319,9 +319,26 @@ class DataStore(object):
         val = store.config.get('sequence_type')
         if val in (None, 'update'):
             new_id = lambda key: store._new_id_update(key)
+            create_sequence = lambda key: store._create_sequence_update(key)
+            drop_sequence = lambda key: store._drop_sequence_update(key)
+
+        elif val == 'mysql':
+            new_id = lambda key: store._new_id_mysql(key)
+            create_sequence = lambda key: store._create_sequence_mysql(key)
+            drop_sequence = lambda key: store._drop_sequence_mysql(key)
 
         else:
-            raise Exception("Unsupported sequence-type %s" % (val,))
+            create_sequence = lambda key: store._create_sequence(key)
+            drop_sequence = lambda key: store._drop_sequence(key)
+
+            if val == 'oracle':
+                new_id = lambda key: store._new_id_oracle(key)
+            elif val == 'nvf':
+                new_id = lambda key: store._new_id_nvf(key)
+            elif val == 'postgres':
+                new_id = lambda key: store._new_id_postgres(key)
+            else:
+                raise Exception("Unsupported sequence-type %s" % (val,))
 
         # Convert Oracle LOB to str.
         if hasattr(store.module, "LOB") and isinstance(store.module.LOB, type):
@@ -361,6 +378,8 @@ class DataStore(object):
 
         store.intin       = intin
         store.new_id      = new_id
+        store.create_sequence = create_sequence
+        store.drop_sequence = drop_sequence
 
     def sql(store, stmt, params=()):
         cached = store._sql_cache.get(stmt)
@@ -546,25 +565,81 @@ class DataStore(object):
                 })
 
     def _new_id_update(store, key):
-        try:
+        """
+        Allocate a synthetic identifier by updating a table.
+        """
+        while True:
             row = store.selectrow(
                 "SELECT nextid FROM abe_sequences WHERE sequence_key = ?",
                 (key,))
-        except store.module.DatabaseError:
-            # XXX Should not rollback in new_id unless configuring.
-            store.rollback()
-            store.ddl(store._ddl['abe_sequences'])
-            row = None
-        if row is None:
-            (ret,) = store.selectrow("SELECT MAX(" + key + "_id) FROM " + key)
-            ret = 1 if ret is None else ret + 1
+            if row is None:
+                raise Exception("Sequence %s does not exist" % (key,))
+
+            ret = row[0]
+            store.sql("UPDATE abe_sequences SET nextid = nextid + 1"
+                      " WHERE sequence_key = ? AND nextid = ?",
+                      (key, ret))
+            if store.cursor.rowcount == 1:
+                return ret
+            warnings.warn('Contention on abe_sequences %s:%d' % (key, ret))
+
+    def _get_sequence_initial_value(store, key):
+        (ret,) = store.selectrow("SELECT MAX(" + key + "_id) FROM " + key)
+        ret = 1 if ret is None else ret + 1
+        return ret
+
+    def _create_sequence_update(store, key):
+        store.commit()
+        ret = store._get_sequence_initial_value(key)
+        try:
             store.sql("INSERT INTO abe_sequences (sequence_key, nextid)"
                       " VALUES (?, ?)", (key, ret))
-        else:
-            ret = int(row[0])
-        store.sql("UPDATE abe_sequences SET nextid = nextid + 1"
-                  " WHERE sequence_key = ?",
-                  (key,))
+        except store.module.DatabaseError, e:
+            store.rollback()
+            try:
+                store.ddl(store._ddl['abe_sequences'])
+            except:
+                store.rollback()
+                raise e
+            store.sql("INSERT INTO abe_sequences (sequence_key, nextid)"
+                      " VALUES (?, ?)", (key, ret))
+
+    def _drop_sequence_update(store, key):
+        store.commit()
+        store.sql("DELETE FROM abe_sequences WHERE sequence_key = ?", (key,))
+        store.commit()
+
+    def _new_id_oracle(store, key):
+        (ret,) = store.selectrow("SELECT " + key + "_seq.NEXTVAL FROM DUAL")
+        return ret
+
+    def _create_sequence(store, key):
+        store.ddl("CREATE SEQUENCE %s_seq START WITH %d"
+                  % (key, store._get_sequence_initial_value(key)))
+
+    def _drop_sequence(store, key):
+        store.ddl("DROP SEQUENCE %s_seq" % (key,))
+
+    def _new_id_nvf(store, key):
+        (ret,) = store.selectrow("SELECT NEXT VALUE FOR " + key + "_seq")
+        return ret
+
+    def _new_id_postgres(store, key):
+        (ret,) = store.selectrow("SELECT NEXTVAL('" + key + "_seq')")
+        return ret
+
+    def _create_sequence_mysql(store, key):
+        store.ddl("CREATE TABLE %s_seq (id BIGINT AUTO_INCREMENT PRIMARY KEY)"
+                  " AUTO_INCREMENT=%d"
+                  % (key, store._get_sequence_initial_value(key)))
+
+    def _drop_sequence_mysql(store, key):
+        store.ddl("DROP TABLE %s_seq" % (key,))
+
+    def _new_id_mysql(store, key):
+        store.sql("INSERT INTO " + key + "_seq () VALUES ()")
+        (ret,) = store.selectrow("SELECT LAST_INSERT_ID()")
+        store.sql("DELETE FROM " + key + "_seq")
         return ret
 
     def commit(store):
@@ -900,6 +975,10 @@ store._ddl['txout_approx'],
                 print "Failed:", stmt
                 raise
 
+        for key in ['magic', 'policy', 'chain', 'datadir',
+                    'tx', 'txout', 'pubkey', 'txin', 'block']:
+            store.create_sequence(key)
+
         store.sql("INSERT INTO abe_lock (lock_id) VALUES (1)")
 
         # Insert some well-known chain metadata.
@@ -975,7 +1054,7 @@ store._ddl['txout_approx'],
         raise Exception("No known large integer representation works")
 
     def configure_sequence_type(store):
-        for val in ['update']:
+        for val in ['oracle', 'postgres', 'nvf', 'mysql', 'update']:
             store.config['sequence_type'] = val
             store._set_sql_flavour()
             if store._test_sequence_type():
@@ -994,8 +1073,6 @@ store._ddl['txout_approx'],
         store._drop_if_exists("TABLE", obj)
     def _drop_view_if_exists(store, obj):
         store._drop_if_exists("VIEW", obj)
-    def _drop_sequence_if_exists(store, obj):
-        store._drop_if_exists("SEQUENCE", obj)
 
     def configure_ddl_implicit_commit(store):
         if 'create_table_epilogue' not in store.config:
@@ -1066,10 +1143,10 @@ store._ddl['txout_approx'],
         """Find the maximum VARCHAR width, up to 0xffffffff"""
         lo = 0
         hi = 1 << 32
-        store.config['max_varchar'] = hi
+        mid = hi - 1
+        store.config['max_varchar'] = str(mid)
         store._drop_table_if_exists("abe_test_1")
         while True:
-            mid = (lo + hi) / 2
             store._drop_table_if_exists("abe_test_1")
             try:
                 store.ddl("""CREATE TABLE abe_test_1
@@ -1091,6 +1168,7 @@ store._ddl['txout_approx'],
                 store.config['max_varchar'] = str(lo)
                 print "max_varchar=" + store.config['max_varchar']
                 break
+            mid = (lo + hi) / 2
         store._drop_table_if_exists("abe_test_1")
 
     def configure_clob_type(store):
@@ -1188,10 +1266,16 @@ store._ddl['txout_approx'],
     def _test_sequence_type(store):
         store._drop_table_if_exists("abe_test_1")
         try:
+            store.drop_sequence("abe_test_1")
+        except store.module.DatabaseError:
+            store.rollback()
+
+        try:
             store.ddl(
                 """CREATE TABLE abe_test_1 (
                     abe_test_1_id NUMERIC(12) NOT NULL PRIMARY KEY,
                     foo VARCHAR(10))""")
+            store.create_sequence('abe_test_1')
             id1 = store.new_id('abe_test_1')
             id2 = store.new_id('abe_test_1')
             if int(id1) != int(id2):
@@ -1206,6 +1290,10 @@ store._ddl['txout_approx'],
             return False
         finally:
             store._drop_table_if_exists("abe_test_1")
+            try:
+                store.drop_sequence("abe_test_1")
+            except store.module.DatabaseError:
+                store.rollback()
 
     def configure_limit_style(store):
         for val in ['native', 'emulated']:
