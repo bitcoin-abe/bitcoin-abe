@@ -1,5 +1,7 @@
 # Copyright(C) 2011 by John Tobey <John.Tobey@gmail.com>
 
+# DataStore.py: back end database access for Abe.
+
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
 # published by the Free Software Foundation, either version 3 of the
@@ -14,6 +16,11 @@
 # License along with this program.  If not, see
 # <http://www.gnu.org/licenses/agpl.html>.
 
+# This module combines three functions that might be better split up:
+# 1. A feature-detecting, SQL-transforming database abstraction layer
+# 2. Abe's schema
+# 3. Abstraction over the schema for importing blocks, etc.
+
 import os
 import re
 import binascii
@@ -24,7 +31,7 @@ import deserialize
 import util
 import warnings
 
-SCHEMA_VERSION = "Abe28"
+SCHEMA_VERSION = "Abe29"
 
 CONFIG_DEFAULTS = {
     "dbtype":       None,
@@ -639,7 +646,7 @@ class DataStore(object):
                 store.sql("INSERT INTO abe_dual(x) VALUES ('X')")
         except store.module.DatabaseError, e:
             store.rollback()
-            store._drop_table_if_exists('abe_dual')
+            store.drop_table_if_exists('abe_dual')
             store.ddl("CREATE TABLE abe_dual (x CHAR(1))")
             store.sql("INSERT INTO abe_dual(x) VALUES ('X')")
             print "Created silly table abe_dual"
@@ -1091,10 +1098,16 @@ store._ddl['txout_approx'],
         except store.module.DatabaseError:
             store.rollback()
 
-    def _drop_table_if_exists(store, obj):
+    def drop_table_if_exists(store, obj):
         store._drop_if_exists("TABLE", obj)
-    def _drop_view_if_exists(store, obj):
+    def drop_view_if_exists(store, obj):
         store._drop_if_exists("VIEW", obj)
+
+    def drop_sequence_if_exists(store, key):
+        try:
+            store.drop_sequence(key)
+        except store.module.DatabaseError:
+            store.rollback()
 
     def configure_ddl_implicit_commit(store):
         if 'create_table_epilogue' not in store.config:
@@ -1109,7 +1122,7 @@ store._ddl['txout_approx'],
 
     def _test_ddl(store):
         """Test whether DDL performs implicit commit."""
-        store._drop_table_if_exists("abe_test_1")
+        store.drop_table_if_exists("abe_test_1")
         try:
             store.ddl(
                 "CREATE TABLE abe_test_1 ("
@@ -1126,7 +1139,7 @@ store._ddl['txout_approx'],
             store.rollback()
             return False
         finally:
-            store._drop_table_if_exists("abe_test_1")
+            store.drop_table_if_exists("abe_test_1")
 
     def configure_create_table_epilogue(store):
         for val in ['', ' ENGINE=InnoDB']:
@@ -1139,7 +1152,7 @@ store._ddl['txout_approx'],
 
     def _test_transaction(store):
         """Test whether CREATE TABLE needs ENGINE=InnoDB for rollback."""
-        store._drop_table_if_exists("abe_test_1")
+        store.drop_table_if_exists("abe_test_1")
         try:
             store.ddl(
                 "CREATE TABLE abe_test_1 (a NUMERIC(12))")
@@ -1159,7 +1172,7 @@ store._ddl['txout_approx'],
             store.rollback()
             return False
         finally:
-            store._drop_table_if_exists("abe_test_1")
+            store.drop_table_if_exists("abe_test_1")
 
     def configure_max_varchar(store):
         """Find the maximum VARCHAR width, up to 0xffffffff"""
@@ -1167,9 +1180,9 @@ store._ddl['txout_approx'],
         hi = 1 << 32
         mid = hi - 1
         store.config['max_varchar'] = str(mid)
-        store._drop_table_if_exists("abe_test_1")
+        store.drop_table_if_exists("abe_test_1")
         while True:
-            store._drop_table_if_exists("abe_test_1")
+            store.drop_table_if_exists("abe_test_1")
             try:
                 store.ddl("""CREATE TABLE abe_test_1
                            (a VARCHAR(%d), b VARCHAR(%d))""" % (mid, mid))
@@ -1191,12 +1204,12 @@ store._ddl['txout_approx'],
                 print "max_varchar=" + store.config['max_varchar']
                 break
             mid = (lo + hi) / 2
-        store._drop_table_if_exists("abe_test_1")
+        store.drop_table_if_exists("abe_test_1")
 
     def configure_clob_type(store):
         """Find the name of the CLOB type, if any."""
         long_str = 'x' * 10000
-        store._drop_table_if_exists("abe_test_1")
+        store.drop_table_if_exists("abe_test_1")
         for val in ['CLOB', 'LONGTEXT', 'TEXT', 'LONG']:
             try:
                 store.ddl("CREATE TABLE abe_test_1 (a %s)" % (val,))
@@ -1219,12 +1232,12 @@ store._ddl['txout_approx'],
                     # Fetching a CLOB really messes up Easysoft ODBC Oracle.
                     store.reconnect()
             finally:
-                store._drop_table_if_exists("abe_test_1")
+                store.drop_table_if_exists("abe_test_1")
         warnings.warn("No native type found for CLOB.")
         store.config['clob_type'] = NO_CLOB
 
     def _test_binary_type(store):
-        store._drop_table_if_exists("abe_test_1")
+        store.drop_table_if_exists("abe_test_1")
         try:
             store.ddl(
                 "CREATE TABLE abe_test_1 (test_id NUMERIC(2) NOT NULL PRIMARY KEY,"
@@ -1248,11 +1261,11 @@ store._ddl['txout_approx'],
             store.rollback()
             return False
         finally:
-            store._drop_table_if_exists("abe_test_1")
+            store.drop_table_if_exists("abe_test_1")
 
     def _test_int_type(store):
-        store._drop_view_if_exists("abe_test_v1")
-        store._drop_table_if_exists("abe_test_1")
+        store.drop_view_if_exists("abe_test_v1")
+        store.drop_table_if_exists("abe_test_1")
         try:
             store.ddl(
                 """CREATE TABLE abe_test_1 (test_id NUMERIC(2) NOT NULL PRIMARY KEY,
@@ -1282,15 +1295,12 @@ store._ddl['txout_approx'],
             store.rollback()
             return False
         finally:
-            store._drop_view_if_exists("abe_test_v1")
-            store._drop_table_if_exists("abe_test_1")
+            store.drop_view_if_exists("abe_test_v1")
+            store.drop_table_if_exists("abe_test_1")
 
     def _test_sequence_type(store):
-        store._drop_table_if_exists("abe_test_1")
-        try:
-            store.drop_sequence("abe_test_1")
-        except store.module.DatabaseError:
-            store.rollback()
+        store.drop_table_if_exists("abe_test_1")
+        store.drop_sequence_if_exists("abe_test_1")
 
         try:
             store.ddl(
@@ -1311,7 +1321,7 @@ store._ddl['txout_approx'],
             store.rollback()
             return False
         finally:
-            store._drop_table_if_exists("abe_test_1")
+            store.drop_table_if_exists("abe_test_1")
             try:
                 store.drop_sequence("abe_test_1")
             except store.module.DatabaseError:
@@ -1327,7 +1337,7 @@ store._ddl['txout_approx'],
         raise Exception("Can not emulate LIMIT.")
 
     def _test_limit_style(store):
-        store._drop_table_if_exists("abe_test_1")
+        store.drop_table_if_exists("abe_test_1")
         try:
             store.ddl(
                 """CREATE TABLE abe_test_1 (
@@ -1347,7 +1357,7 @@ store._ddl['txout_approx'],
             store.rollback()
             return False
         finally:
-            store._drop_table_if_exists("abe_test_1")
+            store.drop_table_if_exists("abe_test_1")
 
     def save_config(store):
         store.config['schema_version'] = SCHEMA_VERSION
@@ -1355,8 +1365,11 @@ store._ddl['txout_approx'],
             store.save_configvar(name)
 
     def save_configvar(store, name):
-        store.sql("INSERT INTO configvar (configvar_name, configvar_value)"
-                  " VALUES (?, ?)", (name, store.config[name]))
+        store.sql("UPDATE configvar SET configvar_value = ?"
+                  " WHERE configvar_name = ?", (store.config[name], name))
+        if store.cursor.rowcount == 0:
+            store.sql("INSERT INTO configvar (configvar_name, configvar_value)"
+                      " VALUES (?, ?)", (name, store.config[name]))
 
     def set_configvar(store, name, value):
         store.config[name] = value
