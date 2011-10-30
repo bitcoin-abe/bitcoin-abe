@@ -148,7 +148,7 @@ class DataStore(object):
 
         store.commit_bytes = args.commit_bytes
         if store.commit_bytes is None:
-            store.commit_bytes = 100000
+            store.commit_bytes = 0  # Commit whenever possible.
         else:
             store.commit_bytes = int(store.commit_bytes)
 
@@ -1455,10 +1455,6 @@ store._ddl['txout_approx'],
 
     def import_block(store, b):
 
-        # Get a new block ID.
-        block_id = store.new_id("block")
-        b['block_id'] = block_id
-
         # Import new transactions.
         b['value_in'] = 0
         b['value_out'] = 0
@@ -1469,11 +1465,21 @@ store._ddl['txout_approx'],
             if 'hash' not in tx:
                 tx['hash'] = util.double_sha256(tx['tx'])
             tx_hash_array.append(tx['hash'])
-            tx['tx_id'] = (store.tx_find_id_and_value(tx) or
-                           store.import_tx(tx, pos == 0))
+            tx['tx_id'] = store.tx_find_id_and_value(tx)
+
+            if not tx['tx_id']:
+                if store.commit_bytes == 0:
+                    tx['tx_id'] = store.import_and_commit_tx(tx, pos == 0)
+                else:
+                    tx['tx_id'] = store.import_tx(tx, pos == 0)
+
             b['value_in'] += tx['value_in']
             b['value_out'] += tx['value_out']
             b['value_destroyed'] += tx['value_destroyed']
+
+        # Get a new block ID.
+        block_id = store.new_id("block")
+        b['block_id'] = block_id
 
         # Verify Merkle root.
         if b['hashMerkleRoot'] != util.merkle(tx_hash_array):
@@ -1492,8 +1498,6 @@ store._ddl['txout_approx'],
         b['height'] = None if prev_height is None else prev_height + 1
         b['chain_work'] = util.calculate_work(prev_work, b['nBits'])
 
-        store._put_block(block_id, prev_block_id, b['height'])
-
         if prev_seconds is None:
             b['seconds'] = None
         else:
@@ -1505,24 +1509,44 @@ store._ddl['txout_approx'],
                 - b['value_destroyed']
 
         # Insert the block table row.
-        store.sql(
-            """INSERT INTO block (
-                block_id, block_hash, block_version, block_hashMerkleRoot,
-                block_nTime, block_nBits, block_nNonce, block_height,
-                prev_block_id, block_chain_work, block_value_in,
-                block_value_out, block_total_satoshis,
-                block_total_seconds, block_num_tx
-            ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-            )""",
-            (block_id, store.hashin(b['hash']), store.intin(b['version']),
-             store.hashin(b['hashMerkleRoot']), store.intin(b['nTime']),
-             store.intin(b['nBits']), store.intin(b['nNonce']),
-             b['height'], prev_block_id,
-             store.binin_int(b['chain_work'], WORK_BITS),
-             store.intin(b['value_in']), store.intin(b['value_out']),
-             store.intin(b['satoshis']), store.intin(b['seconds']),
-             len(b['transactions'])))
+        try:
+            store.sql(
+                """INSERT INTO block (
+                    block_id, block_hash, block_version, block_hashMerkleRoot,
+                    block_nTime, block_nBits, block_nNonce, block_height,
+                    prev_block_id, block_chain_work, block_value_in,
+                    block_value_out, block_total_satoshis,
+                    block_total_seconds, block_num_tx
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )""",
+                (block_id, store.hashin(b['hash']), store.intin(b['version']),
+                 store.hashin(b['hashMerkleRoot']), store.intin(b['nTime']),
+                 store.intin(b['nBits']), store.intin(b['nNonce']),
+                 b['height'], prev_block_id,
+                 store.binin_int(b['chain_work'], WORK_BITS),
+                 store.intin(b['value_in']), store.intin(b['value_out']),
+                 store.intin(b['satoshis']), store.intin(b['seconds']),
+                 len(b['transactions'])))
+
+        except store.module.DatabaseError:
+
+            if store.commit_bytes == 0:
+                # Rollback won't undo any previous changes, since we
+                # always commit.
+                store.rollback()
+                # If the exception is due to another process having
+                # inserted the same block, it is okay.
+                if store.selectrow("SELECT 1 FROM block WHERE block_hash = ?",
+                                   (store.hashin(b['hash']),)):
+                    print "already inserted; block_id %d unsued" % (block_id,)
+                    return
+
+            # This is not an expected error, or our caller may have to
+            # rewind a block file.  Let them deal with it.
+            raise
+
+        store._put_block(block_id, prev_block_id, b['height'])
 
         # List the block's transactions in block_tx.
         for tx_pos in xrange(len(b['transactions'])):
@@ -1809,6 +1833,20 @@ store._ddl['txout_approx'],
         # XXX Could populate PUBKEY.PUBKEY with txin scripts...
         # or leave that to an offline process.  Nothing in this program
         # requires them.
+        return tx_id
+
+    def import_and_commit_tx(store, tx, is_coinbase):
+        try:
+            tx_id = store.import_tx(tx, is_coinbase)
+            store.commit()
+
+        except store.module.DatabaseError:
+            store.rollback()
+            # Violation of tx_hash uniqueness?
+            tx_id = store.tx_find_id_and_value(tx)
+            if not tx_id:
+                raise
+
         return tx_id
 
     def export_tx(store, tx_id=None, tx_hash=None, decimals=8):
@@ -2215,7 +2253,7 @@ store._ddl['txout_approx'],
                     store.offer_block_to_chain(b, chain_id)
 
             bytes_done += length
-            if bytes_done > store.commit_bytes :
+            if bytes_done >= store.commit_bytes :
                 print "commit"
                 store.save_blkfile_offset(dircfg, ds.read_cursor)
                 store.commit()

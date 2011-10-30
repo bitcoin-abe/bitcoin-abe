@@ -30,9 +30,9 @@ Create file abe-my.conf with the following contents, replacing
     upgrade
     port 2750
 
-Run Abe as:
+Perform the initial data load:
 
-    python -m Abe.abe --config abe-my.conf
+    python -m Abe.abe --config abe-my.conf --commit-bytes 100000 --no-serve
 
 Look for output such as:
 
@@ -40,7 +40,11 @@ Look for output such as:
     block_tx 2 2
     ...
 
-This step may take several hours.  When it finishes, you should see:
+This step may take several hours.  Then run the web server as:
+
+    python -m Abe.abe --config abe-my.conf
+
+You should see:
 
     Listening on http://localhost:2750
 
