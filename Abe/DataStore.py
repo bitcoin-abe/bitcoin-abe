@@ -150,7 +150,7 @@ class DataStore(object):
 
         store.commit_bytes = args.commit_bytes
         if store.commit_bytes is None:
-            store.commit_bytes = 100000
+            store.commit_bytes = 0  # Commit whenever possible.
         else:
             store.commit_bytes = int(store.commit_bytes)
 
@@ -321,9 +321,29 @@ class DataStore(object):
         val = store.config.get('sequence_type')
         if val in (None, 'update'):
             new_id = lambda key: store._new_id_update(key)
+            create_sequence = lambda key: store._create_sequence_update(key)
+            drop_sequence = lambda key: store._drop_sequence_update(key)
+
+        elif val == 'mysql':
+            new_id = lambda key: store._new_id_mysql(key)
+            create_sequence = lambda key: store._create_sequence_mysql(key)
+            drop_sequence = lambda key: store._drop_sequence_mysql(key)
 
         else:
-            raise Exception("Unsupported sequence-type %s" % (val,))
+            create_sequence = lambda key: store._create_sequence(key)
+            drop_sequence = lambda key: store._drop_sequence(key)
+
+            if val == 'oracle':
+                new_id = lambda key: store._new_id_oracle(key)
+            elif val == 'nvf':
+                new_id = lambda key: store._new_id_nvf(key)
+            elif val == 'postgres':
+                new_id = lambda key: store._new_id_postgres(key)
+            elif val == 'db2':
+                new_id = lambda key: store._new_id_db2(key)
+                create_sequence = lambda key: store._create_sequence_db2(key)
+            else:
+                raise Exception("Unsupported sequence-type %s" % (val,))
 
         # Convert Oracle LOB to str.
         if hasattr(store.module, "LOB") and isinstance(store.module.LOB, type):
@@ -363,6 +383,8 @@ class DataStore(object):
 
         store.intin       = intin
         store.new_id      = new_id
+        store.create_sequence = create_sequence
+        store.drop_sequence = drop_sequence
 
     def sql(store, stmt, params=()):
         cached = store._sql_cache.get(stmt)
@@ -548,25 +570,100 @@ class DataStore(object):
                 })
 
     def _new_id_update(store, key):
-        try:
+        """
+        Allocate a synthetic identifier by updating a table.
+        """
+        while True:
             row = store.selectrow(
                 "SELECT nextid FROM abe_sequences WHERE sequence_key = ?",
                 (key,))
-        except store.module.DatabaseError:
-            # XXX Should not rollback in new_id unless configuring.
-            store.rollback()
-            store.ddl(store._ddl['abe_sequences'])
-            row = None
-        if row is None:
-            (ret,) = store.selectrow("SELECT MAX(" + key + "_id) FROM " + key)
-            ret = 1 if ret is None else ret + 1
+            if row is None:
+                raise Exception("Sequence %s does not exist" % (key,))
+
+            ret = row[0]
+            store.sql("UPDATE abe_sequences SET nextid = nextid + 1"
+                      " WHERE sequence_key = ? AND nextid = ?",
+                      (key, ret))
+            if store.cursor.rowcount == 1:
+                return ret
+            warnings.warn('Contention on abe_sequences %s:%d' % (key, ret))
+
+    def _get_sequence_initial_value(store, key):
+        (ret,) = store.selectrow("SELECT MAX(" + key + "_id) FROM " + key)
+        ret = 1 if ret is None else ret + 1
+        return ret
+
+    def _create_sequence_update(store, key):
+        store.commit()
+        ret = store._get_sequence_initial_value(key)
+        try:
             store.sql("INSERT INTO abe_sequences (sequence_key, nextid)"
                       " VALUES (?, ?)", (key, ret))
-        else:
-            ret = int(row[0])
-        store.sql("UPDATE abe_sequences SET nextid = nextid + 1"
-                  " WHERE sequence_key = ?",
-                  (key,))
+        except store.module.DatabaseError, e:
+            store.rollback()
+            try:
+                store.ddl(store._ddl['abe_sequences'])
+            except:
+                store.rollback()
+                raise e
+            store.sql("INSERT INTO abe_sequences (sequence_key, nextid)"
+                      " VALUES (?, ?)", (key, ret))
+
+    def _drop_sequence_update(store, key):
+        store.commit()
+        store.sql("DELETE FROM abe_sequences WHERE sequence_key = ?", (key,))
+        store.commit()
+
+    def _new_id_oracle(store, key):
+        (ret,) = store.selectrow("SELECT " + key + "_seq.NEXTVAL FROM DUAL")
+        return ret
+
+    def _create_sequence(store, key):
+        store.ddl("CREATE SEQUENCE %s_seq START WITH %d"
+                  % (key, store._get_sequence_initial_value(key)))
+
+    def _drop_sequence(store, key):
+        store.ddl("DROP SEQUENCE %s_seq" % (key,))
+
+    def _new_id_nvf(store, key):
+        (ret,) = store.selectrow("SELECT NEXT VALUE FOR " + key + "_seq")
+        return ret
+
+    def _new_id_postgres(store, key):
+        (ret,) = store.selectrow("SELECT NEXTVAL('" + key + "_seq')")
+        return ret
+
+    def _create_sequence_db2(store, key):
+        store.commit()
+        try:
+            rows = store.selectall("SELECT 1 FROM abe_dual")
+            if len(rows) != 1:
+                store.sql("INSERT INTO abe_dual(x) VALUES ('X')")
+        except store.module.DatabaseError, e:
+            store.rollback()
+            store._drop_table_if_exists('abe_dual')
+            store.ddl("CREATE TABLE abe_dual (x CHAR(1))")
+            store.sql("INSERT INTO abe_dual(x) VALUES ('X')")
+            print "Created silly table abe_dual"
+        store._create_sequence(key)
+
+    def _new_id_db2(store, key):
+        (ret,) = store.selectrow("SELECT NEXTVAL FOR " + key + "_seq"
+                                 " FROM abe_dual")
+        return ret
+
+    def _create_sequence_mysql(store, key):
+        store.ddl("CREATE TABLE %s_seq (id BIGINT AUTO_INCREMENT PRIMARY KEY)"
+                  " AUTO_INCREMENT=%d"
+                  % (key, store._get_sequence_initial_value(key)))
+
+    def _drop_sequence_mysql(store, key):
+        store.ddl("DROP TABLE %s_seq" % (key,))
+
+    def _new_id_mysql(store, key):
+        store.sql("INSERT INTO " + key + "_seq () VALUES ()")
+        (ret,) = store.selectrow("SELECT LAST_INSERT_ID()")
+        store.sql("DELETE FROM " + key + "_seq")
         return ret
 
     def commit(store):
@@ -902,6 +999,10 @@ store._ddl['txout_approx'],
                 print "Failed:", stmt
                 raise
 
+        for key in ['magic', 'policy', 'chain', 'datadir',
+                    'tx', 'txout', 'pubkey', 'txin', 'block']:
+            store.create_sequence(key)
+
         store.sql("INSERT INTO abe_lock (lock_id) VALUES (1)")
 
         # Insert some well-known chain metadata.
@@ -977,7 +1078,7 @@ store._ddl['txout_approx'],
         raise Exception("No known large integer representation works")
 
     def configure_sequence_type(store):
-        for val in ['update']:
+        for val in ['oracle', 'postgres', 'nvf', 'db2', 'mysql', 'update']:
             store.config['sequence_type'] = val
             store._set_sql_flavour()
             if store._test_sequence_type():
@@ -996,8 +1097,6 @@ store._ddl['txout_approx'],
         store._drop_if_exists("TABLE", obj)
     def _drop_view_if_exists(store, obj):
         store._drop_if_exists("VIEW", obj)
-    def _drop_sequence_if_exists(store, obj):
-        store._drop_if_exists("SEQUENCE", obj)
 
     def configure_ddl_implicit_commit(store):
         if 'create_table_epilogue' not in store.config:
@@ -1068,10 +1167,10 @@ store._ddl['txout_approx'],
         """Find the maximum VARCHAR width, up to 0xffffffff"""
         lo = 0
         hi = 1 << 32
-        store.config['max_varchar'] = hi
+        mid = hi - 1
+        store.config['max_varchar'] = str(mid)
         store._drop_table_if_exists("abe_test_1")
         while True:
-            mid = (lo + hi) / 2
             store._drop_table_if_exists("abe_test_1")
             try:
                 store.ddl("""CREATE TABLE abe_test_1
@@ -1093,6 +1192,7 @@ store._ddl['txout_approx'],
                 store.config['max_varchar'] = str(lo)
                 print "max_varchar=" + store.config['max_varchar']
                 break
+            mid = (lo + hi) / 2
         store._drop_table_if_exists("abe_test_1")
 
     def configure_clob_type(store):
@@ -1190,10 +1290,16 @@ store._ddl['txout_approx'],
     def _test_sequence_type(store):
         store._drop_table_if_exists("abe_test_1")
         try:
+            store.drop_sequence("abe_test_1")
+        except store.module.DatabaseError:
+            store.rollback()
+
+        try:
             store.ddl(
                 """CREATE TABLE abe_test_1 (
                     abe_test_1_id NUMERIC(12) NOT NULL PRIMARY KEY,
                     foo VARCHAR(10))""")
+            store.create_sequence('abe_test_1')
             id1 = store.new_id('abe_test_1')
             id2 = store.new_id('abe_test_1')
             if int(id1) != int(id2):
@@ -1208,6 +1314,10 @@ store._ddl['txout_approx'],
             return False
         finally:
             store._drop_table_if_exists("abe_test_1")
+            try:
+                store.drop_sequence("abe_test_1")
+            except store.module.DatabaseError:
+                store.rollback()
 
     def configure_limit_style(store):
         for val in ['native', 'emulated']:
@@ -1347,10 +1457,6 @@ store._ddl['txout_approx'],
 
     def import_block(store, b):
 
-        # Get a new block ID.
-        block_id = store.new_id("block")
-        b['block_id'] = block_id
-
         # Import new transactions.
         b['value_in'] = 0
         b['value_out'] = 0
@@ -1361,11 +1467,21 @@ store._ddl['txout_approx'],
             if 'hash' not in tx:
                 tx['hash'] = util.double_sha256(tx['tx'])
             tx_hash_array.append(tx['hash'])
-            tx['tx_id'] = (store.tx_find_id_and_value(tx) or
-                           store.import_tx(tx, pos == 0))
+            tx['tx_id'] = store.tx_find_id_and_value(tx)
+
+            if not tx['tx_id']:
+                if store.commit_bytes == 0:
+                    tx['tx_id'] = store.import_and_commit_tx(tx, pos == 0)
+                else:
+                    tx['tx_id'] = store.import_tx(tx, pos == 0)
+
             b['value_in'] += tx['value_in']
             b['value_out'] += tx['value_out']
             b['value_destroyed'] += tx['value_destroyed']
+
+        # Get a new block ID.
+        block_id = store.new_id("block")
+        b['block_id'] = block_id
 
         # Verify Merkle root.
         if b['hashMerkleRoot'] != util.merkle(tx_hash_array):
@@ -1384,8 +1500,6 @@ store._ddl['txout_approx'],
         b['height'] = None if prev_height is None else prev_height + 1
         b['chain_work'] = util.calculate_work(prev_work, b['nBits'])
 
-        store._put_block(block_id, prev_block_id, b['height'])
-
         if prev_seconds is None:
             b['seconds'] = None
         else:
@@ -1397,24 +1511,44 @@ store._ddl['txout_approx'],
                 - b['value_destroyed']
 
         # Insert the block table row.
-        store.sql(
-            """INSERT INTO block (
-                block_id, block_hash, block_version, block_hashMerkleRoot,
-                block_nTime, block_nBits, block_nNonce, block_height,
-                prev_block_id, block_chain_work, block_value_in,
-                block_value_out, block_total_satoshis,
-                block_total_seconds, block_num_tx
-            ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-            )""",
-            (block_id, store.hashin(b['hash']), store.intin(b['version']),
-             store.hashin(b['hashMerkleRoot']), store.intin(b['nTime']),
-             store.intin(b['nBits']), store.intin(b['nNonce']),
-             b['height'], prev_block_id,
-             store.binin_int(b['chain_work'], WORK_BITS),
-             store.intin(b['value_in']), store.intin(b['value_out']),
-             store.intin(b['satoshis']), store.intin(b['seconds']),
-             len(b['transactions'])))
+        try:
+            store.sql(
+                """INSERT INTO block (
+                    block_id, block_hash, block_version, block_hashMerkleRoot,
+                    block_nTime, block_nBits, block_nNonce, block_height,
+                    prev_block_id, block_chain_work, block_value_in,
+                    block_value_out, block_total_satoshis,
+                    block_total_seconds, block_num_tx
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )""",
+                (block_id, store.hashin(b['hash']), store.intin(b['version']),
+                 store.hashin(b['hashMerkleRoot']), store.intin(b['nTime']),
+                 store.intin(b['nBits']), store.intin(b['nNonce']),
+                 b['height'], prev_block_id,
+                 store.binin_int(b['chain_work'], WORK_BITS),
+                 store.intin(b['value_in']), store.intin(b['value_out']),
+                 store.intin(b['satoshis']), store.intin(b['seconds']),
+                 len(b['transactions'])))
+
+        except store.module.DatabaseError:
+
+            if store.commit_bytes == 0:
+                # Rollback won't undo any previous changes, since we
+                # always commit.
+                store.rollback()
+                # If the exception is due to another process having
+                # inserted the same block, it is okay.
+                if store.selectrow("SELECT 1 FROM block WHERE block_hash = ?",
+                                   (store.hashin(b['hash']),)):
+                    print "already inserted; block_id %d unsued" % (block_id,)
+                    return
+
+            # This is not an expected error, or our caller may have to
+            # rewind a block file.  Let them deal with it.
+            raise
+
+        store._put_block(block_id, prev_block_id, b['height'])
 
         # List the block's transactions in block_tx.
         for tx_pos in xrange(len(b['transactions'])):
@@ -1701,6 +1835,20 @@ store._ddl['txout_approx'],
         # XXX Could populate PUBKEY.PUBKEY with txin scripts...
         # or leave that to an offline process.  Nothing in this program
         # requires them.
+        return tx_id
+
+    def import_and_commit_tx(store, tx, is_coinbase):
+        try:
+            tx_id = store.import_tx(tx, is_coinbase)
+            store.commit()
+
+        except store.module.DatabaseError:
+            store.rollback()
+            # Violation of tx_hash uniqueness?
+            tx_id = store.tx_find_id_and_value(tx)
+            if not tx_id:
+                raise
+
         return tx_id
 
     def export_tx(store, tx_id=None, tx_hash=None, decimals=8):
@@ -2107,7 +2255,7 @@ store._ddl['txout_approx'],
                     store.offer_block_to_chain(b, chain_id)
 
             bytes_done += length
-            if bytes_done > store.commit_bytes :
+            if bytes_done >= store.commit_bytes :
                 print "commit"
                 store.save_blkfile_offset(dircfg, ds.read_cursor)
                 store.commit()
