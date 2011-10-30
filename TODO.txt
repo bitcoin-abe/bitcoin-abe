@@ -48,8 +48,6 @@
 
 * Factor the coin-days destroyed feature as an optional add-on.
 
-* Convert abe_sequences table to real sequences if possible.
-
 * Slight variation in CoinDD et al. among sites indicates a bug.
 
 * Clean up and document limits on search result size.
