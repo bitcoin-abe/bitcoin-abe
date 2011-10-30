@@ -337,6 +337,9 @@ class DataStore(object):
                 new_id = lambda key: store._new_id_nvf(key)
             elif val == 'postgres':
                 new_id = lambda key: store._new_id_postgres(key)
+            elif val == 'db2':
+                new_id = lambda key: store._new_id_db2(key)
+                create_sequence = lambda key: store._create_sequence_db2(key)
             else:
                 raise Exception("Unsupported sequence-type %s" % (val,))
 
@@ -626,6 +629,25 @@ class DataStore(object):
 
     def _new_id_postgres(store, key):
         (ret,) = store.selectrow("SELECT NEXTVAL('" + key + "_seq')")
+        return ret
+
+    def _create_sequence_db2(store, key):
+        store.commit()
+        try:
+            rows = store.selectall("SELECT 1 FROM abe_dual")
+            if len(rows) != 1:
+                store.sql("INSERT INTO abe_dual(x) VALUES ('X')")
+        except store.module.DatabaseError, e:
+            store.rollback()
+            store._drop_table_if_exists('abe_dual')
+            store.ddl("CREATE TABLE abe_dual (x CHAR(1))")
+            store.sql("INSERT INTO abe_dual(x) VALUES ('X')")
+            print "Created silly table abe_dual"
+        store._create_sequence(key)
+
+    def _new_id_db2(store, key):
+        (ret,) = store.selectrow("SELECT NEXTVAL FOR " + key + "_seq"
+                                 " FROM abe_dual")
         return ret
 
     def _create_sequence_mysql(store, key):
@@ -1054,7 +1076,7 @@ store._ddl['txout_approx'],
         raise Exception("No known large integer representation works")
 
     def configure_sequence_type(store):
-        for val in ['oracle', 'postgres', 'nvf', 'mysql', 'update']:
+        for val in ['oracle', 'postgres', 'nvf', 'db2', 'mysql', 'update']:
             store.config['sequence_type'] = val
             store._set_sql_flavour()
             if store._test_sequence_type():
