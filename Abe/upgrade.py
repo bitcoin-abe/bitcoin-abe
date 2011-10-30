@@ -423,7 +423,10 @@ def configure(store):
 def populate_abe_sequences(store):
     if store.config['sequence_type'] == 'update':
         try:
-            store.sql(store._ddl['abe_sequences'])
+            store.sql("""CREATE TABLE abe_sequences (
+                             key VARCHAR(100) NOT NULL PRIMARY KEY,
+                             nextid NUMERIC(30)
+                         )""")
         except:
             store.rollback()
         for t in ['block', 'tx', 'txin', 'txout', 'pubkey',
@@ -647,6 +650,7 @@ def add_datadir_id(store):
         blkfile_offset NUMERIC(20) NULL,
         chain_id    NUMERIC(10) NULL
     )""")
+    store.create_sequence("datadir")
     for row in data:
         new_row = [store.new_id("datadir")]
         new_row += row
@@ -801,6 +805,18 @@ def config_limit_style(store):
     store.configure_limit_style()
     store.save_configvar("limit_style")
 
+def config_sequence_type(store):
+    if store.config['sequence_type'] != "update":
+        return
+    store.configure_sequence_type()
+    if store.config['sequence_type'] != "update":
+        print "Creating native sequences."
+        for name in ['magic', 'policy', 'chain', 'datadir',
+                     'tx', 'txout', 'pubkey', 'txin', 'block']:
+            store.drop_sequence_if_exists(name)
+            store.create_sequence(name)
+    store.save_configvar("sequence_type")
+
 upgrades = [
     ('6',    add_block_value_in),
     ('6.1',  add_block_value_out),
@@ -869,8 +885,9 @@ upgrades = [
     ('Abe25.3', set_netfee_pubkey_id),   # Seconds
     ('Abe26',   adjust_block_total_satoshis), # 1-3 minutes
     ('Abe26.1', init_block_satoshi_seconds), # 3-10 minutes
-    ('Abe27',   config_limit_style),
-    ('Abe28',   None),
+    ('Abe27',   config_limit_style),     # Fast
+    ('Abe28',   config_sequence_type),   # Fast
+    ('Abe29',   None)
 ]
 
 def upgrade_schema(store):
