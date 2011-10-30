@@ -26,7 +26,7 @@ Create file abe-my.conf with the following contents, replacing
 "PASSWORD" as above:
 
     dbtype MySQLdb
-    connect-args {"user":"abe","db":"abe","passwd":"PASSWORD"}'
+    connect-args {"user":"abe","db":"abe","passwd":"PASSWORD"}
     upgrade
     port 2750
 
