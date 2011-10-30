@@ -24,7 +24,6 @@ from cgi import escape
 import posixpath
 import wsgiref.util
 import time
-import binascii
 
 import version
 import DataStore
@@ -1320,7 +1319,7 @@ class Abe:
                 ' as hex strings separated by colon (":").\n' \
                 '/q/decode_address/ADDRESS\n'
         version, hash = decode_address(addr)
-        ret = binascii.hexlify(version) + ":" + binascii.hexlify(hash)
+        ret = version.encode('hex') + ":" + hash.encode('hex')
         if hash_to_address(version, hash) != addr:
             ret = "INVALID(" + ret + ")"
         return ret
@@ -1334,7 +1333,7 @@ class Abe:
                 ' validity.  See also /q/decode_address.\n' \
                 '/q/addresstohash/ADDRESS\n'
         version, hash = decode_address(addr)
-        return binascii.hexlify(hash).upper()
+        return hash.encode('hex').upper()
 
     def q_hashtoaddress(abe, page, chain):
         """shows the address with the given version prefix and hash."""
@@ -1357,15 +1356,15 @@ class Abe:
             version, hash = arg1.split(":", 1)
 
         elif chain:
-            version, hash = binascii.hexlify(chain['address_version']), arg1
+            version, hash = chain['address_version'].encode('hex'), arg1
 
         else:
             # Default: Bitcoin address starting with "1".
             version, hash = '00', arg1
 
         try:
-            hash = binascii.unhexlify(hash)
-            version = binascii.unhexlify(version)
+            hash = hash.decode('hex')
+            version = version.decode('hex')
         except:
             return 'ERROR: Arguments must be hexadecimal strings of even length'
         return hash_to_address(version, hash)
@@ -1383,10 +1382,10 @@ class Abe:
                 " to address 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa.\n" \
                 "/q/hashpubkey/PUBKEY\n"
         try:
-            pubkey = binascii.unhexlify(pubkey)
+            pubkey = pubkey.decode('hex')
         except:
             return 'ERROR: invalid hexadecimal byte string.'
-        return binascii.hexlify(util.pubkey_to_hash(pubkey)).upper()
+        return util.pubkey_to_hash(pubkey).encode('hex').upper()
 
     def q_checkaddress(abe, page, chain):
         """checks an address for validity."""
@@ -1400,7 +1399,7 @@ class Abe:
         if ADDRESS_RE.match(addr):
             version, hash = decode_address(addr)
             if hash_to_address(version, hash) == addr:
-                return binascii.hexlify(version).upper()
+                return version.encode('hex').upper()
             return 'CK'
         if len(addr) >= 26:
             return 'X5'

@@ -23,7 +23,6 @@
 
 import os
 import re
-import binascii
 
 # bitcointools -- modified deserialize.py to return raw transaction
 import BCDataStream
@@ -93,7 +92,7 @@ class MerkleRootMismatch(InvalidBlock):
         ex.tx_hashes = tx_hashes
     def __str__(ex):
         return 'Block header Merkle root does not match its transactions. ' \
-            'block hash=%s' % (binascii.hexlify(ex.block_hash),)
+            'block hash=%s' % (ex.block_hash.encode('hex'),)
 
 class DataStore(object):
 
@@ -255,13 +254,13 @@ class DataStore(object):
         def rev(x):
             return x[::-1]
         def to_hex(x):
-            return None if x is None else binascii.hexlify(x)
+            return None if x is None else str(x).encode('hex')
         def from_hex(x):
-            return None if x is None else binascii.unhexlify(x)
+            return None if x is None else x.decode('hex')
         def to_hex_rev(x):
-            return None if x is None else binascii.hexlify(x[::-1])
+            return None if x is None else str(x)[::-1].encode('hex')
         def from_hex_rev(x):
-            return None if x is None else binascii.unhexlify(x)[::-1]
+            return None if x is None else x.decode('hex')[::-1]
 
         val = store.config.get('binary_type')
 

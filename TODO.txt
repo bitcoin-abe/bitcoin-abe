@@ -5,7 +5,7 @@
 * Consider adjusting statistics for duplicate coinbase transactions.
 
 * Avoid duplicate in/out points on block pages by using DISTINCT or
-  equivalent.
+  equivalent.  This affects blocks common to more than one chain.
 
 * Consider fixing: /block/HASH returns "Block not found" for block not
   in any chain.
@@ -99,8 +99,6 @@
 * Context-sensitive help as on http://blockexplorer.com.
 
 * Simplify the process of adding new chains.
-
-* Standardise on binascii or str methods for hex conversion.
 
 * Present Namecoin name operations as an optional add-on.
 
