@@ -54,8 +54,6 @@
 
 * Admin interface to reset blkfile_offset, delete chains, etc.
 
-* Configurable logging.
-
 * Add a tool to upload transactions if bitcoind supports it.
 
 * Perhaps write a validation module to check db data.  Begun as verify.py.
