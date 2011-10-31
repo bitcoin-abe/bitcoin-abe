@@ -1460,7 +1460,7 @@ store._ddl['txout_approx'],
                 None if total_ss is None else int(total_ss),
                 int(nTime))
 
-    def import_block(store, b):
+    def import_block(store, b, chain_ids=frozenset()):
 
         # Import new transactions.
         b['value_in'] = 0
@@ -1544,10 +1544,14 @@ store._ddl['txout_approx'],
                 store.rollback()
                 # If the exception is due to another process having
                 # inserted the same block, it is okay.
-                if store.selectrow("SELECT 1 FROM block WHERE block_hash = ?",
-                                   (store.hashin(b['hash']),)):
+                row = store.selectrow(
+                    "SELECT block_id FROM block WHERE block_hash = ?",
+                    (store.hashin(b['hash']),))
+                if row:
                     store.log.info("Block already inserted; block_id %d unsued",
                                    block_id)
+                    b['block_id'] = row[0]
+                    store.offer_block_to_chains(b, chain_ids)
                     return
 
             # This is not an expected error, or our caller may have to
@@ -1626,7 +1630,7 @@ store._ddl['txout_approx'],
             store.sql("DELETE FROM orphan_block WHERE block_id = ?",
                       (orphan_id,))
 
-        b['top'], new_work = store.adopt_orphans(b, 0)
+        store.offer_block_to_chains(b, chain_ids)
 
         return block_id
 
@@ -1653,22 +1657,35 @@ store._ddl['txout_approx'],
         return block_ss_destroyed
 
     # Propagate cumulative values to descendant blocks.  Return info
-    # about the longest chain rooted at b.
-    # XXX "longest chain" is relative to chain_id, need to consult
-    # chain_candidate.
-    def adopt_orphans(store, b, orphan_work):
+    # about the longest chains containing b.  The returned dictionary
+    # is keyed by the chain_id of a chain whose validation policy b
+    # satisfies.  Each value is a pair (block, work) where block is
+    # the best block descended from b in the given chain, and work is
+    # the sum of orphan_work and the work between b and block.  Only
+    # chains in chain_mask are considered.  Even if no known chain
+    # contains b, this routine populates any descendant blocks'
+    # cumulative statistics that are known for b and returns an empty
+    # dictionary.
+    def adopt_orphans(store, b, orphan_work, chain_ids, chain_mask):
         block_id = b['block_id']
-        next_blocks = store.find_next_blocks(block_id)
-        if not next_blocks:
-            return b, orphan_work
-
         height = None if b['height'] is None else b['height'] + 1
-        best = None
-        best_work = orphan_work
+
+        # If adding block b, b will not yet be in chain_candidate, so
+        # we rely on the chain_ids argument.  If called recursively,
+        # look up chain_ids in chain_candidate.
+        if not chain_ids:
+            if chain_mask:
+                chain_mask = chain_mask.intersection(
+                    store.find_chains_containing_block(block_id))
+            chain_ids = chain_mask
+
+        ret = {}
+        for chain_id in chain_ids:
+            ret[chain_id] = (b, orphan_work)
 
         for row in store.selectall("""
             SELECT bn.next_block_id, b.block_nBits,
-                   b.block_value_out - b.block_value_in, block_nTime
+                   b.block_value_out - b.block_value_in, b.block_nTime
               FROM block_next bn
               JOIN block b ON (bn.next_block_id = b.block_id)
              WHERE bn.block_id = ?""", (block_id,)):
@@ -1736,13 +1753,14 @@ store._ddl['txout_approx'],
                 "seconds": seconds,
                 "satoshis": satoshis,
                 "ss": ss}
-            ret, work = store.adopt_orphans(nb, new_work)
+            next_ret = store.adopt_orphans(nb, new_work, None, chain_mask)
 
-            if work > best_work:
-                best = ret
-                best_work = work
+            for chain_id in ret.keys():
+                pair = next_ret[chain_id]
+                if pair and pair[1] > ret[chain_id][1]:
+                    ret[chain_id] = pair
 
-        return best, best_work
+        return ret
 
     def tx_find_id_and_value(store, tx):
         row = store.selectrow("""
@@ -1936,9 +1954,14 @@ store._ddl['txout_approx'],
         return tx
 
     # Called to indicate that the given block has the correct magic
-    # number and policy for the given chain.  Updates CHAIN_CANDIDATE
+    # number and policy for the given chains.  Updates CHAIN_CANDIDATE
     # and CHAIN.CHAIN_LAST_BLOCK_ID as appropriate.
-    def offer_block_to_chain(store, b, chain_id):
+    def offer_block_to_chains(store, b, chain_ids):
+        b['top'] = store.adopt_orphans(b, 0, chain_ids, chain_ids)
+        for chain_id in chain_ids:
+            store._offer_block_to_chain(b, chain_id)
+
+    def _offer_block_to_chain(store, b, chain_id):
         if b['chain_work'] is None:
             in_longest = 0
         else:
@@ -1948,6 +1971,7 @@ store._ddl['txout_approx'],
             # whether the current best is our top, which indicates
             # this block is in longest; this can happen in database
             # repair scenarios.
+            top = b['top'][chain_id][0]
             row = store.selectrow("""
                 SELECT b.block_id, b.block_height, b.block_chain_work
                   FROM block b, chain c
@@ -1955,16 +1979,16 @@ store._ddl['txout_approx'],
                    AND b.block_id = c.chain_last_block_id""", (chain_id,))
             if row:
                 loser_id, loser_height, loser_work = row
-                if loser_id <> b['top']['block_id'] and \
-                        store.binout_int(loser_work) >= b['top']['chain_work']:
+                if loser_id <> top['block_id'] and \
+                        store.binout_int(loser_work) >= top['chain_work']:
                     row = None
             if row:
                 # New longest chain.
                 in_longest = 1
                 to_connect = []
                 to_disconnect = []
-                winner_id = b['top']['block_id']
-                winner_height = b['top']['height']
+                winner_id = top['block_id']
+                winner_height = top['height']
                 while loser_height > winner_height:
                     to_disconnect.insert(0, loser_id)
                     loser_id = store.get_prev_block_id(loser_id)
@@ -1999,14 +2023,10 @@ store._ddl['txout_approx'],
             store._add_block_chain(b['block_id'], chain_id)
 
         if in_longest > 0:
-            # XXX problems when (chain_id, b['top']['block_id']) is not
-            # in chain_candidate, i.e., b['top'] is not in this chain.
-            # adopt_orphans needs to return a dict mapping chain to
-            # block as b['top'], not just one block.
             store.sql("""
                 UPDATE chain
                    SET chain_last_block_id = ?
-                 WHERE chain_id = ?""", (b['top']['block_id'], chain_id))
+                 WHERE chain_id = ?""", (top['block_id'], chain_id))
 
     def find_next_blocks(store, block_id):
         ret = []
@@ -2015,6 +2035,14 @@ store._ddl['txout_approx'],
             (block_id,)):
             ret.append(row[0])
         return ret
+
+    def find_chains_containing_block(store, block_id):
+        ret = []
+        for row in store.selectall(
+            "SELECT chain_id FROM chain_candidate WHERE block_id = ?",
+            (block_id,)):
+            ret.append(row[0])
+        return frozenset(ret)
 
     def get_prev_block_id(store, block_id):
         return store.selectrow(
@@ -2184,7 +2212,7 @@ store._ddl['txout_approx'],
 
                 filename = store.blkfile_name(dircfg)
                 store.log.error(
-                    "Chain not found for magic %s in block file %s at"
+                    "Chain not found for magic number %s in block file %s at"
                     " offset %d.  If file contents have changed, consider"
                     " forcing a rescan: UPDATE datadir SET blkfile_number=1,"
                     " blkfile_offset=0 WHERE dirname='%s'",
@@ -2201,10 +2229,11 @@ store._ddl['txout_approx'],
 
             hash = util.double_sha256(
                 ds.input[ds.read_cursor : ds.read_cursor + 80])
-            # XXX should decode target and check hash against it to avoid
-            # loading garbage data.
+            # XXX should decode target and check hash against it to
+            # avoid loading garbage data.  But not for merged-mined or
+            # CPU-mined chains that use different proof-of-work
+            # algorithms.  Time to resurrect policy_id?
 
-            chain_ids = set()
             block_row = store.selectrow("""
                 SELECT block_id, block_height, block_chain_work,
                        block_nTime, block_total_seconds,
@@ -2215,18 +2244,9 @@ store._ddl['txout_approx'],
 
             if block_row:
                 # Block header already seen.  Don't import the block,
-                # but try to add it to a chain.
-                # XXX Could rescan transactions in case we loaded an
-                # incomplete block or if operating under --rescan.
+                # but try to add it to the chain.
                 ds.read_cursor += length
-            else:
-                b = deserialize.parse_Block(ds)
-                b["hash"] = hash
-                store.import_block(b)
-
-            if chain_id is not None:
-
-                if block_row:
+                if chain_id is not None:
                     b = {
                         "block_id":   block_row[0],
                         "height":     block_row[1],
@@ -2249,10 +2269,12 @@ store._ddl['txout_approx'],
                             b['hashPrev'] = GENESIS_HASH_PREV
                         else:
                             b['hashPrev'] = 'dummy'  # Fool adopt_orphans.
-                        b['top'], new_work = store.adopt_orphans(b, 0)
-
-                if b:
-                    store.offer_block_to_chain(b, chain_id)
+                        store.offer_block_to_chains(b, frozenset([chain_id]))
+            else:
+                b = deserialize.parse_Block(ds)
+                b["hash"] = hash
+                chain_ids = frozenset([] if chain_id is None else [chain_id])
+                store.import_block(b, chain_ids = chain_ids)
 
             bytes_done += length
             if bytes_done >= store.commit_bytes :
