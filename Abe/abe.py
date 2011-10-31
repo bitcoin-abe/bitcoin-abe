@@ -17,13 +17,13 @@
 
 import sys
 import os
-import warnings
 import optparse
 import re
 from cgi import escape
 import posixpath
 import wsgiref.util
 import time
+import logging
 
 import version
 import DataStore
@@ -78,6 +78,9 @@ DEFAULT_TEMPLATE = """
 </body>
 </html>
 """
+
+DEFAULT_LOG_FORMAT=("%(asctime)s [%(process)d:%(threadName)s]"
+                    " %(levelname)s:%(name)s:%(message)s")
 
 # XXX This should probably be a property of chain, or even a query param.
 LOG10COIN = 8
@@ -139,8 +142,7 @@ class Abe:
             abe.template_vars.get('STATIC_PATH', abe.static_path))
         abe.template = flatten(args.template)
         abe.debug = args.debug
-        import logging
-        abe.log = logging
+        abe.log = logging.getLogger(__name__)
         abe.log.info('Abe initialized.')
         abe.home = "chains"
         if not args.auto_agpl:
@@ -166,7 +168,7 @@ class Abe:
             page['params'] = urlparse.parse_qs(env['QUERY_STRING'])
 
         if fix_path_info(env):
-            print "fixed path_info"
+            abe.log.debug("fixed path_info")
             return redirect(page)
 
         cmd = wsgiref.util.shift_path_info(env)
@@ -321,8 +323,6 @@ class Abe:
         if cmd == 'b':
             return abe.show_block_number(chain, page)
         if cmd == '':
-            #print "removing /"
-            # Tolerate trailing slash.
             page['env']['SCRIPT_NAME'] = page['env']['SCRIPT_NAME'][:-1]
             raise Redirect()
         if cmd == 'q':
@@ -1781,10 +1781,11 @@ def serve(store):
         from wsgiref.simple_server import make_server
         port = int(args.port or 80)
         httpd = make_server(args.host, port, abe)
-        print "Listening on http://" + args.host + ":" + str(port)
+        abe.log.warning("Listening on http://%s:%d", args.host, port)
         try:
             httpd.serve_forever()
         except:
+            abe.log.warning("Shutting down.")
             httpd.shutdown()
             raise
     else:
@@ -1804,11 +1805,11 @@ def serve(store):
             import signal
             def watch():
                 if not process_is_alive(wpid):
-                    print "process", str(wpid), "terminated, exiting"
+                    abe.log.warning("process %d terminated, exiting", wpid)
                     #os._exit(0)  # sys.exit merely raises an exception.
                     os.kill(os.getpid(), signal.SIGTERM)
                     return
-                #print "process", str(wpid), "found alive"
+                abe.log.log(0, "process %d found alive", wpid)
                 Timer(interval, watch).start()
             Timer(interval, watch).start()
         WSGIServer(abe).run()
@@ -1838,6 +1839,7 @@ def main(argv):
         "download_name":None,
         "watch_pid":    None,
         "base_url":     None,
+        "logging":      None,
 
         "template":     DEFAULT_TEMPLATE,
         "template_vars": {
@@ -1884,7 +1886,13 @@ See abe.conf for commented examples.""")
             % (argv[0],))
         return 1
 
-    conf['serve'] = not conf['no_serve']
+    logging.basicConfig(
+        stream=sys.stdout,
+        level=logging.DEBUG,
+        format=DEFAULT_LOG_FORMAT)
+    if args.logging is not None:
+        import logging.config as logging_config
+        logging_config.dictConfig(args.logging)
 
     if args.auto_agpl:
         import tarfile
