@@ -1,3 +1,5 @@
+* catch_up_thread branch: --no-serve prevents catching up.
+
 * Provide address short links in the style of http://firstbits.com/ as
   an optional add-on.
 
