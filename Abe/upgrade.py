@@ -26,7 +26,7 @@ def run_upgrades_locked(store, upgrades):
         vers, func = upgrades[i]
         if store.config['schema_version'] == vers:
             sv = upgrades[i+1][0]
-            print "Upgrading schema to version: " + sv
+            store.log.warning("Upgrading schema to version: %s", sv)
             func(store)
             if sv[:3] == 'Abe':
                 store.sql(
@@ -138,20 +138,20 @@ def index_block_tx_tx(store):
     store.sql("CREATE INDEX x_block_tx_tx ON block_tx (tx_id)")
 
 def init_block_txin(store):
-    print "Initializing block_txin."
+    store.log.info("Initializing block_txin.")
     count = int(store.selectrow("SELECT COUNT(1) FROM block_txin")[0] or 0)
     tried = 0
     added = 0
     seen = set()
 
-    print "...loading existing keys"
+    store.log.info("...loading existing keys")
     cur = store.conn.cursor()
     cur.execute(store.sql_transform("""
         SELECT block_id, txin_id FROM block_txin"""))
     for row in cur:
         seen.add(row)
 
-    print "...finding output blocks"
+    store.log.info("...finding output blocks")
     cur.execute(store.sql_transform("""
         SELECT bt.block_id, txin.txin_id, obt.block_id
           FROM block_tx bt
@@ -172,16 +172,16 @@ def init_block_txin(store):
                 added += 1
                 if count % 1000 == 0:
                     store.commit()
-                    print "commit %d" % (count,)
+                    store.log.info("commit %d", count)
         tried += 1
         if tried % 1000 == 0:
             sys.stdout.write('\r%d/%d ' % (added, tried))
             sys.stdout.flush()
 
-    print('done.')
+    store.log.info('done.')
 
 def init_block_value_in(store):
-    print "Calculating block_value_in."
+    store.log.info("Calculating block_value_in.")
     for row in store.selectall("""
         SELECT b.block_id, SUM(txout.txout_value)
           FROM block b
@@ -194,7 +194,7 @@ def init_block_value_in(store):
                   (int(row[1] or 0), row[0]))
 
 def init_block_value_out(store):
-    print "Calculating block_value_out."
+    store.log.info("Calculating block_value_out.")
     for row in store.selectall("""
         SELECT b.block_id, SUM(txout.txout_value)
           FROM block b
@@ -206,7 +206,7 @@ def init_block_value_out(store):
                   (int(row[1]), row[0]))
 
 def init_block_totals(store):
-    print "Calculating block total generated and age."
+    store.log.info("Calculating block total generated and age.")
     last_chain_id = None
     stats = None
     for row in store.selectall("""
@@ -241,7 +241,7 @@ def init_block_totals(store):
                    stats[block_id]['satoshis'], block_id))
 
 def init_satoshi_seconds_destroyed(store):
-    print "Calculating satoshi-seconds destroyed."
+    store.log.info("Calculating satoshi-seconds destroyed.")
     cur = store.conn.cursor()
     count = 0
     step = 100
@@ -272,10 +272,10 @@ def init_satoshi_seconds_destroyed(store):
                       " WHERE block_id = ? AND tx_id = ?",
                       (destroyed, block_id, tx_id))
         start += step
-    print("done.")
+    store.log.info("done.")
 
 def set_0_satoshi_seconds_destroyed(store):
-    print "Setting NULL to 0 in satoshi_seconds_destroyed."
+    store.log.info("Setting NULL to 0 in satoshi_seconds_destroyed.")
     cur = store.conn.cursor()
     cur.execute(store.sql_transform("""
         SELECT bt.block_id, bt.tx_id
@@ -289,7 +289,7 @@ def set_0_satoshi_seconds_destroyed(store):
              WHERE block_id = ? AND tx_id = ?""", row)
 
 def init_block_satoshi_seconds(store, ):
-    print "Calculating satoshi-seconds."
+    store.log.info("Calculating satoshi-seconds.")
     cur = store.conn.cursor()
     stats = {}
     cur.execute(store.sql_transform("""
@@ -338,12 +338,12 @@ def init_block_satoshi_seconds(store, ):
         count += 1
         if count % 1000 == 0:
             store.commit()
-            print "Updated %d blocks" % (count,)
+            stor.log.info("Updated %d blocks", count)
     if count % 1000 != 0:
-        print "Updated %d blocks" % (count,)
+        store.log.info("Updated %d blocks", count)
 
 def index_block_nTime(store):
-    print "Indexing block_nTime."
+    store.log.info("Indexing block_nTime.")
     store.sql("CREATE INDEX x_block_nTime ON block (block_nTime)")
 
 def replace_chain_summary(store):
@@ -408,8 +408,7 @@ def add_fk_chain_candidate_block_id(store):
             ALTER TABLE chain_candidate ADD CONSTRAINT fk1_chain_candidate
                 FOREIGN KEY (block_id) REFERENCES block (block_id)""")
     except:
-        # XXX should at least display the error message.
-        print "Failed to create FOREIGN KEY; ignoring error."
+        store.log.exception("Failed to create FOREIGN KEY; ignoring error.")
         store.rollback()
 
 def create_configvar(store):
@@ -478,7 +477,7 @@ def insert_missed_blocks(store):
         missed.append(row[0])
     if not missed:
         return
-    print "Attempting to repair", len(missed), "missed blocks."
+    store.log.info("Attempting to repair %d missed blocks.", len(missed))
     inserted = 0
     for block_id in missed:
         # Insert block if its previous block is in the chain.
@@ -494,10 +493,10 @@ def insert_missed_blocks(store):
              WHERE b.block_id = ?""", (block_id,))
         inserted += store.cursor.rowcount
         store.commit()  # XXX not sure why PostgreSQL needs this.
-    print "Inserted", inserted, "rows into chain_candidate."
+    store.log.info("Inserted %d rows into chain_candidate.", inserted)
 
 def repair_missed_blocks(store):
-    print "Finding longest chains."
+    store.log.info("Finding longest chains.")
     best_work = []
     for row in store.selectall("""
         SELECT cc.chain_id, MAX(b.block_chain_work)
@@ -522,7 +521,8 @@ def repair_missed_blocks(store):
                AND block_id = ?
         """, (chain_id, block_id))
         if in_longest == 1:
-            print "Chain", chain_id, "already has the block of greatest work."
+            store.log.info("Chain %d already has the block of greatest work.",
+                           chain_id)
             continue
         best.append([chain_id, block_id])
         store.sql("""
@@ -531,12 +531,12 @@ def repair_missed_blocks(store):
              WHERE chain_id = ?""",
                   (block_id, chain_id))
         if store.cursor.rowcount == 1:
-            print "Chain", chain_id, "block", block_id
+            store.log.info("Chain %d block %d", chain_id, block_id)
         else:
             raise Exception("Wrong rowcount updating chain " + str(chain_id))
     if not best:
         return
-    print "Marking blocks in longest chains."
+    store.log.info("Marking blocks in longest chains.")
     for elt in best:
         chain_id, block_id = elt
         count = 0
@@ -563,8 +563,8 @@ def repair_missed_blocks(store):
             block_id, in_longest = row
             if in_longest == 1:
                 break
-        print "Processed", count, "in chain", chain_id
-    print "Repair successful."
+        store.log.info("Processed %d in chain %d", count, chain_id)
+    store.log.info("Repair successful.")
 
 def add_block_num_tx(store):
     store.sql("ALTER TABLE block ADD block_num_tx NUMERIC(10)")
@@ -573,7 +573,7 @@ def add_block_ss_destroyed(store):
     store.sql("ALTER TABLE block ADD block_ss_destroyed NUMERIC(28)")
 
 def init_block_tx_sums(store):
-    print "Calculating block_num_tx and block_ss_destroyed."
+    store.log.info("Calculating block_num_tx and block_ss_destroyed.")
     rows = store.selectall("""
         SELECT block_id,
                COUNT(1),
@@ -583,7 +583,7 @@ def init_block_tx_sums(store):
           JOIN block_tx USING (block_id)
          GROUP BY block_id""")
     count = 0
-    print "Storing block_num_tx and block_ss_destroyed."
+    store.log.info("Storing block_num_tx and block_ss_destroyed.")
     for row in rows:
         block_id, num_tx, num_ssd, ssd = row
         if num_ssd < num_tx:
@@ -617,7 +617,7 @@ def rename_abe_sequences_key(store):
     except:
         store.rollback()
         return
-    print "copying sequence positions:", data
+    store.log.info("copying sequence positions: %s", data)
     store.ddl("DROP TABLE abe_sequences")
     store.ddl("""CREATE TABLE abe_sequences (
         sequence_key VARCHAR(100) PRIMARY KEY,
@@ -684,7 +684,7 @@ def clear_bad_addresses(store):
                  WHERE tx_id = ? AND txout_pos = 1 AND pubkey_id IS NOT NULL""",
                       (row[0],))
             if store.cursor.rowcount:
-                print "Cleared txout " + tx_hash
+                store.log.info("Cleared txout %s", tx_hash)
 
 def find_namecoin_addresses(store):
     updated = 0
@@ -702,10 +702,10 @@ def find_namecoin_addresses(store):
             updated += 1
             if updated % 1000 == 0:
                 store.commit()
-                print "Found %d addresses" % (updated,)
+                store.log.info("Found %d addresses", updated)
     if updated % 1000 > 0:
         store.commit()
-        print "Found %d addresses" % (updated,)
+        store.log.info("Found %d addresses", updated)
 
 def create_abe_lock(store):
     store.ddl("""CREATE TABLE abe_lock (
@@ -739,7 +739,7 @@ def insert_null_pubkey(store):
                   (DataStore.NULL_PUBKEY_ID, dbnull))
 
 def set_netfee_pubkey_id(store):
-    print "Updating network fee output address to 'Destroyed'..."
+    store.log.info("Updating network fee output address to 'Destroyed'...")
     # XXX This doesn't work for Oracle because of LOB weirdness.
     # There, you could probably get away with:
     # UPDATE txout SET pubkey_id = 0 WHERE txout_scriptPubKey BETWEEN 1 AND 2;
@@ -752,14 +752,14 @@ def set_netfee_pubkey_id(store):
          WHERE txout_scriptPubKey = ?""",
               (DataStore.NULL_PUBKEY_ID,
                store.binin(DataStore.SCRIPT_NETWORK_FEE)))
-    print "...rows updated: %d" % (store.cursor.rowcount,)
+    store.log.info("...rows updated: %d", store.cursor.rowcount)
 
 def adjust_block_total_satoshis(store):
-    print "Adjusting value outstanding for lost coins."
+    store.log.info("Adjusting value outstanding for lost coins.")
     block = {}
     block_ids = []
 
-    print "...getting block relationships."
+    store.log.info("...getting block relationships.")
     for block_id, prev_id in store.selectall("""
         SELECT block_id, prev_block_id
           FROM block
@@ -768,7 +768,7 @@ def adjust_block_total_satoshis(store):
         block[block_id] = {"prev_id": prev_id}
         block_ids.append(block_id)
 
-    print "...getting lossage per block."
+    store.log.info("...getting lossage per block.")
     for block_id, lost in store.selectall("""
         SELECT block_tx.block_id, SUM(txout.txout_value)
           FROM block_tx
@@ -778,14 +778,14 @@ def adjust_block_total_satoshis(store):
         if block_id in block:
             block[block_id]["lost"] = lost
 
-    print "...calculating adjustments."
+    store.log.info("...calculating adjustments.")
     for block_id in block_ids:
         b = block[block_id]
         prev_id = b["prev_id"]
         prev_lost = 0 if prev_id is None else block[prev_id]["cum_lost"]
         b["cum_lost"] = b.get("lost", 0) + prev_lost
 
-    print "...applying adjustments."
+    store.log.info("...applying adjustments.")
     count = 0
     for block_id in block_ids:
         adj = block[block_id]["cum_lost"]
@@ -797,9 +797,9 @@ def adjust_block_total_satoshis(store):
                       (adj, block_id))
         count += 1
         if count % 1000 == 0:
-            print "Adjusted %d of %d blocks." % (count, len(block_ids))
+            store.log.info("Adjusted %d of %d blocks.", count, len(block_ids))
     if count % 1000 != 0:
-        print "Adjusted %d of %d blocks." % (count, len(block_ids))
+        store.log.info("Adjusted %d of %d blocks.", count, len(block_ids))
 
 def config_limit_style(store):
     store.configure_limit_style()
@@ -810,7 +810,7 @@ def config_sequence_type(store):
         return
     store.configure_sequence_type()
     if store.config['sequence_type'] != "update":
-        print "Creating native sequences."
+        store.log.info("Creating native sequences.")
         for name in ['magic', 'policy', 'chain', 'datadir',
                      'tx', 'txout', 'pubkey', 'txin', 'block']:
             store.drop_sequence_if_exists(name)
@@ -897,7 +897,7 @@ def upgrade_schema(store):
     if sv != curr:
         raise Exception('Can not upgrade from schema version %s to %s\n'
                         % (sv, curr))
-    print "Upgrade complete."
+    store.log.warning("Upgrade complete.")
 
 if __name__ == '__main__':
     print "Run Abe with --upgrade added to the usual arguments."

@@ -79,8 +79,7 @@ DEFAULT_TEMPLATE = """
 </html>
 """
 
-DEFAULT_LOG_FORMAT=("%(asctime)s [%(process)d:%(threadName)s]"
-                    " %(levelname)s:%(name)s:%(message)s")
+DEFAULT_LOG_FORMAT = "%(message)s"
 
 # XXX This should probably be a property of chain, or even a query param.
 LOG10COIN = 8

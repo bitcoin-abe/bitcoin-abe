@@ -1,6 +1,7 @@
-* Bug: reorg may assign a block not in chain as chain_last_block_id.
+* Provide address short links in the style of http://firstbits.com/ as
+  an optional add-on.
 
-* Provide address short links in the style of http://firstbits.com/.
+* Write a test suite.  Include reorgs and upgrades.
 
 * Consider adjusting statistics for duplicate coinbase transactions.
 
@@ -10,7 +11,7 @@
 * Consider fixing: /block/HASH returns "Block not found" for block not
   in any chain.
 
-* Defunct abe.fcgi processes not letting abe.py exit.
+* Defunct abe.fcgi processes not letting abe.py exit.  Unseen in a while.
 
 * Bitcoin 140176 failed to catch up: str(exception) == "1".  Should
   probably limit the kinds of exceptions that catch_up converts to
@@ -19,8 +20,6 @@
 * Test for a portable "begin transaction" and use it.
 
 * Consider retesting SQL flavour every time on startup.
-
-* Write a test suite.  Include reorgs and upgrades.
 
 * Add search by date/time within chain.
 
@@ -49,12 +48,11 @@
 * Factor the coin-days destroyed feature as an optional add-on.
 
 * Slight variation in CoinDD et al. among sites indicates a bug.
+  Possibly fixed and due to corrupt data.
 
 * Clean up and document limits on search result size.
 
 * Admin interface to reset blkfile_offset, delete chains, etc.
-
-* Configurable logging.
 
 * Add a tool to upload transactions if bitcoind supports it.
 
