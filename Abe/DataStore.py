@@ -23,14 +23,13 @@
 
 import os
 import re
-import binascii
 
 # bitcointools -- modified deserialize.py to return raw transaction
 import BCDataStream
 import deserialize
 import util
-import warnings
 import threading
+import logging
 
 SCHEMA_VERSION = "Abe29"
 
@@ -94,7 +93,7 @@ class MerkleRootMismatch(InvalidBlock):
         ex.tx_hashes = tx_hashes
     def __str__(ex):
         return 'Block header Merkle root does not match its transactions. ' \
-            'block hash=%s' % (binascii.hexlify(ex.block_hash),)
+            'block hash=%s' % (ex.block_hash.encode('hex'),)
 
 class DataStore(object):
 
@@ -128,7 +127,10 @@ class DataStore(object):
 
         store.lock = threading.Lock()
         store.args = args
-        store.log_sql = args.log_sql
+        store.log = logging.getLogger(__name__)
+        store.sqllog = logging.getLogger(__name__ + ".sql")
+        if not args.log_sql:
+            store.sqllog.setLevel(logging.ERROR)
         store.module = __import__(args.dbtype)
         store.conn = store.connect()
         store.cursor = store.conn.cursor()
@@ -186,7 +188,7 @@ class DataStore(object):
         return conn
 
     def reconnect(store):
-        print "Reconnecting to database."
+        store.log.info("Reconnecting to database.")
         try:
             store.cursor.close()
         except:
@@ -244,10 +246,10 @@ class DataStore(object):
         if store.module.paramstyle in ('format', 'pyformat'):
             transform = store._qmark_to_format(transform)
         elif store.module.paramstyle == 'named':
-            transform = store._named_to_format(transform)
+            transform = store._qmark_to_named(transform)
         elif store.module.paramstyle != 'qmark':
-            warnings.warn("Database parameter style is " +
-                          "%s, trying qmark" % module.paramstyle)
+            store.log.warning("Database parameter style is "
+                              "%s, trying qmark", module.paramstyle)
             pass
 
         # Binary I/O with the database.
@@ -257,13 +259,13 @@ class DataStore(object):
         def rev(x):
             return x[::-1]
         def to_hex(x):
-            return None if x is None else binascii.hexlify(x)
+            return None if x is None else str(x).encode('hex')
         def from_hex(x):
-            return None if x is None else binascii.unhexlify(x)
+            return None if x is None else x.decode('hex')
         def to_hex_rev(x):
-            return None if x is None else binascii.hexlify(x[::-1])
+            return None if x is None else str(x)[::-1].encode('hex')
         def from_hex_rev(x):
-            return None if x is None else binascii.unhexlify(x)[::-1]
+            return None if x is None else x.decode('hex')[::-1]
 
         val = store.config.get('binary_type')
 
@@ -398,17 +400,23 @@ class DataStore(object):
         if cached is None:
             cached = store.sql_transform(stmt)
             store._sql_cache[stmt] = cached
-        if store.log_sql:
-            print "SQL:", cached, params
-        store.cursor.execute(cached, params)
+        store.sqllog.info("EXEC: %s %s", cached, params)
+        try:
+            store.cursor.execute(cached, params)
+        except Exception, e:
+            store.sqllog.info("EXCEPTION: %s", e)
+            raise
 
     def ddl(store, stmt):
         if stmt.lstrip().startswith("CREATE TABLE "):
             stmt += store.config['create_table_epilogue']
         stmt = store._sql_fallback_to_lob(store.sql_transform(stmt))
-        if store.log_sql:
-            print "SQL DDL:", stmt
-        store.cursor.execute(stmt)
+        store.sqllog.info("DDL: %s", stmt)
+        try:
+            store.cursor.execute(stmt)
+        except Exception, e:
+            store.sqllog.info("EXCEPTION: %s", e)
+            raise
         if store.config['ddl_implicit_commit'] == 'false':
             store.commit()
 
@@ -420,7 +428,7 @@ class DataStore(object):
         return ret
 
     # Convert standard placeholders to Python "named" style.
-    def _named_to_format(store, fn):
+    def _qmark_to_named(store, fn):
         def ret(stmt):
             i = [0]
             def newname(m):
@@ -488,15 +496,13 @@ class DataStore(object):
     def selectrow(store, stmt, params=()):
         store.sql(stmt, params)
         ret = store.cursor.fetchone()
-        if store.log_sql:
-            print "SQL FETCH:", ret
+        store.sqllog.debug("FETCH: %s", ret)
         return ret
 
     def _selectall(store, stmt, params=()):
         store.sql(stmt, params)
         ret = store.cursor.fetchall()
-        if store.log_sql:
-            print "SQL FETCHALL:", ret
+        store.sqllog.debug("FETCHALL: %s", ret)
         return ret
 
     def _init_datadirs(store):
@@ -557,7 +563,8 @@ class DataStore(object):
                                   (chain_id, chain_name, code3,
                                    store.binin(addr_vers)))
                         store.commit()
-                        print "Assigned chain_id", chain_id, "to", chain_name
+                        store.log.warning("Assigned chain_id %d to %s",
+                                          chain_id, chain_name)
 
             elif dircfg in datadirs:
                 store.datadirs.append(datadirs[dircfg])
@@ -593,7 +600,7 @@ class DataStore(object):
                       (key, ret))
             if store.cursor.rowcount == 1:
                 return ret
-            warnings.warn('Contention on abe_sequences %s:%d' % (key, ret))
+            store.log.info('Contention on abe_sequences %s:%d', key, ret)
 
     def _get_sequence_initial_value(store, key):
         (ret,) = store.selectrow("SELECT MAX(" + key + "_id) FROM " + key)
@@ -651,7 +658,7 @@ class DataStore(object):
             store.drop_table_if_exists('abe_dual')
             store.ddl("CREATE TABLE abe_dual (x CHAR(1))")
             store.sql("INSERT INTO abe_dual(x) VALUES ('X')")
-            print "Created silly table abe_dual"
+            store.log.info("Created silly table abe_dual")
         store._create_sequence(key)
 
     def _new_id_db2(store, key):
@@ -674,18 +681,15 @@ class DataStore(object):
         return ret
 
     def commit(store):
-        if store.log_sql:
-            print "SQL COMMIT"
+        store.sqllog.info("COMMIT")
         store.conn.commit()
 
     def rollback(store):
-        if store.log_sql:
-            print "SQL ROLLBACK"
+        store.sqllog.info("ROLLBACK")
         store.conn.rollback()
 
     def close(store):
-        if store.log_sql:
-            print "SQL CLOSE"
+        store.sqllog.info("CLOSE")
         store.conn.close()
 
     def _get_ddl(store):
@@ -1003,7 +1007,7 @@ store._ddl['txout_approx'],
             try:
                 store.ddl(stmt)
             except:
-                print "Failed:", stmt
+                store.log.error("Failed: %s", stmt)
                 raise
 
         for key in ['magic', 'policy', 'chain', 'datadir',
@@ -1068,7 +1072,7 @@ store._ddl['txout_approx'],
             store.config['binary_type'] = val
             store._set_sql_flavour()
             if store._test_binary_type():
-                print "binary_type=%s" % (val,)
+                store.log.info("binary_type=%s", val)
                 return
         raise Exception(
             "No known binary data representation works"
@@ -1080,7 +1084,7 @@ store._ddl['txout_approx'],
             store.config['int_type'] = val
             store._set_sql_flavour()
             if store._test_int_type():
-                print "int_type=%s" % (val,)
+                store.log.info("int_type=%s", val)
                 return
         raise Exception("No known large integer representation works")
 
@@ -1089,7 +1093,7 @@ store._ddl['txout_approx'],
             store.config['sequence_type'] = val
             store._set_sql_flavour()
             if store._test_sequence_type():
-                print "sequence_type=%s" % (val,)
+                store.log.info("sequence_type=%s", val)
                 return
         raise Exception("No known sequence type works")
 
@@ -1118,7 +1122,7 @@ store._ddl['txout_approx'],
             store.config['ddl_implicit_commit'] = val
             store._set_sql_flavour()
             if store._test_ddl():
-                print "ddl_implicit_commit=%s" % (val,)
+                store.log.info("ddl_implicit_commit=%s", val)
                 return
         raise Exception("Can not test for DDL implicit commit.")
 
@@ -1136,8 +1140,7 @@ store._ddl['txout_approx'],
         except store.module.DatabaseError, e:
             store.rollback()
             return False
-        except Exception, e:
-            print "_test_ddl:", store.config['ddl_implicit_commit'] + ":", e
+        except Exception:
             store.rollback()
             return False
         finally:
@@ -1148,7 +1151,7 @@ store._ddl['txout_approx'],
             store.config['create_table_epilogue'] = val
             store._set_sql_flavour()
             if store._test_transaction():
-                print "create_table_epilogue='%s'" % (val,)
+                store.log.info("create_table_epilogue='%s'", val)
                 return
         raise Exception("Can not create a transactional table.")
 
@@ -1169,8 +1172,6 @@ store._ddl['txout_approx'],
             store.rollback()
             return False
         except Exception, e:
-            print "_test_transaction:", \
-                store.config['create_table_epilogue'] + ":", e
             store.rollback()
             return False
         finally:
@@ -1198,12 +1199,11 @@ store._ddl['txout_approx'],
                 store.rollback()
                 hi = mid
             except Exception, e:
-                print "configure_max_varchar: %d:" % (mid,), e
                 store.rollback()
                 hi = mid
             if lo + 1 == hi:
                 store.config['max_varchar'] = str(lo)
-                print "max_varchar=" + store.config['max_varchar']
+                store.log.info("max_varchar=%s", store.config['max_varchar'])
                 break
             mid = (lo + hi) / 2
         store.drop_table_if_exists("abe_test_1")
@@ -1220,14 +1220,13 @@ store._ddl['txout_approx'],
                 out = store.selectrow("SELECT a FROM abe_test_1")[0]
                 if store.binout(out) == long_str:
                     store.config['clob_type'] = val
-                    print "clob_type=" + val
+                    store.log.info("clob_type=%s", val)
                     return
                 else:
-                    print "out=" + repr(out)
+                    store.log.debug("out=%s", repr(out))
             except store.module.DatabaseError, e:
                 store.rollback()
             except Exception, e:
-                print "configure_clob_type: %s:" % (val,), e
                 try:
                     store.rollback()
                 except:
@@ -1235,7 +1234,7 @@ store._ddl['txout_approx'],
                     store.reconnect()
             finally:
                 store.drop_table_if_exists("abe_test_1")
-        warnings.warn("No native type found for CLOB.")
+        store.log.info("No native type found for CLOB.")
         store.config['clob_type'] = NO_CLOB
 
     def _test_binary_type(store):
@@ -1259,7 +1258,6 @@ store._ddl['txout_approx'],
             store.rollback()
             return False
         except Exception, e:
-            print "_test_binary_type:", store.config['binary_type'] + ":", e
             store.rollback()
             return False
         finally:
@@ -1293,7 +1291,6 @@ store._ddl['txout_approx'],
             store.rollback()
             return False
         except Exception, e:
-            print "_test_int_type:", store.config['int_type'] + ":", e
             store.rollback()
             return False
         finally:
@@ -1319,7 +1316,6 @@ store._ddl['txout_approx'],
             store.rollback()
             return False
         except Exception, e:
-            print "_test_sequence_type:", store.config['sequence_type'] + ":", e
             store.rollback()
             return False
         finally:
@@ -1334,7 +1330,7 @@ store._ddl['txout_approx'],
             store.config['limit_style'] = val
             store._set_sql_flavour()
             if store._test_limit_style():
-                print "limit_style=%s" % (val,)
+                store.log.info("limit_style=%s", val)
                 return
         raise Exception("Can not emulate LIMIT.")
 
@@ -1355,7 +1351,6 @@ store._ddl['txout_approx'],
             store.rollback()
             return False
         except Exception, e:
-            print "_test_limit_style:", store.config['limit_style'] + ":", e
             store.rollback()
             return False
         finally:
@@ -1425,7 +1420,7 @@ store._ddl['txout_approx'],
 
     def is_descended_from(store, block_id, ancestor_id):
 #        ret = store._is_descended_from(block_id, ancestor_id)
-#        print block_id, "is" + ('' if ret else ' NOT'), "descended from", ancestor_id
+#        store.log.debug("%d is%s descended from %d", block_id, '' if ret else ' NOT', ancestor_id)
 #        return ret
 #    def _is_descended_from(store, block_id, ancestor_id):
         if block_id == ancestor_id:
@@ -1436,7 +1431,6 @@ store._ddl['txout_approx'],
         ancestor = store._load_block(ancestor_id)
         chains = ancestor['in_longest_chains']
         while True:
-            #print "is_descended_from", ancestor_id, block
             if chains.intersection(block['in_longest_chains']):
                 return ancestor['height'] <= block['height']
             if block['in_longest_chains'] - chains:
@@ -1554,7 +1548,8 @@ store._ddl['txout_approx'],
                 # inserted the same block, it is okay.
                 if store.selectrow("SELECT 1 FROM block WHERE block_hash = ?",
                                    (store.hashin(b['hash']),)):
-                    print "already inserted; block_id %d unsued" % (block_id,)
+                    store.log.info("Block already inserted; block_id %d unsued",
+                                   block_id)
                     return
 
             # This is not an expected error, or our caller may have to
@@ -1571,7 +1566,7 @@ store._ddl['txout_approx'],
                     (block_id, tx_id, tx_pos)
                 VALUES (?, ?, ?)""",
                       (block_id, tx['tx_id'], tx_pos))
-            print "block_tx", block_id, tx['tx_id']
+            store.log.info("block_tx %d %d", block_id, tx['tx_id'])
 
         # Create rows in block_txin.  In case of duplicate transactions,
         # choose the one with the lowest block ID.  XXX For consistency,
@@ -1972,7 +1967,6 @@ store._ddl['txout_approx'],
                 to_disconnect = []
                 winner_id = b['top']['block_id']
                 winner_height = b['top']['height']
-                #print "start", winner_height, loser_height
                 while loser_height > winner_height:
                     to_disconnect.insert(0, loser_id)
                     loser_id = store.get_prev_block_id(loser_id)
@@ -1981,7 +1975,6 @@ store._ddl['txout_approx'],
                     to_connect.insert(0, winner_id)
                     winner_id = store.get_prev_block_id(winner_id)
                     winner_height -= 1
-                #print "tie", loser_height, loser_id, winner_id
                 loser_height = None
                 while loser_id <> winner_id:
                     to_disconnect.insert(0, loser_id)
@@ -2031,7 +2024,6 @@ store._ddl['txout_approx'],
             (block_id,))[0]
 
     def disconnect_block(store, block_id, chain_id):
-        #print "disconnect", block_id, chain_id
         store.sql("""
             UPDATE chain_candidate
                SET in_longest = 0
@@ -2040,7 +2032,6 @@ store._ddl['txout_approx'],
         store._remove_block_chain(block_id, chain_id)
 
     def connect_block(store, block_id, chain_id):
-        #print "connect", block_id, chain_id
         store.sql("""
             UPDATE chain_candidate
                SET in_longest = 1
@@ -2123,10 +2114,7 @@ store._ddl['txout_approx'],
             try:
                 store.catch_up_dir(dircfg)
             except Exception, e:
-                import traceback
-                traceback.print_exc()
-                print ("Warning: failed to catch up %s: %s"
-                       % (dircfg['dirname'], str(e))), dircfg
+                store.log.exception("Failed to catch up %s", dircfg)
                 store.rollback()
 
     # Load all blocks starting at the current file and offset.
@@ -2141,7 +2129,7 @@ store._ddl['txout_approx'],
         try:
             ds = open_blkfile()
         except IOError, e:
-            print "Skipping datadir " + dircfg['dirname'] + ": " + str(e)
+            store.log.warning("Skipping datadir %s: %s", dircfg['dirname'], e)
             return
 
         while (True):
@@ -2192,23 +2180,24 @@ store._ddl['txout_approx'],
                         if (data != ""):
                             ds.read_cursor -= len(data)
                             break
-                    print "Skipped %d NUL bytes at block end" % (
-                        ds.read_cursor - offset,)
+                    store.log.info("Skipped %d NUL bytes at block end",
+                                   ds.read_cursor - offset)
                     continue
 
                 filename = store.blkfile_name(dircfg)
-                print "chain not found for magic", repr(magic), \
-                    "in block file", filename, "at offset", offset
-                print ("If file contents have changed, consider forcing a"
-                       " rescan: UPDATE datadir SET blkfile_number=1,"
-                       " blkfile_offset=0 WHERE dirname='%s'"
-                       % (dircfg['dirname'],))
+                store.log.error(
+                    "Chain not found for magic %s in block file %s at"
+                    " offset %d.  If file contents have changed, consider"
+                    " forcing a rescan: UPDATE datadir SET blkfile_number=1,"
+                    " blkfile_offset=0 WHERE dirname='%s'",
+                    repr(magic), filename, offset, dircfg['dirname'])
                 ds.read_cursor = offset
                 break
 
             length = ds.read_int32()
             if ds.read_cursor + length > len(ds.input):
-                print "incomplete block of length", length, "chain", chain_id
+                store.log.debug("incomplete block of length %d chain %d",
+                                length, chain_id)
                 ds.read_cursor = offset
                 break
 
@@ -2254,8 +2243,8 @@ store._ddl['txout_approx'],
                          WHERE block_id = ?
                            AND chain_id = ?""",
                                     (b['block_id'], chain_id)):
-                        print "block", b['block_id'], \
-                            "already in chain", chain_id
+                        store.log.info("block %d already in chain %d",
+                                       b['block_id'], chain_id)
                         b = None
                     else:
                         if b['height'] == 0:
@@ -2269,7 +2258,7 @@ store._ddl['txout_approx'],
 
             bytes_done += length
             if bytes_done >= store.commit_bytes :
-                print "commit"
+                store.log.debug("commit")
                 store.save_blkfile_offset(dircfg, ds.read_cursor)
                 store.commit()
                 store._refresh_dircfg(dircfg)

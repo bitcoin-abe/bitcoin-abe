@@ -17,14 +17,13 @@
 
 import sys
 import os
-import warnings
 import optparse
 import re
 from cgi import escape
 import posixpath
 import wsgiref.util
 import time
-import binascii
+import logging
 
 import version
 import DataStore
@@ -79,6 +78,9 @@ DEFAULT_TEMPLATE = """
 </body>
 </html>
 """
+
+DEFAULT_LOG_FORMAT=("%(asctime)s [%(process)d:%(threadName)s]"
+                    " %(levelname)s:%(name)s:%(message)s")
 
 # XXX This should probably be a property of chain, or even a query param.
 LOG10COIN = 8
@@ -153,8 +155,7 @@ class Abe:
             abe.template_vars.get('STATIC_PATH', abe.static_path))
         abe.template = flatten(args.template)
         abe.debug = args.debug
-        import logging
-        abe.log = logging
+        abe.log = logging.getLogger(__name__)
         abe.log.info('Abe initialized.')
         abe.home = "chains"
         if not args.auto_agpl:
@@ -180,7 +181,7 @@ class Abe:
             page['params'] = urlparse.parse_qs(env['QUERY_STRING'])
 
         if fix_path_info(env):
-            print "fixed path_info"
+            abe.log.debug("fixed path_info")
             return redirect(page)
 
         cmd = wsgiref.util.shift_path_info(env)
@@ -338,8 +339,6 @@ class Abe:
         if cmd == 'b':
             return abe.show_block_number(chain, page)
         if cmd == '':
-            #print "removing /"
-            # Tolerate trailing slash.
             page['env']['SCRIPT_NAME'] = page['env']['SCRIPT_NAME'][:-1]
             raise Redirect()
         if cmd == 'q':
@@ -1336,7 +1335,7 @@ class Abe:
                 ' as hex strings separated by colon (":").\n' \
                 '/q/decode_address/ADDRESS\n'
         version, hash = decode_address(addr)
-        ret = binascii.hexlify(version) + ":" + binascii.hexlify(hash)
+        ret = version.encode('hex') + ":" + hash.encode('hex')
         if hash_to_address(version, hash) != addr:
             ret = "INVALID(" + ret + ")"
         return ret
@@ -1350,7 +1349,7 @@ class Abe:
                 ' validity.  See also /q/decode_address.\n' \
                 '/q/addresstohash/ADDRESS\n'
         version, hash = decode_address(addr)
-        return binascii.hexlify(hash).upper()
+        return hash.encode('hex').upper()
 
     def q_hashtoaddress(abe, page, chain):
         """shows the address with the given version prefix and hash."""
@@ -1373,15 +1372,15 @@ class Abe:
             version, hash = arg1.split(":", 1)
 
         elif chain:
-            version, hash = binascii.hexlify(chain['address_version']), arg1
+            version, hash = chain['address_version'].encode('hex'), arg1
 
         else:
             # Default: Bitcoin address starting with "1".
             version, hash = '00', arg1
 
         try:
-            hash = binascii.unhexlify(hash)
-            version = binascii.unhexlify(version)
+            hash = hash.decode('hex')
+            version = version.decode('hex')
         except:
             return 'ERROR: Arguments must be hexadecimal strings of even length'
         return hash_to_address(version, hash)
@@ -1399,10 +1398,10 @@ class Abe:
                 " to address 1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa.\n" \
                 "/q/hashpubkey/PUBKEY\n"
         try:
-            pubkey = binascii.unhexlify(pubkey)
+            pubkey = pubkey.decode('hex')
         except:
             return 'ERROR: invalid hexadecimal byte string.'
-        return binascii.hexlify(util.pubkey_to_hash(pubkey)).upper()
+        return util.pubkey_to_hash(pubkey).encode('hex').upper()
 
     def q_checkaddress(abe, page, chain):
         """checks an address for validity."""
@@ -1416,7 +1415,7 @@ class Abe:
         if ADDRESS_RE.match(addr):
             version, hash = decode_address(addr)
             if hash_to_address(version, hash) == addr:
-                return binascii.hexlify(version).upper()
+                return version.encode('hex').upper()
             return 'CK'
         if len(addr) >= 26:
             return 'X5'
@@ -1798,10 +1797,11 @@ def serve(store):
         from wsgiref.simple_server import make_server
         port = int(args.port or 80)
         httpd = make_server(args.host, port, abe)
-        print "Listening on http://" + args.host + ":" + str(port)
+        abe.log.warning("Listening on http://%s:%d", args.host, port)
         try:
             httpd.serve_forever()
         except:
+            abe.log.warning("Shutting down.")
             httpd.shutdown()
             raise
     else:
@@ -1821,11 +1821,11 @@ def serve(store):
             import signal
             def watch():
                 if not process_is_alive(wpid):
-                    print "process", str(wpid), "terminated, exiting"
+                    abe.log.warning("process %d terminated, exiting", wpid)
                     #os._exit(0)  # sys.exit merely raises an exception.
                     os.kill(os.getpid(), signal.SIGTERM)
                     return
-                #print "process", str(wpid), "found alive"
+                abe.log.log(0, "process %d found alive", wpid)
                 Timer(interval, watch).start()
             Timer(interval, watch).start()
         WSGIServer(abe).run()
@@ -1856,6 +1856,7 @@ def main(argv):
         "watch_pid":    None,
         "base_url":     None,
         "no_update":    None,
+        "logging":      None,
 
         "template":     DEFAULT_TEMPLATE,
         "template_vars": {
@@ -1902,7 +1903,13 @@ See abe.conf for commented examples.""")
             % (argv[0],))
         return 1
 
-    conf['serve'] = not conf['no_serve']
+    logging.basicConfig(
+        stream=sys.stdout,
+        level=logging.DEBUG,
+        format=DEFAULT_LOG_FORMAT)
+    if args.logging is not None:
+        import logging.config as logging_config
+        logging_config.dictConfig(args.logging)
 
     if args.auto_agpl:
         import tarfile

@@ -14,6 +14,9 @@
 # along with this program.  If not, see
 # <http://www.gnu.org/licenses/gpl.html>.
 
+def looks_like_json(val):
+    return val[:1] in ('"', '[', '{') or val in ('true', 'false', 'null')
+
 def parse_argv(argv, conf={}, config_name='config', strict=False):
     arg_dict = conf.copy()
     args = lambda var: arg_dict[var]
@@ -46,7 +49,7 @@ def parse_argv(argv, conf={}, config_name='config', strict=False):
                 var = var[:-1]
                 add = True
 
-        if val is not True and val[:1] in ('"', '[', '{'):
+        if val is not True and looks_like_json(val):
             val = parse_json(val, var)
 
         var = var.replace('-', '_')
@@ -98,9 +101,9 @@ def read(fp):
     "NAME=VALUE" and "NAME VALUE" are equivalent.  Whitespace around
     names and values is ignored, as are lines starting with '#' and
     empty lines.  Values may be JSON strings, arrays, or objects.  A
-    value that does not start with '"' or '{' or '[' is read as a
-    one-line string.  A line with just "NAME" stores True as the
-    value.
+    value that does not start with '"' or '{' or '[' and is not a
+    boolean is read as a one-line string.  A line with just "NAME"
+    stores True as the value.
     """
     entries = []
     def store(name, value, additive):
@@ -156,7 +159,17 @@ def read(fp):
         while c not in ('\n', ''):
             value += c
             c = fp.read(1)
-        store(name, value.rstrip(), additive)
+        value = value.strip()
+
+        # Booleans and null.
+        if value == 'true':
+            value = True
+        elif value == 'false':
+            value = False
+        elif value == 'null':
+            value = None
+
+        store(name, value, additive)
 
     return entries
 
