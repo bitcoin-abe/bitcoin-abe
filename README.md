@@ -141,7 +141,8 @@ More information
 Please see TODO.txt for a list of what is not yet implemented but
 would like to be.
 
-Forum thread: https://forum.bitcoin.org/index.php?topic=16141.0
+Forum thread: https://bitcointalk.org/index.php?topic=22785.0
+Newbies: https://bitcointalk.org/index.php?topic=51139.0
 
 Donations appreciated: 1PWC7PNHL1SgvZaN7xEtygenKjWobWsCuf (BTC)
 NJ3MSELK1cWnqUa6xhF2wUYAnz3RSrWXcK (NMC)
