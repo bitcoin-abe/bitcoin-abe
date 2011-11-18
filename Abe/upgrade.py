@@ -338,7 +338,7 @@ def init_block_satoshi_seconds(store, ):
         count += 1
         if count % 1000 == 0:
             store.commit()
-            stor.log.info("Updated %d blocks", count)
+            store.log.info("Updated %d blocks", count)
     if count % 1000 != 0:
         store.log.info("Updated %d blocks", count)
 
