@@ -6,8 +6,12 @@
  </style>
  </head>
 <body>
+<h1>Abe: Frequently Asked Questions</h1>
 <ul>
 <li><a href="#pubkey_hash">Where in the database are bitcoin addresses?</a></li>
+<li><a href="#address_version">How do I know
+    what <code>address_version</code> and <code>code3</code> to use
+    for a new alt chain?</a></li>
 </ul>
 
 <p class="q"><a name="pubkey_hash">Where in the database are bitcoin
@@ -21,5 +25,52 @@
   in <code>pubkey.pubkey_hash</code>.  Abe converts hash values to
   bitcoin addresses as needed using the <code>hash_to_address</code>
   function in abe.py.</p>
+<p class="q"><a name="address_version">How do I know
+    what <code>address_version</code> and <code>code3</code> to use
+    for a new alt chain?</a></p>
+<p class="a"><code>code3</code> can be any 3 characters, e.g. "BTC"
+  for bitcoin.  If people expect "DVC" (for example) to mean Devcoin,
+  use that.</p>
+
+  <p class="a">For <code>address_version</code>, if you have a valid
+  address for the new chain, append it to
+  <a href="http://abe.john-edwin-tobey.org/q/decode_address/">http://abe.john-edwin-tobey.org/q/decode_address/</a>.
+  For example, Testnet address mgnQ32RSjvmTLB3jVZ9L2xUTT512cCX9b8
+  gives
+  <a href="http://abe.john-edwin-tobey.org/q/decode_address/mgnQ32RSjvmTLB3jVZ9L2xUTT512cCX9b8">http://abe.john-edwin-tobey.org/q/decode_address/mgnQ32RSjvmTLB3jVZ9L2xUTT512cCX9b8</a>,
+  which
+  shows <code>6f:0de3da453bfd284cd1c94902dbb9bc28bbed139f</code>. Take
+  the part to the left of the colon (<code>:</code>) (<code>6f</code>
+  for Testnet) and replace "XX" with it in "\u00XX"
+  (<code>"\u006f"</code> for Testnet) That is the value
+  for <code>address_version</code> in the config file's JSON
+  format.</p>
+
+  <p class="a"><code>address_version</code> comes from the first byte
+  of the input to SHA256 used
+  in <a href="https://en.bitcoin.it/wiki/Protocol_specification#Addresses">address
+  computation</a>.  In Bitcoin as of this writing, this information is
+  in <a href="https://github.com/bitcoin/bitcoin/blob/d2291cce9235708f3bc3f95ac1b45164a03cd2ce/src/base58.h#L263">src/base58.h</a>:
+
+<pre>
+    enum
+    {
+        PUBKEY_ADDRESS = 0,
+        SCRIPT_ADDRESS = 5,
+        PUBKEY_ADDRESS_TEST = 111,
+        SCRIPT_ADDRESS_TEST = 196,
+    };
+</pre>
+
+  The byte is 111 for Testnet and 0 for regular Bitcoin.  You would
+  translate byte 111 to a JSON string as follows: 111 = '6f'
+  (hexadecimal).  In JSON, a 1-byte string is encoded
+  as <code>"\u00XX"</code> where XX are the hex digits.  So Testnet
+  would be <code>"\u006f"</code>.</p>
+
+  <p class="a">If you get the wrong <code>address_version</code>
+  value, everything will work except for address display.  You could
+  look up devcoin addresses, but they would appear different on web
+  pages.</p>
 </body>
 </html>
