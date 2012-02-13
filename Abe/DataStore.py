@@ -36,6 +36,7 @@ CONFIG_DEFAULTS = {
     "dbtype":       None,
     "connect_args": None,
     "binary_type":  None,
+    "int_type":     None,
     "upgrade":      None,
     "commit_bytes": None,
     "log_sql":      None,
@@ -1078,7 +1079,10 @@ store._ddl['txout_approx'],
             "Binary type " + store.args.binary_type + " fails test")
 
     def configure_int_type(store):
-        for val in ['int', 'decimal', 'str']:
+        for val in (
+            ['int', 'decimal', 'str']
+            if store.args.int_type is None else
+            [ store.args.int_type ]):
             store.config['int_type'] = val
             store._set_sql_flavour()
             if store._test_int_type():
