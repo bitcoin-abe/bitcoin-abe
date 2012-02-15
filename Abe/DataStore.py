@@ -676,7 +676,8 @@ class DataStore(object):
     def _new_id_mysql(store, key):
         store.sql("INSERT INTO " + key + "_seq () VALUES ()")
         (ret,) = store.selectrow("SELECT LAST_INSERT_ID()")
-        store.sql("DELETE FROM " + key + "_seq")
+        if ret % 1000 == 0:
+            store.sql("DELETE FROM " + key + "_seq WHERE id < ?", (ret,))
         return ret
 
     def commit(store):
