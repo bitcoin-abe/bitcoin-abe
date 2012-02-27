@@ -172,8 +172,8 @@ def parse_BlockHeader(vds):
 
 def parse_Block(vds):
   d = parse_BlockHeader(vds)
-  if d['version'] & (1 << 8):
-    d['auxpow'] = parse_AuxPow(vds)
+#  if d['version'] & (1 << 8):
+#    d['auxpow'] = parse_AuxPow(vds)
   d['transactions'] = []
   nTransactions = vds.read_compact_size()
   for i in xrange(nTransactions):

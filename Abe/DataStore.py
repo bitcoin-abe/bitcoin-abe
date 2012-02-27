@@ -33,14 +33,15 @@ import logging
 SCHEMA_VERSION = "Abe29"
 
 CONFIG_DEFAULTS = {
-    "dbtype":       None,
-    "connect_args": None,
-    "binary_type":  None,
-    "int_type":     None,
-    "upgrade":      None,
-    "commit_bytes": None,
-    "log_sql":      None,
-    "datadir":      None,
+    "dbtype":             None,
+    "connect_args":       None,
+    "binary_type":        None,
+    "int_type":           None,
+    "upgrade":            None,
+    "commit_bytes":       None,
+    "log_sql":            None,
+    "datadir":            None,
+    "ignore_bit8_chains": None,
 }
 
 WORK_BITS = 304  # XXX more than necessary.
@@ -155,6 +156,8 @@ class DataStore(object):
         store._set_sql_flavour()
         store._blocks = {}
         store._init_datadirs()
+        store.no_bit8_chain_ids = store._find_no_bit8_chain_ids(
+            args.ignore_bit8_chains)
 
         store.commit_bytes = args.commit_bytes
         if store.commit_bytes is None:
@@ -581,6 +584,26 @@ class DataStore(object):
                 "blkfile_offset": 0,
                 "chain_id": chain_id,
                 })
+
+    def _find_no_bit8_chain_ids(store, no_bit8_chains):
+        chains = no_bit8_chains
+        if chains is None:
+            chains = ["Bitcoin", "Testnet"]
+        if isinstance(chains, str):
+            chains = [chains]
+        ids = set()
+        for name in chains:
+            rows = store.selectall(
+                "SELECT chain_id FROM chain WHERE chain_name = ?", (name,))
+            if not rows:
+                if no_bit8_chains is not None:
+                    # Make them fix their config.
+                    raise ValueError(
+                        "Unknown chain name in ignore-bit8-chains: " + name)
+                continue
+            for row in rows:
+                ids.add(int(row[0]))
+        return ids
 
     def _new_id_update(store, key):
         """
@@ -2276,7 +2299,7 @@ store._ddl['txout_approx'],
                             b['hashPrev'] = 'dummy'  # Fool adopt_orphans.
                         store.offer_block_to_chains(b, frozenset([chain_id]))
             else:
-                b = deserialize.parse_Block(ds)
+                b = store.parse_block(ds, chain_id, magic, length)
                 b["hash"] = hash
                 chain_ids = frozenset([] if chain_id is None else [chain_id])
                 store.import_block(b, chain_ids = chain_ids)
@@ -2292,6 +2315,21 @@ store._ddl['txout_approx'],
         if bytes_done > 0:
             store.save_blkfile_offset(dircfg, ds.read_cursor)
             store.commit()
+
+    def parse_block(store, ds, chain_id=None, magic=None, length=None):
+        d = deserialize.parse_BlockHeader(ds)
+        if d['version'] & (1 << 8):
+            if chain_id in store.no_bit8_chain_ids:
+                store.log.debug(
+                    "Ignored bit8 in version 0x%08x of chain_id %d"
+                    % (d['version'], chain_id))
+            else:
+                d['auxpow'] = deserialize.parse_AuxPow(ds)
+        d['transactions'] = []
+        nTransactions = ds.read_compact_size()
+        for i in xrange(nTransactions):
+            d['transactions'].append(deserialize.parse_Transaction(ds))
+        return d
 
     def blkfile_name(store, dircfg):
         return os.path.join(dircfg['dirname'], "blk%04d.dat"
