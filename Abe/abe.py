@@ -1062,9 +1062,9 @@ class Abe:
 
         body += ['<p>']
         if truncated:
-            body += ['<strong>Results truncated</strong></p>']
+            body += ['<strong>Results truncated</strong>']
         else:
-            body += ['<p>Balance: '] + format_amounts(balance, True)
+            body += ['Balance: '] + format_amounts(balance, True)
 
         for chain_id in chain_ids:
             balance[chain_id] = 0  # Reset for history traversal.
