@@ -938,7 +938,6 @@ class Abe:
                 b.block_nTime,
                 cc.chain_id,
                 b.block_height,
-                block_tx.tx_pos,
                 1,
                 b.block_hash,
                 tx.tx_hash,
@@ -952,79 +951,53 @@ class Abe:
               JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
               JOIN pubkey ON (pubkey.pubkey_id = prevout.pubkey_id)
              WHERE pubkey.pubkey_hash = ?
-               AND cc.in_longest = 1
-             ORDER BY
-                   b.block_nTime,
-                   cc.chain_id,
-                   b.block_height,
-                   block_tx.tx_pos,
-                   txin.txin_pos""" + ("" if max_rows < 0 else """
+               AND cc.in_longest = 1""" + ("" if max_rows < 0 else """
              LIMIT ?"""),
                       (dbhash,)
                       if max_rows < 0 else
                       (dbhash, max_rows + 1))
 
-        truncated = (in_rows[max_rows]
-                     if max_rows >= 0 and len(in_rows) > max_rows else
-                     None)
+        too_many = False
+        if max_rows >= 0 and len(in_rows) > max_rows:
+            too_many = True
 
-        out_rows = abe.store.selectall("""
-            SELECT
-                b.block_nTime,
-                cc.chain_id,
-                b.block_height,
-                block_tx.tx_pos,
-                0,
-                b.block_hash,
-                tx.tx_hash,
-                txout.txout_pos,
-                txout.txout_value
-              FROM chain_candidate cc
-              JOIN block b ON (b.block_id = cc.block_id)
-              JOIN block_tx ON (block_tx.block_id = b.block_id)
-              JOIN tx ON (tx.tx_id = block_tx.tx_id)
-              JOIN txout ON (txout.tx_id = tx.tx_id)
-              JOIN pubkey ON (pubkey.pubkey_id = txout.pubkey_id)
-             WHERE pubkey.pubkey_hash = ?
-               AND cc.in_longest = 1""" + ("""
-               AND (b.block_nTime < ? OR
-                    (b.block_nTime = ? AND
-                     (cc.chain_id < ? OR
-                      (cc.chain_id = ? AND
-                       (b.block_height < ? OR
-                        (b.block_height = ? AND
-                         block_tx.tx_pos <= ?))))))"""
-                                           if truncated else "") + """
-             ORDER BY
-                   b.block_nTime,
-                   cc.chain_id,
-                   b.block_height,
-                   block_tx.tx_pos,
-                   txout.txout_pos""" + ("" if max_rows < 0 else """
-             LIMIT ?"""),
-                      (dbhash,
-                       truncated[0], truncated[0], truncated[1], truncated[1],
-                       truncated[2], truncated[2], truncated[3], max_rows + 1)
-                      if truncated else
-                      (dbhash, max_rows + 1)
-                      if max_rows >= 0 else
-                      (dbhash,))
+        if not too_many:
+            out_rows = abe.store.selectall("""
+                SELECT
+                    b.block_nTime,
+                    cc.chain_id,
+                    b.block_height,
+                    0,
+                    b.block_hash,
+                    tx.tx_hash,
+                    txout.txout_pos,
+                    txout.txout_value
+                  FROM chain_candidate cc
+                  JOIN block b ON (b.block_id = cc.block_id)
+                  JOIN block_tx ON (block_tx.block_id = b.block_id)
+                  JOIN tx ON (tx.tx_id = block_tx.tx_id)
+                  JOIN txout ON (txout.tx_id = tx.tx_id)
+                  JOIN pubkey ON (pubkey.pubkey_id = txout.pubkey_id)
+                 WHERE pubkey.pubkey_hash = ?
+                   AND cc.in_longest = 1""" + ("" if max_rows < 0 else """
+                 LIMIT ?"""),
+                          (dbhash, max_rows + 1)
+                          if max_rows >= 0 else
+                          (dbhash,))
+            if max_rows >= 0 and len(out_rows) > max_rows:
+                too_many = True
 
-        if max_rows >= 0 and len(out_rows) > max_rows:
-            if truncated is None or truncated > out_rows[max_rows]:
-                truncated = out_rows[max_rows]
-        if truncated:
-            truncated = truncated[0:3]
+        if too_many:
+            body += ["<p>I'm sorry, this address has too many records"
+                     " to display.</p>"]
+            return
 
         rows = []
         rows += in_rows
         rows += out_rows
         rows.sort()
         for row in rows:
-            if truncated and row >= truncated:
-                break
-            (nTime, chain_id, height, tx_pos,
-             is_in, blk_hash, tx_hash, pos, value) = row
+            nTime, chain_id, height, is_in, blk_hash, tx_hash, pos, value = row
             txpoint = {
                     "nTime":    int(nTime),
                     "chain_id": int(chain_id),
@@ -1038,7 +1011,7 @@ class Abe:
             adj_balance(txpoint)
             txpoints.append(txpoint)
 
-        if (not chain_ids) and (not truncated):
+        if (not chain_ids):
             body += ['<p>Address not seen on the network.</p>']
             return
 
@@ -1060,11 +1033,7 @@ class Abe:
 
         body += abe.short_link(page, 'a/' + address[:10])
 
-        body += ['<p>']
-        if truncated:
-            body += ['<strong>Results truncated</strong>']
-        else:
-            body += ['Balance: '] + format_amounts(balance, True)
+        body += ['<p>Balance: '] + format_amounts(balance, True)
 
         for chain_id in chain_ids:
             balance[chain_id] = 0  # Reset for history traversal.
