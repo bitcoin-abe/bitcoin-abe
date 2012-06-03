@@ -1587,11 +1587,11 @@ class Abe:
             sql = """
                 SELECT COALESCE(SUM(txout.txout_value), 0)
                   FROM pubkey
-                  JOIN txout txout on txout.pubkey_id=pubkey.pubkey_id
-                  JOIN txin on txin.txout_id=txout.txout_id
-                  JOIN block_tx on block_tx.tx_id=txout.tx_id
-                  JOIN block b on b.block_id=block_tx.block_id
-                  JOIN chain_candidate cc on cc.block_id=b.block_id
+                  JOIN txout ON txout.pubkey_id=pubkey.pubkey_id
+                  JOIN txin ON txin.txout_id=txout.txout_id
+                  JOIN block_tx ON block_tx.tx_id=txout.tx_id
+                  JOIN block b ON b.block_id=block_tx.block_id
+                  JOIN chain_candidate cc ON cc.block_id=b.block_id
                   WHERE
                       pubkey.pubkey_hash = ? AND
                       cc.chain_id = ? AND
