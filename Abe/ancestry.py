@@ -38,17 +38,31 @@ def beget(parent):
         size -= 1
     return [height] + parent[1:size] + [parent]
 
-def descends_from(node, ancestor):
+def generation(node):
     """
-    Return true if node is descended from ancestor; that is, if node
-    is the result of a sequence of zero or more applications of beget
-    to ancestor.
+    Return node's generation number, 0 for roots and 1 plus parent's
+    generation for child nodes.
     """
-    aheight = ancestor[0]
+    return node[0]
+
+def descend(node, count):
+    """
+    Return the result of count applications of beget to node.
+    """
+    # This could be optimized by lazily creating nodes in ascend().
+    while count > 0:
+        node = beget(node)
+    return node
+
+def ascend(node, count):
+    """
+    Return node's ancestor count generations past.
+    """
+    aheight = node[0] - count
     while True:
         nheight = node[0]
-        if nheight <= aheight:
-            return node is ancestor
+        if nheight == aheight:
+            return node
         pos = len(node)
         xor = nheight ^ aheight
         bit = 1
@@ -58,3 +72,12 @@ def descends_from(node, ancestor):
             xor >>= 1
             bit <<= 1
         node = node[pos]
+
+def descends_from(node, ancestor):
+    """
+    Return true if node is descended from ancestor; that is, if node
+    is the result of a series of zero or more applications of beget to
+    ancestor.
+    """
+    count = node[0] - ancestor[0]
+    return count >= 0 and ancestor is ascend(node, count)
