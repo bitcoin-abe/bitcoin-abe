@@ -842,12 +842,6 @@ def populate_firstbits(store):
     def do_firstbits(fb, ids, full):
         if len(ids) == 1:
             for pubkey_id in ids:
-                # XXX testing
-                """
-                print "%s %s block_id=%d version=%s" %(
-                    fb, , current_block_id,
-                    str(current_address_version).encode('hex'))
-                """
                 store.sql("""
                     INSERT INTO abe_firstbits (
                         pubkey_id, block_id, address_version, firstbits
@@ -976,7 +970,7 @@ def populate_firstbits(store):
     if block_id is not None:
         do_block()
 
-    if inserted[0] % 1000 > 0:
+    if inserted[0] % 10000 > 0:
         store.commit()
         store.log.info("Found %d firstbits" % (inserted[0],))
 
