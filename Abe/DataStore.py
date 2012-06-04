@@ -1075,7 +1075,8 @@ store._ddl['txout_approx'],
             INSERT INTO pubkey (pubkey_id, pubkey_hash) VALUES (?, ?)""",
                   (NULL_PUBKEY_ID, store.binin(NULL_PUBKEY_HASH)))
 
-        if store.config['use_firstbits']:
+        if store.args.use_firstbits:
+            config['use_firstbits'] = "true"
             store.ddl(
                 """CREATE TABLE abe_firstbits (
                     pubkey_id       NUMERIC(26) NOT NULL,
@@ -1089,6 +1090,8 @@ store._ddl['txout_approx'],
             store.ddl(
                 """CREATE INDEX x_abe_firstbits
                     ON abe_firstbits (address_version, firstbits))""")
+        else:
+            config['use_firstbits'] = "false"
 
         store.save_config()
         store.commit()
