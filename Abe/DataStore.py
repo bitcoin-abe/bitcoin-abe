@@ -2188,6 +2188,7 @@ store._ddl['txout_approx'],
 
         while (True):
             store.import_blkdat(dircfg, ds)
+            ds.close_file()
 
             # Try another file.
             dircfg['blkfile_number'] += 1
