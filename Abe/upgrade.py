@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright(C) 2011 by John Tobey <John.Tobey@gmail.com>
+# Copyright(C) 2011,2012 by John Tobey <John.Tobey@gmail.com>
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -817,6 +817,199 @@ def config_sequence_type(store):
             store.create_sequence(name)
     store.save_configvar("sequence_type")
 
+def populate_firstbits(store):
+    import ancestry
+    nodes = {}   # block_id to ancestry object
+    seen = None  # pubkey_id to set of first block_ids, all same addr_vers
+    index = None # firstbits to set of first block_ids, all same addr_vers
+    current_addr_vers = None
+    current_address_version = None
+    current_block_id = None
+    current_pubkeys = {}  # pubkey ID to hash, all same addr_vers and block
+    inserted = [0]
+
+    def descends_from_any(node, first_ids):
+        for block_id in first_ids:
+            if ancestry.descends_from(node, nodes[block_id]):
+                return True
+        return False
+
+    def cant_do_firstbits(pubkey_id):
+        store.log("No firstbits for pubkey_id %d, block_id %d, version %s"
+                  % (pubkey_id, current_block_id,
+                     str(current_address_version).encode('hex')))
+
+    def do_firstbits(fb, ids, full):
+        if len(ids) == 1:
+            for pubkey_id in ids:
+                # XXX testing
+                """
+                print "%s %s block_id=%d version=%s" %(
+                    fb, , current_block_id,
+                    str(current_address_version).encode('hex'))
+                """
+                store.sql("""
+                    INSERT INTO abe_firstbits (
+                        pubkey_id, block_id, address_version, firstbits
+                    )
+                    VALUES (?, ?, ?, ?)""",
+                          (pubkey_id, current_block_id,
+                           current_addr_vers, fb))
+                inserted[0] += 1
+                if inserted[0] % 10000 == 0:
+                    store.commit()
+                    store.log.info("Found %d firstbits" % (inserted[0],))
+            return
+        pubkeys = {}
+        for pubkey_id in ids:
+            s = full[pubkey_id]
+            if s == fb:
+                cant_do_firstbits(pubkey_id)
+                continue
+            fb1 = fb + s[len(fb)]
+            ids1 = pubkeys.get(fb1)
+            if ids is None:
+                ids1 = set()
+                pubkeys[fb1] = ids1
+            ids1.add(pubkey_id)
+        for fb1, ids1 in pubkeys.iteritems():
+            do_firstbits(fb1, ids1, full)
+
+    def do_block():
+        if current_block_id is None:
+            return
+
+        node    = nodes[current_block_id]
+        pubkeys = {}  # firstbits to set of pubkey_id
+        full    = {}  # pubkey_id to full firstbits
+
+        for pubkey_id, pubkey_hash in current_pubkeys.iteritems():
+            # This is the pubkey's first appearance in the chain.
+            # Compute firstbits, ignoring other new pubkeys in the
+            # block.
+            s = store.firstbits_full(current_address_version, pubkey_hash)
+            full[pubkey_id] = s
+            fb, first_ids, found = "", None, False
+            for i in xrange(len(s)):
+                fb += s[i]  # Are the first i+1 characters unique?
+                first_ids = index.get(fb)
+                if first_ids is None:
+                    first_ids = set()
+                    index[fb] = first_ids
+                    found = True
+                    break
+                if not descends_from_any(node, first_ids):
+                    found = True
+                    break
+            if found:
+                # This is the first block to see fb.
+                first_ids.add(current_block_id)
+                ids = pubkeys.get(fb)
+                if ids is None:
+                    ids = set()
+                    pubkeys[fb] = ids
+                ids.add(pubkey_id)
+            else:
+                # Perhaps an earlier address differs only by case.
+                cant_do_firstbits(pubkey_id)
+
+        for fb, ids in pubkeys.iteritems():
+            do_firstbits(fb, ids, full)
+
+    def do_txout(addr_vers, block_id, prev_block_id, pubkey_id, pubkey_hash):
+        if pubkey_id in current_pubkeys:
+            return
+
+        node = nodes[block_id]
+        address_version = store.binout(addr_vers)
+        first_ids = seen.get(pubkey_id)
+        if first_ids is None:
+            first_ids = set()
+            seen[pubkey_id] = first_ids
+        if descends_from_any(node, first_ids):
+            return
+
+        first_ids.add(block_id)
+        current_pubkeys[pubkey_id] = store.binout(pubkey_hash)
+
+    for row in store.selectall("""
+        SELECT c.chain_address_version,
+               b.block_id,
+               b.prev_block_id,
+               pubkey.pubkey_id,
+               pubkey.pubkey_hash
+          FROM chain c
+          JOIN chain_candidate cc ON (c.chain_id = cc.chain_id)
+          JOIN block b ON (cc.block_id = b.block_id)
+          JOIN block_tx bt ON (b.block_id = bt.block_id)
+          JOIN txout ON (bt.tx_id = txout.tx_id)
+          JOIN pubkey ON (txout.pubkey_id = pubkey.pubkey_id)
+         WHERE b.block_height IS NOT NULL
+         ORDER BY cc.chain_id, cc.block_height, bt.tx_pos,
+               txout.txout_pos"""):
+
+        addr_vers = row[0]
+        block_id = int(row[1])
+        prev_block_id = None if row[2] is None else int(row[2])
+
+        if addr_vers != current_addr_vers or block_id != current_block_id:
+
+            do_block()
+
+            if addr_vers != current_addr_vers:
+                current_addr_vers = addr_vers
+                current_address_version = store.binout(addr_vers)
+                seen = {}
+                index = {}
+
+            current_block_id = block_id
+            current_pubkeys = {}
+
+            if block_id not in nodes:
+                if prev_block_id is None:
+                    nodes[block_id] = ancestry.root()
+                else:
+                    nodes[block_id] = ancestry.beget(nodes[prev_block_id])
+
+        do_txout(addr_vers, block_id, prev_block_id, int(row[3]), row[4])
+
+    if block_id is not None:
+        do_block()
+
+    if inserted[0] % 1000 > 0:
+        store.commit()
+        store.log.info("Found %d firstbits" % (inserted[0],))
+
+    raise Exception('firstbits implementation is incomplete, aborting upgrade')
+
+def create_firstbits(store):
+    flag = store.config.get('use_firstbits')
+    if flag is None:
+        if store.args.use_firstbits is None:
+            store.log.info("Using default configuration: use_firstbits=false.")
+            store.config['use_firstbits'] = "false"
+            store.save_configvar("use_firstbits")
+            return
+        flag = "true" if store.args.use_firstbits else "false"
+    if flag == "false":
+        return
+
+    store.log.info("Finding firstbits.")
+    store.ddl(
+        """CREATE TABLE abe_firstbits (
+            pubkey_id       NUMERIC(26) NOT NULL,
+            block_id        NUMERIC(14) NOT NULL,
+            address_version BIT VARYING(80) NOT NULL,
+            firstbits       VARCHAR(50) NOT NULL,
+            PRIMARY KEY (address_version, pubkey_id, block_id),
+            FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id),
+            FOREIGN KEY (block_id) REFERENCES block (block_id)
+        )""")
+    store.ddl(
+        """CREATE INDEX x_abe_firstbits
+            ON abe_firstbits (address_version, firstbits)""")
+    populate_firstbits(store)
+
 upgrades = [
     ('6',    add_block_value_in),
     ('6.1',  add_block_value_out),
@@ -887,7 +1080,8 @@ upgrades = [
     ('Abe26.1', init_block_satoshi_seconds), # 3-10 minutes
     ('Abe27',   config_limit_style),     # Fast
     ('Abe28',   config_sequence_type),   # Fast
-    ('Abe29',   None)
+    ('Abe29',   create_firstbits),       # Slow if config use_firstbits=true
+    ('Abe29+fb', None)
 ]
 
 def upgrade_schema(store):

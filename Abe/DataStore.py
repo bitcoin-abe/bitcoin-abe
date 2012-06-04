@@ -1,4 +1,4 @@
-# Copyright(C) 2011 by John Tobey <John.Tobey@gmail.com>
+# Copyright(C) 2011,2012 by John Tobey <John.Tobey@gmail.com>
 
 # DataStore.py: back end database access for Abe.
 
@@ -29,8 +29,9 @@ import BCDataStream
 import deserialize
 import util
 import logging
+import base58
 
-SCHEMA_VERSION = "Abe29"
+SCHEMA_VERSION = "Abe29+fb"
 
 CONFIG_DEFAULTS = {
     "dbtype":             None,
@@ -42,6 +43,7 @@ CONFIG_DEFAULTS = {
     "log_sql":            None,
     "datadir":            None,
     "ignore_bit8_chains": None,
+    "use_firstbits":      None,
 }
 
 WORK_BITS = 304  # XXX more than necessary.
@@ -100,12 +102,13 @@ class DataStore(object):
 
     """
     Bitcoin data storage class based on DB-API 2 and SQL1992 with
-    workarounds to support SQLite3 and PostgreSQL/psycopg2.
+    workarounds to support SQLite3, PostgreSQL/psycopg2, MySQL,
+    Oracle, ODBC, and IBM DB2.
     """
 
     def __init__(store, args):
         """
-        Opens and stores a connection to the SQL database.
+        Open and store a connection to the SQL database.
 
         args.dbtype should name a DB-API 2 driver module, e.g.,
         "sqlite3".
@@ -855,7 +858,8 @@ store._ddl['configvar'],
     magic_name  VARCHAR(100) UNIQUE NOT NULL
 )""",
 
-# POLICY identifies a block acceptance policy.
+# POLICY identifies a block acceptance policy.  Not currently used,
+# but required by CHAIN.
 """CREATE TABLE policy (
     policy_id   NUMERIC(10) NOT NULL PRIMARY KEY,
     policy_name VARCHAR(100) UNIQUE NOT NULL
@@ -1070,6 +1074,21 @@ store._ddl['txout_approx'],
         store.sql("""
             INSERT INTO pubkey (pubkey_id, pubkey_hash) VALUES (?, ?)""",
                   (NULL_PUBKEY_ID, store.binin(NULL_PUBKEY_HASH)))
+
+        if store.config['use_firstbits']:
+            store.ddl(
+                """CREATE TABLE abe_firstbits (
+                    pubkey_id       NUMERIC(26) NOT NULL,
+                    block_id        NUMERIC(14) NOT NULL,
+                    address_version BIT VARYING(80) NOT NULL,
+                    firstbits       VARCHAR(50) NOT NULL,
+                    PRIMARY KEY (address_version, pubkey_id, block_id),
+                    FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id),
+                    FOREIGN KEY (block_id) REFERENCES block (block_id),
+                )""")
+            store.ddl(
+                """CREATE INDEX x_abe_firstbits
+                    ON abe_firstbits (address_version, firstbits))""")
 
         store.save_config()
         store.commit()
@@ -2373,6 +2392,14 @@ store._ddl['txout_approx'],
              WHERE chain_id = ?
                AND in_longest = 1""", (chain_id,))
         return -1 if height is None else int(height)
+
+    def firstbits_full(store, version, hash):
+        """
+        Return the address in lowercase.  An initial substring of this
+        will become the firstbits.
+        """
+        vh = version + hash
+        return base58.b58encode(vh + util.double_sha256(vh)[:4]).lower()
 
 def new(args):
     return DataStore(args)
