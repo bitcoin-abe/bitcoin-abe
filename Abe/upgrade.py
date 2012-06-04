@@ -980,11 +980,13 @@ def create_firstbits(store):
     flag = store.config.get('use_firstbits')
     if flag is None:
         if store.args.use_firstbits is None:
-            store.log.info("Using default configuration: use_firstbits=false.")
+            store.log.info("use_firstbits not found, defaulting to false.")
             store.config['use_firstbits'] = "false"
             store.save_configvar("use_firstbits")
             return
         flag = "true" if store.args.use_firstbits else "false"
+        store.config['use_firstbits'] = flag
+        store.save_configvar("use_firstbits")
     if flag == "false":
         return
 
