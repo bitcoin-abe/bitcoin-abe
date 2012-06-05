@@ -19,134 +19,138 @@ Given a forest of rooted trees, find whether a given node is an
 ancestor of another.  Scale to millions of generations: O(N) space and
 O(log(N)^2) time.
 
-10100011011101  10461
-10100011011100  10460
-10100011011011  10459
-10100011010111  10455
-10100011001111  10447
-10100010111111  10431
-10100001111111  10367
-10011111111111  10239
-01111111111111   8191
+    +---+-+-+
+    | 0 | | |
+    +---+-+-+
+      ^
+       \--\
+          |
+    +---+-|-+-+
+    | 1 | * | |
+    +---+---+-+
+      ^
+       \-----\
+          \   \
+    +---+-|-+-|-+
+    | 2 | * | * |
+    +---+---+---+
+      ^
+       \--\
+          |
+    +---+-|-+-+
+    | 3 | * | |
+    +---+---+-+
+      ^
+       \----------\
+          \   \    \
+    +---+-|-+-|-+  |
+    | 4 | * | * |  |
+    +---+---+---+  |
+      ^            |
+       \--\        |
+          |        |
+    +---+-|-+---+  |
+    | 5 | * | *----/
+    +---+---+---+
 
-+-------+---+    +---+---+       +---+---+       +---+---+
-| 10461 | o----->| o | o------+->| o | o-------+>| o | o---->...
-+-------+---+    +-|-+---+   /   +-|-+---+     | +-|-+---+
-                   |        /      |           |   |
-                   V       /       V           |   V
-                 +-------+-|-+   +-------+---+ | +-------+---+
-                 | 10460 | o |   | 10459 | o | | | 10455 | o |
-                 +-------+---+   +-------+-|-+ | +-------+---+
-                                    /-----/     \
-                                   V             \--\
-                                 +---+---+    +---+-|-+
-                                 | o | o----->| o | o |
-                                 +-|-+---+  ^ +-|-+---+
-                                   V        |   V
-                              +-------+---+ / +-------+---+
-                              | 10458 | o--/  | 10457 | o |
-                              +-------+---+   +-------+---+
+Every node has a generation number (0=root) and two pointer slots.
+The first slot heads a linked list that includes every node back to
+the root, sorted by decreasing generation number.  The second slot
+heads a similarly sorted, linked list containing a subset of the
+ancestor nodes, chosen to speed searches.
 
-1111111111111   8191
-1111111111110   8190
-1111111111101   8189
-1111111111011   8187
-1111111110111   8183
-1111111101111   8175
-1111111011111   8159
-1111110111111   8127
-1111101111111   8063
-1111011111111   7935
-1110111111111   7679
-1101111111111   7167
-1011111111111   6143
-0111111111111   4095
-
-1000000000000   4096
-0111111111111   4095
+All this assumes that descendant nodes are created one generation at a
+time.  If descend_to is called with a generation number greater than
+its argument's by more than 1, the linked lists will be incomplete.
+When we create intervening nodes, we modify the lists in place.
 
 """
 
 def root():
     """Create and return a new root node."""
-    return (0, None)
+    return [0, None, None]
 
 def generation(node):
     """
-    Return node's generation number, 0 for roots and 1 plus parent's
-    generation for child nodes.
+    Return node's generation number: 0 for a root, or 1 plus the
+    parent's generation number.
     """
     return node[0]
 
-def descend(node, count):
-    """
-    Return the result of count applications of beget() to node.
-    """
-    nheight, index = node
-    height = nheight + count
-    pheight = height - 1
+def _next_express(n):
     bit = 1
-    while pheight & bit:
+    while bit & n:
         bit <<= 1
-    iheight = (pheight | (bit - 1)) & ~(bit >> 1)
-    while index and index[0][0] >= iheight:
-        index = index[1]
-    return (height, (node, index))
+    return n - bit
+
+def descend_to(node, number):
+    """
+    Return a new child with the given generation number, descended
+    from node through generations of new nodes.  If number is less
+    than node's generation, return ascend_to(node, number) instead.
+
+    As an optimization, for number > 1 + generation(node), this does
+    not immediately create the intervening nodes; ascend_to creates
+    them on demand.
+    """
+    if number <= node[0]:
+        return ascend_to(node, number)
+    desired = _next_express(number)
+    express = node
+    while express and express[0] > desired:
+        express = express[2]
+    return [number, node, express]
 
 def beget(parent):
     """
-    Create and return a new child of parent.  Parent must have been
-    returned by root() or this method previously.
+    Return a new, immediate child of parent; shorthand for
+    descend_to(parent, generation(parent) + 1).
     """
-    return descend(parent, 1)
+    return descend_to(parent, 1 + parent[0])
 
-def ascend(node, count):
+def _ascend(node, number):
+    # Return node's earliest *allocated* ancestor with generation not
+    # less than number.
+    while node[0] > number:
+        if node[2] and node[2][0] >= number:
+            node = node[2]
+        elif node[1][0] >= number:
+            node = node[1]
+        else:
+            return node
+    assert node[0] == number
+    return node
+
+def ascend_to(node, number):
     """
-    Return node's ancestor count generations past.
+    Return node's ancestor that has the given generation number.
     """
-    nheight = node[0]
-    if count < 0 or count > nheight:
-        raise IndexError("count out of range %d, %d" % (count, nheight))
-    if count < 1:
-        return node
-    found, ret = _ascend(node, count)
-    if found:
-        return ret
-    raise Exception("want to insert a node", node, count)
+    if number > node[0]:
+        raise IndexError("generation number too high, %d > %d"
+                         % (number, node[0]))
+    if number < 0:
+        raise IndexError("negative generation number: %d" % number)
 
-def _ascend(node, count):
-    nheight, above = node
-    height = nheight - count
-    if above[0][0] >= height:
-        while True:
-            assert above[0][0] >= height
-            below = above[1]
-            if below is None:
-                below = above[0][1]
-            if below and below[0][0] >= height:
-                above = below
-                continue
+    ancestor = _ascend(node, number)
 
-            anode = above[0]
-            aheight = anode[0]
-            if aheight == height:
-                return True, anode
+    if ancestor[0] == number:
+        return ancestor
 
-            middle = above[0][1]
-            if middle and middle[0][0] < height:
-                break
-            above = middle
+    ret = descend_to(ancestor[1], number)
+    ancestor[1] = ret
+    if number <= _next_express(ancestor[0]):
+        ancestor[2] = ret
 
-    return False, (None, above)
+    return ret
 
 def descends_from(node, ancestor):
     """
-    Return true if node is descended from ancestor; that is, if node
-    is the result of a series of zero or more applications of beget to
-    ancestor.
+    Return true if node is descended from ancestor.  Consider every
+    node descended from itself.
     """
-    count = node[0] - ancestor[0]
-    if count <= 0:
-        return node is ancestor
-    found, ret = _ascend(node, count)
-    return found and ret is ancestor
+    return ancestor[0] <= node[0] and ancestor is _ascend(node, ancestor[0])
+
+def defragment(node):
+    # Optimize node's ancestors, assuming they were allocated non-sequentially.
+    # XXX
+    raise Exception("defragment is not implemented")
