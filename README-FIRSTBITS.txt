@@ -51,7 +51,7 @@ matches a row in chain_candidate where in_longest=1 and chain_id=1
 (for Bitcoin, or the desired chain_id from the chain table).
 
 The following design notes pertain to developing the remaining parts,
-Steps #2 and #3 above.
+in particular Step #2 above.
 
 
 FIRSTBITS DESIGN

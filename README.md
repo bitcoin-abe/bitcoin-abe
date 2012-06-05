@@ -10,8 +10,8 @@ Welcome to Abe!
 
 ****** EXPERIMENTAL FIRSTBITS BRANCH ******
 
-This Git revision contains incomplete, undocumented, experimental code
-intended to support the Firstbits algorithm described at
+This Git revision contains incomplete, experimental code intended to
+support the Firstbits algorithm described at
 http://www.firstbits.com/.  You probably want the "master" or "b0.6"
 branch instead for production use.
 
