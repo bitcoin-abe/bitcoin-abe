@@ -104,12 +104,18 @@ def ascend(node, count):
     """
     Return node's ancestor count generations past.
     """
-    nheight, above = node
+    nheight = node[0]
     if count < 0 or count > nheight:
         raise IndexError("count out of range %d, %d" % (count, nheight))
     if count < 1:
         return node
+    found, ret = _ascend(node, count)
+    if found:
+        return ret
+    raise Exception("want to insert a node", node, count)
 
+def _ascend(node, count):
+    nheight, above = node
     height = nheight - count
     if above[0][0] >= height:
         while True:
@@ -124,14 +130,14 @@ def ascend(node, count):
             anode = above[0]
             aheight = anode[0]
             if aheight == height:
-                return anode
+                return True, anode
 
             middle = above[0][1]
             if middle and middle[0][0] < height:
                 break
             above = middle
 
-    raise Exception("want to insert a node", node, count)
+    return False, (None, above)
 
 def descends_from(node, ancestor):
     """
@@ -140,4 +146,7 @@ def descends_from(node, ancestor):
     ancestor.
     """
     count = node[0] - ancestor[0]
-    return count >= 0 and ancestor is ascend(node, count)
+    if count <= 0:
+        return node is ancestor
+    found, ret = _ascend(node, count)
+    return found and ret is ancestor
