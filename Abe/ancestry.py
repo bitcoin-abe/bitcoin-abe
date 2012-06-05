@@ -16,8 +16,8 @@
 
 """
 Given a forest of rooted trees, find whether a given node is an
-ancestor of another.  Scale to millions of generations: O(N*log(N))
-space and O(log(N)) time.
+ancestor of another.  Scale to millions of generations: O(N) space and
+O(log(N)^2) time.
 
 10100011011101  10461
 10100011011100  10460
@@ -61,23 +61,15 @@ space and O(log(N)) time.
 1101111111111   7167
 1011111111111   6143
 0111111111111   4095
+
+1000000000000   4096
+0111111111111   4095
+
 """
 
 def root():
     """Create and return a new root node."""
     return (0, None)
-
-def beget(parent):
-    """
-    Create and return a new child of parent.  Parent must have been
-    returned by root() or this method previously.
-    """
-    pheight, index = parent
-    bit = 1
-    while pheight & bit:
-        bit <<= 1
-        index = index[1]
-    return (pheight + 1, (parent, index))
 
 def generation(node):
     """
@@ -88,12 +80,25 @@ def generation(node):
 
 def descend(node, count):
     """
-    Return the result of count applications of beget to node.
+    Return the result of count applications of beget() to node.
     """
-    # This could be optimized by lazily creating nodes in ascend().
-    while count > 0:
-        node = beget(node)
-    return node
+    nheight, index = node
+    height = nheight + count
+    pheight = height - 1
+    bit = 1
+    while pheight & bit:
+        bit <<= 1
+    iheight = (pheight | (bit - 1)) & ~(bit >> 1)
+    while index and index[0][0] >= iheight:
+        index = index[1]
+    return (height, (node, index))
+
+def beget(parent):
+    """
+    Create and return a new child of parent.  Parent must have been
+    returned by root() or this method previously.
+    """
+    return descend(parent, 1)
 
 def ascend(node, count):
     """
@@ -106,26 +111,27 @@ def ascend(node, count):
         return node
 
     height = nheight - count
-    while True:
-        assert above[0][0] >= height
-        below = above[1]
-        if below is None:
-            below = above[0][1]
-        if below and below[0][0] >= height:
-            above = below
-            continue
+    if above[0][0] >= height:
+        while True:
+            assert above[0][0] >= height
+            below = above[1]
+            if below is None:
+                below = above[0][1]
+            if below and below[0][0] >= height:
+                above = below
+                continue
 
-        anode = above[0]
-        aheight = anode[0]
-        if aheight == height:
-            return anode
+            anode = above[0]
+            aheight = anode[0]
+            if aheight == height:
+                return anode
 
-        middle = above[0][1]
-        if middle and middle[0][0] >= height:
+            middle = above[0][1]
+            if middle and middle[0][0] < height:
+                break
             above = middle
-            continue
 
-        raise Exception("want to insert a node", node, count)
+    raise Exception("want to insert a node", node, count)
 
 def descends_from(node, ancestor):
     """
