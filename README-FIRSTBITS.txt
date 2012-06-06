@@ -101,7 +101,9 @@ Like block.prev_block_id, ancestor_block_id would point to an earlier
 block in the chain, but the earlier block's height would be found by a
 function other than block_height-1.  The function would depend only on
 block_height and should allow is_descended_from to use a more-or-less
-binary search.
+binary search.  Here is a paper by Chris Okasaki describing a similar
+structure: "Purely Functional Random-Access Lists"
+http://cs.oberlin.edu/~jwalker/refs/fpca95.ps
 
 The _next_express function in ancestry.py is something like the
 function I want for ancestor_block_id height:

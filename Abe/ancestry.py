@@ -17,7 +17,7 @@
 """
 Given a forest of rooted trees, find whether a given node is an
 ancestor of another.  Scale to millions of generations: O(N) space and
-O(log(N)^2) time.
+O(log(N)) time.
 
     +---+-+-+
     | 0 | | |
