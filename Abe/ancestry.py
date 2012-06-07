@@ -19,51 +19,11 @@ Given a forest of rooted trees, find whether a given node is an
 ancestor of another.  Scale to millions of generations: O(N) space and
 O(log(N)) time.
 
-    +---+-+-+
-    | 0 | | |
-    +---+-+-+
-      ^
-       \--\
-          |
-    +---+-|-+-+
-    | 1 | * | |
-    +---+---+-+
-      ^
-       \-----\
-          \   \
-    +---+-|-+-|-+
-    | 2 | * | * |
-    +---+---+---+
-      ^
-       \--\
-          |
-    +---+-|-+-+
-    | 3 | * | |
-    +---+---+-+
-      ^
-       \----------\
-          \   \    \
-    +---+-|-+-|-+  |
-    | 4 | * | * |  |
-    +---+---+---+  |
-      ^            |
-       \--\        |
-          |        |
-    +---+-|-+---+  |
-    | 5 | * | *----/
-    +---+---+---+
-
 Every node has a generation number (0=root) and two pointer slots.
 The first slot heads a linked list that includes every node back to
 the root, sorted by decreasing generation number.  The second slot
 heads a similarly sorted, linked list containing a subset of the
 ancestor nodes, chosen to speed searches.
-
-All this assumes that descendant nodes are created one generation at a
-time.  If descend_to is called with a generation number greater than
-its argument's by more than 1, the linked lists will be incomplete.
-When we create intervening nodes, we modify the lists in place.
-
 """
 
 def root():
@@ -78,8 +38,9 @@ def generation(node):
     return node[0]
 
 def _next_express(n):
+    assert n >= 1
     bit = 1
-    while bit & n:
+    while (bit & n) == 0:
         bit <<= 1
     return n - bit
 
@@ -89,17 +50,27 @@ def descend_to(node, number):
     from node through generations of new nodes.  If number is less
     than node's generation, return ascend_to(node, number) instead.
 
-    As an optimization, for number > 1 + generation(node), this does
-    not immediately create the intervening nodes; ascend_to creates
-    them on demand.
+    As an optimization, for number > 1 + generation(node), this may
+    not create all intervening nodes.  ascend_to creates them on
+    demand, in which case thread safety is an issue.
     """
+    assert number == int(number)
+
     if number <= node[0]:
         return ascend_to(node, number)
+
     desired = _next_express(number)
     express = node
-    while express and express[0] > desired:
+    while express[0] > desired:
         express = express[2]
-    return [number, node, express]
+    if express[0] < desired:
+        express = descend_to(express, desired)
+
+    local = node
+    if express[0] > local[0]:
+        local = express
+
+    return [number, local, express]
 
 def beget(parent):
     """
@@ -111,20 +82,21 @@ def beget(parent):
 def _ascend(node, number):
     # Return node's earliest *allocated* ancestor with generation not
     # less than number.
+    assert node[0] >= number
     while node[0] > number:
-        if node[2] and node[2][0] >= number:
+        if node[2][0] >= number:
             node = node[2]
         elif node[1][0] >= number:
             node = node[1]
         else:
             return node
-    assert node[0] == number
     return node
 
 def ascend_to(node, number):
     """
     Return node's ancestor that has the given generation number.
     """
+    assert number == int(number)
     if number > node[0]:
         raise IndexError("generation number too high, %d > %d"
                          % (number, node[0]))
@@ -136,21 +108,14 @@ def ascend_to(node, number):
     if ancestor[0] == number:
         return ancestor
 
+    # Thread-unsafety here.
     ret = descend_to(ancestor[1], number)
     ancestor[1] = ret
-    if number <= _next_express(ancestor[0]):
-        ancestor[2] = ret
 
     return ret
 
 def descends_from(node, ancestor):
     """
-    Return true if node is descended from ancestor.  Consider every
-    node descended from itself.
+    Return true if node is descended from ancestor or node is ancestor.
     """
     return ancestor[0] <= node[0] and ancestor is _ascend(node, ancestor[0])
-
-def defragment(node):
-    # Optimize node's ancestors, assuming they were allocated non-sequentially.
-    # XXX
-    raise Exception("defragment is not implemented")
