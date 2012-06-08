@@ -1546,6 +1546,12 @@ store._ddl['txout_approx'],
             b['satoshis'] = prev_satoshis + b['value_out'] - b['value_in'] \
                 - b['value_destroyed']
 
+        if b['height'] is None or b['height'] < 2:
+            b['search_block_id'] = None
+        else:
+            b['search_block_id'] = store.get_block_id_at_height(
+                util.get_search_height(b['height']), prev_block_id)
+
         # Insert the block table row.
         try:
             store.sql(
@@ -1554,9 +1560,9 @@ store._ddl['txout_approx'],
                     block_nTime, block_nBits, block_nNonce, block_height,
                     prev_block_id, block_chain_work, block_value_in,
                     block_value_out, block_total_satoshis,
-                    block_total_seconds, block_num_tx
+                    block_total_seconds, block_num_tx, search_block_id
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )""",
                 (block_id, store.hashin(b['hash']), store.intin(b['version']),
                  store.hashin(b['hashMerkleRoot']), store.intin(b['nTime']),
@@ -1565,7 +1571,7 @@ store._ddl['txout_approx'],
                  store.binin_int(b['chain_work'], WORK_BITS),
                  store.intin(b['value_in']), store.intin(b['value_out']),
                  store.intin(b['satoshis']), store.intin(b['seconds']),
-                 len(b['transactions'])))
+                 len(b['transactions']), b['search_block_id']))
 
         except store.module.DatabaseError:
 
@@ -2474,17 +2480,30 @@ store._ddl['txout_approx'],
                 continue
 
             # This is the pubkey's first appearance in the chain.
-            longest = 0
+            # Find the longest match among earlier firstbits.
+            longest, longest_id = 0, None
             substrs = [s[0:(i+1)] for i in xrange(len(s))]
-            for ancestor_id, fblen in store.selectall("""
-                SELECT block_id, LENGTH(firstbits)
+            for ancestor_id, fblen, o_pubkey_id in store.selectall("""
+                SELECT block_id, LENGTH(firstbits), pubkey_id
                   FROM abe_firstbits fb
                  WHERE address_version = ?
                    AND firstbits IN (?""" + (",?" * (len(s)-1)) + """
                        )""", tuple([addr_vers] + substrs)):
                 if fblen > longest and store.is_descended_from(
                     block_id, int(ancestor_id)):
-                    longest = fblen
+                    longest, longest_id = fblen, o_pubkey_id
+
+            # If necessary, extend the new fb to distinguish it from
+            # the longest match.
+            if longest_id is not None:
+                (o_hash,) = store.selectrow(
+                    "SELECT pubkey_hash FROM pubkey WHERE pubkey_id = ?",
+                    (longest_id,))
+                o_fb = store.firstbits_full(
+                    address_version, store.binout(o_hash))
+                max_len = min(len(s), len(o_fb))
+                while longest < max_len and s[longest] == o_fb[longest]:
+                    longest += 1
 
             if longest == len(s):
                 store.cant_do_firstbits(addr_vers, block_id, pubkey_id)
