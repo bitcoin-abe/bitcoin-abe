@@ -1550,7 +1550,8 @@ store._ddl['txout_approx'],
             b['search_block_id'] = None
         else:
             b['search_block_id'] = store.get_block_id_at_height(
-                util.get_search_height(b['height']), prev_block_id)
+                util.get_search_height(int(b['height'])),
+                None if prev_block_id is None else int(prev_block_id))
 
         # Insert the block table row.
         try:
@@ -1594,8 +1595,6 @@ store._ddl['txout_approx'],
             # This is not an expected error, or our caller may have to
             # rewind a block file.  Let them deal with it.
             raise
-
-        store._put_block(block_id, prev_block_id, b['height'])
 
         # List the block's transactions in block_tx.
         for tx_pos in xrange(len(b['transactions'])):
@@ -1769,7 +1768,7 @@ store._ddl['txout_approx'],
                        block_total_satoshis = ?,
                        block_satoshi_seconds = ?,
                        block_ss_destroyed = ?,
-                       block_search_id = ?
+                       search_block_id = ?
                  WHERE block_id = ?""",
                       (height, store.binin_int(chain_work, WORK_BITS),
                        store.intin(seconds), store.intin(satoshis),
@@ -1783,6 +1782,14 @@ store._ddl['txout_approx'],
                     UPDATE chain_candidate SET block_height = ?
                      WHERE block_id = ?""",
                     (height, next_id))
+
+                if store.config['use_firstbits'] == "true":
+                    for (addr_vers,) in store.selectall(""""
+                        SELECT c.chain_address_version
+                          FROM chain c
+                          JOIN chain_candidate cc ON (c.chain_id = cc.chain_id)
+                         WHERE cc.block_id = ?""", (next_id,)):
+                        store.do_vers_firstbits(addr_vers, int(next_id))
 
             nb = {
                 "block_id": next_id,
@@ -2064,6 +2071,13 @@ store._ddl['txout_approx'],
                 UPDATE chain
                    SET chain_last_block_id = ?
                  WHERE chain_id = ?""", (top['block_id'], chain_id))
+
+        if store.config['use_firstbits'] == "true" and b['height'] is not None:
+            (addr_vers,) = store.selectrow("""
+                SELECT chain_address_version
+                  FROM chain
+                 WHERE chain_id = ?""", (chain_id,))
+            store.do_vers_firstbits(addr_vers, b['block_id'])
 
     def find_next_blocks(store, block_id):
         ret = []

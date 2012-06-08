@@ -872,8 +872,6 @@ def populate_firstbits(store):
         store.commit()
         store.log.info("%d firstbits in %d blocks" % (fbs, blocks))
 
-    raise Exception('firstbits implementation is incomplete, aborting upgrade')
-
 def create_firstbits(store):
     flag = store.config.get('use_firstbits')
     if flag is None:

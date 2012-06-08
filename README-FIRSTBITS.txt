@@ -12,21 +12,14 @@ three steps:
 
 3. front-end UI/API.
 
-Step #1 is done.  The following commands create and populate the
-abe_firstbits table, given a database using the latest code from
+Steps #1 and #2 are done.  The following commands create and populate
+the abe_firstbits table, given a database using the latest code from
 bitcoin-abe's "master" branch.  Replace "--config DB.conf" with your
 database connection parameters.  For a large database, this may take
-hours:
+several hours:
 
     git checkout firstbits
     python -m Abe.abe --config DB.conf --use-firstbits --upgrade
-
-Currenty, this exits with an error message, "Exception: firstbits
-implementation is incomplete, aborting upgrade," after it creates the
-table.  To continue using Abe, you must switch back to the master
-branch:
-
-    git checkout master
 
 The new table has four columns:
 
@@ -50,11 +43,8 @@ corresponding block is in the main chain.  That is, if block_id
 matches a row in chain_candidate where in_longest=1 and chain_id=1
 (for Bitcoin, or the desired chain_id from the chain table).
 
-The following design notes pertain to developing the remaining parts,
-in particular Step #2 above.
 
-
-FIRSTBITS DESIGN
+FIRSTBITS TECHNICAL DESIGN
 
 Maintenance of the abe_firstbits table will impose space and time
 costs on Abe instances.  To keep things simple, I do not plan to
