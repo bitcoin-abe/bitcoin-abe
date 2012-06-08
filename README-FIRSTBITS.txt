@@ -18,8 +18,22 @@ bitcoin-abe's "master" branch.  Replace "--config DB.conf" with your
 database connection parameters.  For a large database, this may take
 several hours:
 
-    git checkout firstbits
     python -m Abe.abe --config DB.conf --use-firstbits --upgrade
+
+If you run without use-firstbits, Abe will default it to false and
+will never create the table.  I'd like to have a script that turns
+firstbits on and off, but for now the best you can do is to stop Abe
+and run these (UNTESTED) SQL commands, once you have configured
+use-firstbits=true:
+
+DELETE FROM configvar WHERE configvar_name = 'use_firstbits' AND configvar_value <> 'true';
+UPDATE configvar SET configvar_value = 'Abe29.3' WHERE configvar_name = 'schema_version' AND configvar_value = 'Abe30';
+
+I have tried a few dozen addresses, and they match firstbits.com.
+Please report issues in the forum thread
+(https://bitcointalk.org/index.php?topic=22785.msg949105#msg949105) or
+by email, PM, or the github issue system, since I will not spend much
+time testing.
 
 The new table has four columns:
 
