@@ -974,7 +974,7 @@ upgrades = [
     ('Abe27',   config_limit_style),     # Fast
     ('Abe28',   config_sequence_type),   # Fast
     ('Abe29',   add_search_block_id),    # Seconds
-    ('Abe29.1', populate_search_block_id), # 1-2 minutes
+    ('Abe29.1', populate_search_block_id), # 1-2 minutes if using firstbits
     ('Abe29.2', add_fk_search_block_id), # Seconds
     ('Abe29.3', create_firstbits),       # Fast
     ('Abe29.4', populate_firstbits),     # Slow if config use_firstbits=true
