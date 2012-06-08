@@ -74,14 +74,15 @@ firstbits records may collide with initial substrings of the new
 address, but only the ones in ancestral blocks can prevent it from
 receiving the firstbits.
 
-Abe currently implements the descended-from relationship in
-DataStore.is_descended_from, used in calculating coin-days destroyed.
-This function suffers from two problems, which I would like to fix
-while adding firstbits support.  One, it is very complex.  Two, it
-relies heavily on most blocks belonging to a longest chain, so its
-performance may suffer in the presence of long side-chains, such as
-those created during 51% attacks.  The descended-from relationship is
-logically independent of any notion of longest chain.
+Abe currently [correction: formerly] implements the descended-from
+relationship in DataStore.is_descended_from, used in calculating
+coin-days destroyed.  This function suffers from two problems, which I
+would like to fix while adding firstbits support.  One, it is very
+complex.  Two, it relies heavily on most blocks belonging to a longest
+chain, so its performance may suffer in the presence of long
+side-chains, such as those created during 51% attacks.  The
+descended-from relationship is logically independent of any notion of
+longest chain.
 
 A naive implementation of is_descended_from(block, ancestor) would
 simply look up block's prev_block_id in the block table and repeat
@@ -101,16 +102,16 @@ speed.  My initial thought was to reuse this code in DataStore.py for
 the maintenance portion, but settled on an alternative approach
 involving a new block table column, search_block_id.
 
-Like block.prev_block_id, search_block_id would point to an earlier
-block in the chain, but the earlier block's height would be found by a
-function other than block_height-1.  The function would depend only on
-block_height and should allow is_descended_from to use a more-or-less
-binary search.  Here is a paper by Chris Okasaki describing a similar
-structure: "Purely Functional Random-Access Lists"
+Like block.prev_block_id, search_block_id points to an earlier block
+in the chain, but the earlier block's height is found by a function
+other than block_height-1.  The function depends only on block_height
+and should allow is_descended_from to use a more-or-less binary
+search.  Here is a paper by Chris Okasaki describing a somewhat
+similar structure: "Purely Functional Random-Access Lists"
 http://cs.oberlin.edu/~jwalker/refs/fpca95.ps
 
-The get_search_height function in util.py is something like the
-function I want for ancestor_block_id height:
+The get_search_height function in util.py computes the search_block_id
+block height.  I am sure it could be improved:
 
     def get_search_height(n):
         if n < 2:
@@ -137,3 +138,6 @@ An alternative table-based approach is libbitcoin's span_left and
 span_right.  I have not got my head around the requirements for
 adjusting the span values when new side chains appear, though, and I
 think my more-or-less binary search will suffice.
+
+John Tobey
+2012-06-08
