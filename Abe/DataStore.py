@@ -138,6 +138,7 @@ class DataStore(object):
         store.conn = store.connect()
         store.cursor = store.conn.cursor()
         store._ddl = store._get_ddl()
+        store._blocks = {}
 
         # Read the CONFIG and CONFIGVAR tables if present.
         store.config = store._read_config()
@@ -157,7 +158,6 @@ class DataStore(object):
                 % (store.config['schema_version'], SCHEMA_VERSION))
 
         store._set_sql_flavour()
-        store._blocks = {}
         store._init_datadirs()
         store.no_bit8_chain_ids = store._find_no_bit8_chain_ids(
             args.ignore_bit8_chains)
@@ -876,6 +876,7 @@ store._ddl['configvar'],
     block_nNonce  NUMERIC(10),
     block_height  NUMERIC(14),
     prev_block_id NUMERIC(14) NULL,
+    search_block_id NUMERIC(14) NULL,
     block_chain_work BIT(""" + str(WORK_BITS) + """),
     block_value_in NUMERIC(30),
     block_value_out NUMERIC(30),
@@ -886,6 +887,8 @@ store._ddl['configvar'],
     block_num_tx  NUMERIC(10) NOT NULL,
     block_ss_destroyed NUMERIC(28),
     FOREIGN KEY (prev_block_id)
+        REFERENCES block (block_id),
+    FOREIGN KEY (search_block_id)
         REFERENCES block (block_id)
 )""",
 
@@ -1420,76 +1423,54 @@ store._ddl['txout_approx'],
         store.config[name] = value
         store.save_configvar(name)
 
-    def _get_block(store, block_id):
-        return store._blocks.get(int(block_id))
-
-    def _put_block(store, block_id, prev_id, height):
+    def cache_block(store, block_id, height, prev_id, search_id):
+        assert isinstance(block_id, int)
+        assert isinstance(height, int)
+        assert prev_id is None or isinstance(prev_id, int)
+        assert search_id is None or isinstance(search_id, int)
         block = {
-            'prev_id': None if prev_id is None else int(prev_id),
-            'height':  None if height  is None else int(height),
-            'in_longest_chains': set()}
-        store._blocks[int(block_id)] = block
+            'height':    height,
+            'prev_id':   prev_id,
+            'search_id': search_id}
+        store._blocks[block_id] = block
         return block
 
     def _load_block(store, block_id):
-        block = store._get_block(block_id)
+        block = store._blocks.get(block_id)
         if block is None:
             row = store.selectrow("""
-                SELECT prev_block_id, block_height
+                SELECT block_height, prev_block_id, search_block_id
                   FROM block
                  WHERE block_id = ?""", (block_id,))
             if row is None:
                 return None
-            prev_id, height = row
-            block = store._put_block(block_id, prev_id, height)
-            for row in store.selectall("""
-                SELECT chain_id
-                  FROM chain_candidate
-                 WHERE block_id = ? AND in_longest = 1""", (block_id,)):
-                (chain_id,) = row
-                store._add_block_chain(block_id, chain_id)
+            height, prev_id, search_id = row
+            block = store.cache_block(
+                block_id, int(height),
+                None if prev_id is None else int(prev_id),
+                None if search_id is None else int(search_id))
         return block
 
-    def _update_block(store, block_id, prev_id, height):
-        block = store._get_block(block_id)
-        if block:
-            block['prev_id'] = int(prev_id)
-            block['height'] = int(height)
-
-    def _add_block_chain(store, block_id, chain_id):
-        block = store._get_block(block_id)
-        if block:
-            block['in_longest_chains'].add(int(chain_id))
-
-    def _remove_block_chain(store, block_id, chain_id):
-        block = store._get_block(block_id)
-        if block:
-            block['in_longest_chains'].remove(int(chain_id))
+    def get_block_id_at_height(store, height, descendant_id):
+        while True:
+            block = store._load_block(descendant_id)
+            if block['height'] == height:
+                return descendant_id
+            descendant_id = block[
+                'search_id'
+                if util.get_search_height(block['height']) >= height else
+                'prev_id']
 
     def is_descended_from(store, block_id, ancestor_id):
 #        ret = store._is_descended_from(block_id, ancestor_id)
 #        store.log.debug("%d is%s descended from %d", block_id, '' if ret else ' NOT', ancestor_id)
 #        return ret
 #    def _is_descended_from(store, block_id, ancestor_id):
-        if block_id == ancestor_id:
-            return True
         block = store._load_block(block_id)
-        if block['prev_id'] == ancestor_id:
-            return True
         ancestor = store._load_block(ancestor_id)
-        chains = ancestor['in_longest_chains']
-        while True:
-            if chains.intersection(block['in_longest_chains']):
-                return ancestor['height'] <= block['height']
-            if block['in_longest_chains'] - chains:
-                return False
-            if block['prev_id'] is None:
-                return None
-            block = store._load_block(block['prev_id'])
-            if block['prev_id'] == ancestor_id:
-                return True
-            if block['height'] <= ancestor['height']:
-                return False
+        height = ancestor['height']
+        return block['height'] >= height and \
+            store.get_block_id_at_height(height, block_id) == ancestor_id
 
     def find_prev(store, hash):
         row = store.selectrow("""
@@ -1535,7 +1516,7 @@ store._ddl['txout_approx'],
             b['value_destroyed'] += tx['value_destroyed']
 
         # Get a new block ID.
-        block_id = store.new_id("block")
+        block_id = int(store.new_id("block"))
         b['block_id'] = block_id
 
         # Verify Merkle root.
@@ -1632,7 +1613,7 @@ store._ddl['txout_approx'],
              WHERE bt.block_id = ?
              GROUP BY txin.txin_id""", (block_id,)):
             (txin_id, oblock_id) = row
-            if store.is_descended_from(block_id, oblock_id):
+            if store.is_descended_from(block_id, int(oblock_id)):
                 store.sql("""
                     INSERT INTO block_txin (block_id, txin_id, out_block_id)
                     VALUES (?, ?, ?)""",
@@ -1781,13 +1762,15 @@ store._ddl['txout_approx'],
                        block_total_seconds = ?,
                        block_total_satoshis = ?,
                        block_satoshi_seconds = ?,
-                       block_ss_destroyed = ?
+                       block_ss_destroyed = ?,
+                       block_search_id = ?
                  WHERE block_id = ?""",
                       (height, store.binin_int(chain_work, WORK_BITS),
                        store.intin(seconds), store.intin(satoshis),
-                       store.intin(ss), store.intin(destroyed), next_id))
-
-            store._update_block(next_id, block_id, height)
+                       store.intin(ss), store.intin(destroyed),
+                       store.get_block_id_at_height(
+                        util.get_search_height(height), block_id),
+                       next_id))
 
             if height is not None:
                 store.sql("""
@@ -2069,8 +2052,6 @@ store._ddl['txout_approx'],
                 chain_id, block_id, in_longest, block_height
             ) VALUES (?, ?, ?, ?)""",
                   (chain_id, b['block_id'], in_longest, b['height']))
-        if in_longest == 1:
-            store._add_block_chain(b['block_id'], chain_id)
 
         if in_longest > 0:
             store.sql("""
@@ -2105,7 +2086,6 @@ store._ddl['txout_approx'],
                SET in_longest = 0
              WHERE block_id = ? AND chain_id = ?""",
                   (block_id, chain_id))
-        store._remove_block_chain(block_id, chain_id)
 
     def connect_block(store, block_id, chain_id):
         store.sql("""
@@ -2113,7 +2093,6 @@ store._ddl['txout_approx'],
                SET in_longest = 1
              WHERE block_id = ? AND chain_id = ?""",
                   (block_id, chain_id))
-        store._add_block_chain(block_id, chain_id)
 
     def lookup_txout(store, tx_hash, txout_pos):
         row = store.selectrow("""
@@ -2403,6 +2382,115 @@ store._ddl['txout_approx'],
         """
         vh = version + hash
         return base58.b58encode(vh + util.double_sha256(vh)[:4]).lower()
+
+    def cant_do_firstbits(store, addr_vers, block_id, pubkey_id):
+        store.log.info(
+            "No firstbits for pubkey_id %d, block_id %d, version '%s'",
+            pubkey_id, block_id, store.binout_hex(addr_vers))
+        pass
+
+    def do_firstbits(store, addr_vers, block_id, fb, ids, full):
+        """
+        Insert the firstbits that start with fb using addr_vers and
+        are first seen in block_id.  Return the count of rows
+        inserted.
+
+        fb -- string, not a firstbits using addr_vers in any ancestor
+        of block_id
+        ids -- set of ids of all pubkeys first seen in block_id whose
+        firstbits start with fb
+        full -- map from pubkey_id to full firstbits
+        """
+
+        if len(ids) <= 1:
+            for pubkey_id in ids:
+                store.sql("""
+                    INSERT INTO abe_firstbits (
+                        pubkey_id, block_id, address_version, firstbits
+                    )
+                    VALUES (?, ?, ?, ?)""",
+                          (pubkey_id, block_id, addr_vers, fb))
+            return len(ids)
+
+        pubkeys = {}
+        for pubkey_id in ids:
+            s = full[pubkey_id]
+            if s == fb:
+                store.cant_do_firstbits(addr_vers, block_id, pubkey_id)
+                continue
+            fb1 = fb + s[len(fb)]
+            ids1 = pubkeys.get(fb1)
+            if ids1 is None:
+                ids1 = set()
+                pubkeys[fb1] = ids1
+            ids1.add(pubkey_id)
+
+        count = 0
+        for fb1, ids1 in pubkeys.iteritems():
+            count += store.do_firstbits(addr_vers, block_id, fb1, ids1, full)
+        return count
+
+    def do_vers_firstbits(store, addr_vers, block_id):
+        """
+        Create new firstbits records for block and addr_vers.  All
+        ancestor blocks must have their firstbits already recorded.
+        """
+
+        address_version = store.binout(addr_vers)
+        pubkeys = {}  # firstbits to set of pubkey_id
+        full    = {}  # pubkey_id to full firstbits
+
+        for pubkey_id, pubkey_hash, oblock_id in store.selectall("""
+            SELECT DISTINCT
+                   pubkey.pubkey_id,
+                   pubkey.pubkey_hash,
+                   fb.block_id
+              FROM block b
+              JOIN block_tx bt ON (b.block_id = bt.block_id)
+              JOIN txout ON (bt.tx_id = txout.tx_id)
+              JOIN pubkey ON (txout.pubkey_id = pubkey.pubkey_id)
+              LEFT JOIN abe_firstbits fb ON (
+                       fb.address_version = ?
+                   AND fb.pubkey_id = pubkey.pubkey_id)
+             WHERE b.block_id = ?""", (addr_vers, block_id)):
+
+            if oblock_id is not None and \
+                    store.is_descended_from(block_id, int(oblock_id)):
+                continue
+
+            # This is the pubkey's first appearance in the chain.
+            pubkey_id = int(pubkey_id)
+            s = store.firstbits_full(address_version,
+                                     store.binout(pubkey_hash))
+            full[pubkey_id] = s
+
+            longest = 0
+            substrs = [s[0:(i+1)] for i in xrange(len(s))]
+            for ancestor_id, fblen in store.selectall("""
+                SELECT block_id, LENGTH(firstbits)
+                  FROM abe_firstbits fb
+                 WHERE address_version = ?
+                   AND firstbits IN (?""" + (",?" * (len(s)-1)) + """
+                       )""", tuple([addr_vers] + substrs)):
+                if fblen > longest and store.is_descended_from(
+                    block_id, int(ancestor_id)):
+                    longest = fblen
+
+            if longest == len(s):
+                store.cant_do_firstbits(addr_vers, block_id, pubkey_id)
+                continue
+
+            fb = s[0 : (longest + 1)]
+            ids = pubkeys.get(fb)
+            if ids is None:
+                ids = set()
+                pubkeys[fb] = ids
+            ids.add(pubkey_id)
+
+        count = 0
+        for fb, ids in pubkeys.iteritems():
+            count += store.do_firstbits(addr_vers, block_id, fb, ids, full)
+        return count
 
 def new(args):
     return DataStore(args)

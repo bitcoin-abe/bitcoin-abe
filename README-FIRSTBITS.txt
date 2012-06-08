@@ -91,13 +91,13 @@ from its second block.  But this table would grow as the square of the
 chain length, and that is too big.
 
 In implementing the upgrade.py function that populates firstbits from
-existing block data, I created ancestry.py, which implements
+existing block data, I created ancestry.py, which implemented
 is_descended_from (in memory) with a compromise between size and
 speed.  My initial thought was to reuse this code in DataStore.py for
-the maintenance portion, but I am considering an alternative approach
-involving a new block table column, ancestor_block_id.
+the maintenance portion, but settled on an alternative approach
+involving a new block table column, search_block_id.
 
-Like block.prev_block_id, ancestor_block_id would point to an earlier
+Like block.prev_block_id, search_block_id would point to an earlier
 block in the chain, but the earlier block's height would be found by a
 function other than block_height-1.  The function would depend only on
 block_height and should allow is_descended_from to use a more-or-less
@@ -105,22 +105,26 @@ binary search.  Here is a paper by Chris Okasaki describing a similar
 structure: "Purely Functional Random-Access Lists"
 http://cs.oberlin.edu/~jwalker/refs/fpca95.ps
 
-The _next_express function in ancestry.py is something like the
+The get_search_height function in util.py is something like the
 function I want for ancestor_block_id height:
 
-    def _next_express(n):
-        bit = 1
-        while bit & n:
+    def get_search_height(n):
+        if n < 2:
+            return None
+        if n & 1:
+            return n >> 1 if n & 2 else n - (n >> 2)
+        bit = 2
+        while (n & bit) == 0:
             bit <<= 1
         return n - bit
 
-I could improve on this a bit: even numbers n always produce n-1,
-which is redundant with prev_block_id.  Perhaps even numbers should
-give n/2.  But then, two blocks with even heights n and n-2 would give
-almost the same information, so perhaps n divisible by 4 should give
-n-n/4 and n divisible by 2**k should give n - n/(2**k).  And so forth.
+To find a block's ancestor at a given height, Abe tries the search
+block if it is not too far in the past.  Otherwise, it tries the
+previous block.  The pattern of height distances from block to search
+block should ensure reasonable worst-case performance, but I have not
+proven this.
 
-Given this information, it would be possible to write
+Given search_block_id, it should be possible to write
 is_descended_from as a stored procedure in databases that support it.
 This would be an optional performance and utility improvement, though.
 Abe would contain the same logic in generic Python code.

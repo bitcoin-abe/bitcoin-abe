@@ -20,6 +20,7 @@
 import os
 import sys
 import DataStore
+import util
 
 def run_upgrades_locked(store, upgrades):
     for i in xrange(len(upgrades) - 1):
@@ -358,25 +359,31 @@ def drop_block_ss_columns(store):
         except:
             store.rollback()
 
+def add_constraint(store, table, name, constraint):
+    try:
+        store.sql("ALTER TABLE " + table + " ADD CONSTRAINT " + name +
+                  " " + constraint)
+    except:
+        store.log.exception(
+            "Failed to create constraint on table " + table + ": " +
+            constraint + "; ignoring error.")
+        store.rollback()
+
 def add_fk_block_txin_block_id(store):
-    store.sql("""
-        ALTER TABLE block_txin ADD CONSTRAINT fk1_block_txin
-            FOREIGN KEY (block_id) REFERENCES block (block_id)""")
+    add_constraint(store, "block_txin", "fk1_block_txin",
+                   "FOREIGN KEY (block_id) REFERENCES block (block_id)")
 
 def add_fk_block_txin_tx_id(store):
-    store.sql("""
-        ALTER TABLE block_txin ADD CONSTRAINT fk2_block_txin
-            FOREIGN KEY (txin_id) REFERENCES txin (txin_id)""")
+    add_constraint(store, "block_txin", "fk2_block_txin",
+                   "FOREIGN KEY (txin_id) REFERENCES txin (txin_id)")
 
 def add_fk_block_txin_out_block_id(store):
-    store.sql("""
-        ALTER TABLE block_txin ADD CONSTRAINT fk3_block_txin
-            FOREIGN KEY (out_block_id) REFERENCES block (block_id)""")
+    add_constraint(store, "block_txin", "fk3_block_txin",
+                   "FOREIGN KEY (out_block_id) REFERENCES block (block_id)")
 
 def add_chk_block_txin_out_block_id_nn(store):
-    store.sql("""
-        ALTER TABLE block_txin ADD CONSTRAINT chk3_block_txin
-            CHECK (out_block_id IS NOT NULL)""")
+    add_constraint(store, "block_txin", "chk3_block_txin",
+                   "CHECK (out_block_id IS NOT NULL)")
 
 def create_x_cc_block_id(store):
     store.sql("CREATE INDEX x_cc_block_id ON chain_candidate (block_id)")
@@ -403,13 +410,8 @@ def create_txout_approx(store):
     store.sql(store._ddl['txout_approx'])
 
 def add_fk_chain_candidate_block_id(store):
-    try:
-        store.sql("""
-            ALTER TABLE chain_candidate ADD CONSTRAINT fk1_chain_candidate
-                FOREIGN KEY (block_id) REFERENCES block (block_id)""")
-    except:
-        store.log.exception("Failed to create FOREIGN KEY; ignoring error.")
-        store.rollback()
+    add_constraint(store, "chain_candidate", "fk1_chain_candidate",
+                   "FOREIGN KEY (block_id) REFERENCES block (block_id)")
 
 def create_configvar(store):
     store.sql(store._ddl['configvar'])
@@ -817,162 +819,58 @@ def config_sequence_type(store):
             store.create_sequence(name)
     store.save_configvar("sequence_type")
 
+def add_search_block_id(store):
+    store.log.info("Creating block.search_block_id")
+    store.sql("ALTER TABLE block ADD search_block_id NUMERIC(14) NULL")
+
+def populate_search_block_id(store):
+    store.log.info("Calculating block.search_block_id")
+
+    for block_id, height, prev_id in store.selectall("""
+        SELECT block_id, block_height, prev_block_id
+          FROM block
+         WHERE block_height IS NOT NULL
+         ORDER BY block_height"""):
+        height = int(height)
+
+        search_id = None
+        if prev_id is not None:
+            prev_id = int(prev_id)
+            search_height = util.get_search_height(height)
+            if search_height is not None:
+                search_id = store.get_block_id_at_height(search_height, prev_id)
+            store.sql("UPDATE block SET search_block_id = ? WHERE block_id = ?",
+                      (search_id, block_id))
+        store.cache_block(int(block_id), height, prev_id, search_id)
+    store.commit()
+
+def add_fk_search_block_id(store):
+    add_constraint(store, "block", "fk1_search_block_id",
+                   "FOREIGN KEY (search_block_id) REFERENCES block (block_id)")
+
 def populate_firstbits(store):
-    import ancestry
-    nodes = {}   # block_id to ancestry object
-    seen = None  # pubkey_id to set of first block_ids, all same addr_vers
-    index = None # firstbits to set of first block_ids, all same addr_vers
-    current_addr_vers = None
-    current_address_version = None
-    current_block_id = None
-    current_pubkeys = {}  # pubkey ID to hash, all same addr_vers and block
-    inserted = [0]
+    if store.config['use_firstbits'] != "true":
+        return
 
-    def descends_from_any(node, first_ids):
-        for block_id in first_ids:
-            if ancestry.descends_from(node, nodes[block_id]):
-                return True
-        return False
+    blocks, fbs = 0, 0
+    log_incr = 1000
 
-    def cant_do_firstbits(pubkey_id):
-        store.log("No firstbits for pubkey_id %d, block_id %d, version %s"
-                  % (pubkey_id, current_block_id,
-                     str(current_address_version).encode('hex')))
-
-    def do_firstbits(fb, ids, full):
-        if len(ids) == 1:
-            for pubkey_id in ids:
-                store.sql("""
-                    INSERT INTO abe_firstbits (
-                        pubkey_id, block_id, address_version, firstbits
-                    )
-                    VALUES (?, ?, ?, ?)""",
-                          (pubkey_id, current_block_id,
-                           current_addr_vers, fb))
-                inserted[0] += 1
-                if inserted[0] % 10000 == 0:
-                    store.commit()
-                    store.log.info("Found %d firstbits" % (inserted[0],))
-            return
-        pubkeys = {}
-        for pubkey_id in ids:
-            s = full[pubkey_id]
-            if s == fb:
-                cant_do_firstbits(pubkey_id)
-                continue
-            fb1 = fb + s[len(fb)]
-            ids1 = pubkeys.get(fb1)
-            if ids is None:
-                ids1 = set()
-                pubkeys[fb1] = ids1
-            ids1.add(pubkey_id)
-        for fb1, ids1 in pubkeys.iteritems():
-            do_firstbits(fb1, ids1, full)
-
-    def do_block():
-        if current_block_id is None:
-            return
-
-        node    = nodes[current_block_id]
-        pubkeys = {}  # firstbits to set of pubkey_id
-        full    = {}  # pubkey_id to full firstbits
-
-        for pubkey_id, pubkey_hash in current_pubkeys.iteritems():
-            # This is the pubkey's first appearance in the chain.
-            # Compute firstbits, ignoring other new pubkeys in the
-            # block.
-            s = store.firstbits_full(current_address_version, pubkey_hash)
-            full[pubkey_id] = s
-            fb, first_ids, found = "", None, False
-            for i in xrange(len(s)):
-                fb += s[i]  # Are the first i+1 characters unique?
-                first_ids = index.get(fb)
-                if first_ids is None:
-                    first_ids = set()
-                    index[fb] = first_ids
-                    found = True
-                    break
-                if not descends_from_any(node, first_ids):
-                    found = True
-                    break
-            if found:
-                # This is the first block to see fb.
-                first_ids.add(current_block_id)
-                ids = pubkeys.get(fb)
-                if ids is None:
-                    ids = set()
-                    pubkeys[fb] = ids
-                ids.add(pubkey_id)
-            else:
-                # Perhaps an earlier address differs only by case.
-                cant_do_firstbits(pubkey_id)
-
-        for fb, ids in pubkeys.iteritems():
-            do_firstbits(fb, ids, full)
-
-    def do_txout(addr_vers, block_id, prev_block_id, pubkey_id, pubkey_hash):
-        if pubkey_id in current_pubkeys:
-            return
-
-        node = nodes[block_id]
-        address_version = store.binout(addr_vers)
-        first_ids = seen.get(pubkey_id)
-        if first_ids is None:
-            first_ids = set()
-            seen[pubkey_id] = first_ids
-        if descends_from_any(node, first_ids):
-            return
-
-        first_ids.add(block_id)
-        current_pubkeys[pubkey_id] = store.binout(pubkey_hash)
-
-    for row in store.selectall("""
+    for addr_vers, block_id in store.selectall("""
         SELECT c.chain_address_version,
-               b.block_id,
-               b.prev_block_id,
-               pubkey.pubkey_id,
-               pubkey.pubkey_hash
+               cc.block_id
           FROM chain c
           JOIN chain_candidate cc ON (c.chain_id = cc.chain_id)
-          JOIN block b ON (cc.block_id = b.block_id)
-          JOIN block_tx bt ON (b.block_id = bt.block_id)
-          JOIN txout ON (bt.tx_id = txout.tx_id)
-          JOIN pubkey ON (txout.pubkey_id = pubkey.pubkey_id)
-         WHERE b.block_height IS NOT NULL
-         ORDER BY cc.chain_id, cc.block_height, bt.tx_pos,
-               txout.txout_pos"""):
+         WHERE cc.block_height IS NOT NULL
+         ORDER BY cc.chain_id, cc.block_height"""):
+        fbs += store.do_vers_firstbits(addr_vers, int(block_id))
+        blocks += 1
+        if blocks % log_incr == 0:
+            store.commit()
+            store.log.info("%d firstbits in %d blocks" % (fbs, blocks))
 
-        addr_vers = row[0]
-        block_id = int(row[1])
-        prev_block_id = None if row[2] is None else int(row[2])
-
-        if addr_vers != current_addr_vers or block_id != current_block_id:
-
-            do_block()
-
-            if addr_vers != current_addr_vers:
-                current_addr_vers = addr_vers
-                current_address_version = store.binout(addr_vers)
-                seen = {}
-                index = {}
-
-            current_block_id = block_id
-            current_pubkeys = {}
-
-            if block_id not in nodes:
-                if prev_block_id is None:
-                    nodes[block_id] = ancestry.root()
-                else:
-                    nodes[block_id] = ancestry.beget(nodes[prev_block_id])
-
-        do_txout(addr_vers, block_id, prev_block_id, int(row[3]), row[4])
-
-    if block_id is not None:
-        do_block()
-
-    if inserted[0] % 10000 > 0:
+    if blocks % log_incr > 0:
         store.commit()
-        store.log.info("Found %d firstbits" % (inserted[0],))
+        store.log.info("%d firstbits in %d blocks" % (fbs, blocks))
 
     raise Exception('firstbits implementation is incomplete, aborting upgrade')
 
@@ -990,7 +888,7 @@ def create_firstbits(store):
     if flag == "false":
         return
 
-    store.log.info("Finding firstbits.")
+    store.log.info("Creating firstbits table.")
     store.ddl(
         """CREATE TABLE abe_firstbits (
             pubkey_id       NUMERIC(26) NOT NULL,
@@ -1004,7 +902,6 @@ def create_firstbits(store):
     store.ddl(
         """CREATE INDEX x_abe_firstbits
             ON abe_firstbits (address_version, firstbits)""")
-    populate_firstbits(store)
 
 upgrades = [
     ('6',    add_block_value_in),
@@ -1076,7 +973,11 @@ upgrades = [
     ('Abe26.1', init_block_satoshi_seconds), # 3-10 minutes
     ('Abe27',   config_limit_style),     # Fast
     ('Abe28',   config_sequence_type),   # Fast
-    ('Abe29',   create_firstbits),       # Slow if config use_firstbits=true
+    ('Abe29',   add_search_block_id),    # Seconds
+    ('Abe29.1', populate_search_block_id), # 1-2 minutes
+    ('Abe29.2', add_fk_search_block_id), # Seconds
+    ('Abe29.3', create_firstbits),       # Fast
+    ('Abe29.4', populate_firstbits),     # Slow if config use_firstbits=true
     ('Abe29+fb', None)
 ]
 
