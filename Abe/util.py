@@ -72,3 +72,13 @@ def calculate_work(prev_work, nBits):
 
 def work_to_target(work):
     return int((1 << 256) / work) - 1
+
+def get_search_height(n):
+    if n < 2:
+        return None
+    if n & 1:
+        return n >> 1 if n & 2 else n - (n >> 2)
+    bit = 2
+    while (n & bit) == 0:
+        bit <<= 1
+    return n - bit

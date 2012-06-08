@@ -1,12 +1,19 @@
 Abe: a free block chain browser for Bitcoin-based currencies.
 https://github.com/jtobey/bitcoin-abe
 
-    Copyright(C) 2011 by John Tobey <John.Tobey@gmail.com>
+    Copyright(C) 2011,2012 by John Tobey <John.Tobey@gmail.com>
     License: GNU Affero General Public License, see the file LICENSE.txt.
     Portions Copyright (c) 2010 Gavin Andresen, see bct-LICENSE.txt.
 
 Welcome to Abe!
 ===============
+
+****** EXPERIMENTAL FIRSTBITS BRANCH ******
+
+This Git revision contains incomplete, experimental code intended to
+support the Firstbits algorithm described at
+http://www.firstbits.com/.  See README-FIRSTBITS.txt.  You probably
+want the "master" or "b0.6" branch instead for production use.
 
 This software reads the Bitcoin block file, transforms and loads the
 data into a database, and presents a web interface similar to Bitcoin

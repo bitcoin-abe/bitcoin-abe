@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright(C) 2011 by John Tobey <John.Tobey@gmail.com>
+# Copyright(C) 2011,2012 by John Tobey <John.Tobey@gmail.com>
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -20,6 +20,7 @@
 import os
 import sys
 import DataStore
+import util
 
 def run_upgrades_locked(store, upgrades):
     for i in xrange(len(upgrades) - 1):
@@ -358,25 +359,31 @@ def drop_block_ss_columns(store):
         except:
             store.rollback()
 
+def add_constraint(store, table, name, constraint):
+    try:
+        store.sql("ALTER TABLE " + table + " ADD CONSTRAINT " + name +
+                  " " + constraint)
+    except:
+        store.log.exception(
+            "Failed to create constraint on table " + table + ": " +
+            constraint + "; ignoring error.")
+        store.rollback()
+
 def add_fk_block_txin_block_id(store):
-    store.sql("""
-        ALTER TABLE block_txin ADD CONSTRAINT fk1_block_txin
-            FOREIGN KEY (block_id) REFERENCES block (block_id)""")
+    add_constraint(store, "block_txin", "fk1_block_txin",
+                   "FOREIGN KEY (block_id) REFERENCES block (block_id)")
 
 def add_fk_block_txin_tx_id(store):
-    store.sql("""
-        ALTER TABLE block_txin ADD CONSTRAINT fk2_block_txin
-            FOREIGN KEY (txin_id) REFERENCES txin (txin_id)""")
+    add_constraint(store, "block_txin", "fk2_block_txin",
+                   "FOREIGN KEY (txin_id) REFERENCES txin (txin_id)")
 
 def add_fk_block_txin_out_block_id(store):
-    store.sql("""
-        ALTER TABLE block_txin ADD CONSTRAINT fk3_block_txin
-            FOREIGN KEY (out_block_id) REFERENCES block (block_id)""")
+    add_constraint(store, "block_txin", "fk3_block_txin",
+                   "FOREIGN KEY (out_block_id) REFERENCES block (block_id)")
 
 def add_chk_block_txin_out_block_id_nn(store):
-    store.sql("""
-        ALTER TABLE block_txin ADD CONSTRAINT chk3_block_txin
-            CHECK (out_block_id IS NOT NULL)""")
+    add_constraint(store, "block_txin", "chk3_block_txin",
+                   "CHECK (out_block_id IS NOT NULL)")
 
 def create_x_cc_block_id(store):
     store.sql("CREATE INDEX x_cc_block_id ON chain_candidate (block_id)")
@@ -403,13 +410,8 @@ def create_txout_approx(store):
     store.sql(store._ddl['txout_approx'])
 
 def add_fk_chain_candidate_block_id(store):
-    try:
-        store.sql("""
-            ALTER TABLE chain_candidate ADD CONSTRAINT fk1_chain_candidate
-                FOREIGN KEY (block_id) REFERENCES block (block_id)""")
-    except:
-        store.log.exception("Failed to create FOREIGN KEY; ignoring error.")
-        store.rollback()
+    add_constraint(store, "chain_candidate", "fk1_chain_candidate",
+                   "FOREIGN KEY (block_id) REFERENCES block (block_id)")
 
 def create_configvar(store):
     store.sql(store._ddl['configvar'])
@@ -817,6 +819,88 @@ def config_sequence_type(store):
             store.create_sequence(name)
     store.save_configvar("sequence_type")
 
+def add_search_block_id(store):
+    store.log.info("Creating block.search_block_id")
+    store.sql("ALTER TABLE block ADD search_block_id NUMERIC(14) NULL")
+
+def populate_search_block_id(store):
+    store.log.info("Calculating block.search_block_id")
+
+    for block_id, height, prev_id in store.selectall("""
+        SELECT block_id, block_height, prev_block_id
+          FROM block
+         WHERE block_height IS NOT NULL
+         ORDER BY block_height"""):
+        height = int(height)
+
+        search_id = None
+        if prev_id is not None:
+            prev_id = int(prev_id)
+            search_height = util.get_search_height(height)
+            if search_height is not None:
+                search_id = store.get_block_id_at_height(search_height, prev_id)
+            store.sql("UPDATE block SET search_block_id = ? WHERE block_id = ?",
+                      (search_id, block_id))
+        store.cache_block(int(block_id), height, prev_id, search_id)
+    store.commit()
+
+def add_fk_search_block_id(store):
+    add_constraint(store, "block", "fk1_search_block_id",
+                   "FOREIGN KEY (search_block_id) REFERENCES block (block_id)")
+
+def populate_firstbits(store):
+    if store.config['use_firstbits'] != "true":
+        return
+
+    blocks, fbs = 0, 0
+    log_incr = 1000
+
+    for addr_vers, block_id in store.selectall("""
+        SELECT c.chain_address_version,
+               cc.block_id
+          FROM chain c
+          JOIN chain_candidate cc ON (c.chain_id = cc.chain_id)
+         WHERE cc.block_height IS NOT NULL
+         ORDER BY cc.chain_id, cc.block_height"""):
+        fbs += store.do_vers_firstbits(addr_vers, int(block_id))
+        blocks += 1
+        if blocks % log_incr == 0:
+            store.commit()
+            store.log.info("%d firstbits in %d blocks" % (fbs, blocks))
+
+    if blocks % log_incr > 0:
+        store.commit()
+        store.log.info("%d firstbits in %d blocks" % (fbs, blocks))
+
+def create_firstbits(store):
+    flag = store.config.get('use_firstbits')
+    if flag is None:
+        if store.args.use_firstbits is None:
+            store.log.info("use_firstbits not found, defaulting to false.")
+            store.config['use_firstbits'] = "false"
+            store.save_configvar("use_firstbits")
+            return
+        flag = "true" if store.args.use_firstbits else "false"
+        store.config['use_firstbits'] = flag
+        store.save_configvar("use_firstbits")
+    if flag == "false":
+        return
+
+    store.log.info("Creating firstbits table.")
+    store.ddl(
+        """CREATE TABLE abe_firstbits (
+            pubkey_id       NUMERIC(26) NOT NULL,
+            block_id        NUMERIC(14) NOT NULL,
+            address_version BIT VARYING(80) NOT NULL,
+            firstbits       VARCHAR(50) NOT NULL,
+            PRIMARY KEY (address_version, pubkey_id, block_id),
+            FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id),
+            FOREIGN KEY (block_id) REFERENCES block (block_id)
+        )""")
+    store.ddl(
+        """CREATE INDEX x_abe_firstbits
+            ON abe_firstbits (address_version, firstbits)""")
+
 upgrades = [
     ('6',    add_block_value_in),
     ('6.1',  add_block_value_out),
@@ -887,7 +971,12 @@ upgrades = [
     ('Abe26.1', init_block_satoshi_seconds), # 3-10 minutes
     ('Abe27',   config_limit_style),     # Fast
     ('Abe28',   config_sequence_type),   # Fast
-    ('Abe29',   None)
+    ('Abe29',   add_search_block_id),    # Seconds
+    ('Abe29.1', populate_search_block_id), # 1-2 minutes if using firstbits
+    ('Abe29.2', add_fk_search_block_id), # Seconds
+    ('Abe29.3', create_firstbits),       # Fast
+    ('Abe29.4', populate_firstbits),     # Slow if config use_firstbits=true
+    ('Abe30', None)
 ]
 
 def upgrade_schema(store):
