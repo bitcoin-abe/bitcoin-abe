@@ -2383,11 +2383,19 @@ store._ddl['txout_approx'],
         vh = version + hash
         return base58.b58encode(vh + util.double_sha256(vh)[:4]).lower()
 
+    def insert_firstbits(store, pubkey_id, block_id, addr_vers, fb):
+        store.sql("""
+            INSERT INTO abe_firstbits (
+                pubkey_id, block_id, address_version, firstbits
+            )
+            VALUES (?, ?, ?, ?)""",
+                  (pubkey_id, block_id, addr_vers, fb))
+
     def cant_do_firstbits(store, addr_vers, block_id, pubkey_id):
         store.log.info(
             "No firstbits for pubkey_id %d, block_id %d, version '%s'",
             pubkey_id, block_id, store.binout_hex(addr_vers))
-        pass
+        store.insert_firstbits(pubkey_id, block_id, addr_vers, '')
 
     def do_firstbits(store, addr_vers, block_id, fb, ids, full):
         """
@@ -2404,12 +2412,7 @@ store._ddl['txout_approx'],
 
         if len(ids) <= 1:
             for pubkey_id in ids:
-                store.sql("""
-                    INSERT INTO abe_firstbits (
-                        pubkey_id, block_id, address_version, firstbits
-                    )
-                    VALUES (?, ?, ?, ?)""",
-                          (pubkey_id, block_id, addr_vers, fb))
+                store.insert_firstbits(pubkey_id, block_id, addr_vers, fb)
             return len(ids)
 
         pubkeys = {}
@@ -2438,7 +2441,7 @@ store._ddl['txout_approx'],
 
         address_version = store.binout(addr_vers)
         pubkeys = {}  # firstbits to set of pubkey_id
-        full    = {}  # pubkey_id to full firstbits
+        full    = {}  # pubkey_id to full firstbits, or None if old
 
         for pubkey_id, pubkey_hash, oblock_id in store.selectall("""
             SELECT DISTINCT
@@ -2454,16 +2457,23 @@ store._ddl['txout_approx'],
                    AND fb.pubkey_id = pubkey.pubkey_id)
              WHERE b.block_id = ?""", (addr_vers, block_id)):
 
-            if oblock_id is not None and \
-                    store.is_descended_from(block_id, int(oblock_id)):
+            pubkey_id = int(pubkey_id)
+
+            if (oblock_id is not None and
+                store.is_descended_from(block_id, int(oblock_id))):
+                full[pubkey_id] = None
+
+            if pubkey_id in full:
+                continue
+
+            full[pubkey_id] = store.firstbits_full(address_version,
+                                                   store.binout(pubkey_hash))
+
+        for pubkey_id, s in full.iteritems():
+            if s is None:
                 continue
 
             # This is the pubkey's first appearance in the chain.
-            pubkey_id = int(pubkey_id)
-            s = store.firstbits_full(address_version,
-                                     store.binout(pubkey_hash))
-            full[pubkey_id] = s
-
             longest = 0
             substrs = [s[0:(i+1)] for i in xrange(len(s))]
             for ancestor_id, fblen in store.selectall("""
