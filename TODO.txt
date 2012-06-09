@@ -1,6 +1,3 @@
-* Firstbits: nail down the algorithm.  "Ties in a block are by tx ID"
-  --https://bitcointalk.org/index.php?topic=16217.msg288627#msg288627
-
 * Provide address short links in the style of http://firstbits.com/ as
   an optional add-on.
 

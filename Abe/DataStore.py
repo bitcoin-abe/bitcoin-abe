@@ -168,6 +168,8 @@ class DataStore(object):
         else:
             store.commit_bytes = int(store.commit_bytes)
 
+        store.use_firstbits = (store.config['use_firstbits'] == "true")
+
     def connect(store):
         cargs = store.args.connect_args
 
@@ -1783,7 +1785,7 @@ store._ddl['txout_approx'],
                      WHERE block_id = ?""",
                     (height, next_id))
 
-                if store.config['use_firstbits'] == "true":
+                if store.use_firstbits:
                     for (addr_vers,) in store.selectall(""""
                         SELECT c.chain_address_version
                           FROM chain c
@@ -2072,7 +2074,7 @@ store._ddl['txout_approx'],
                    SET chain_last_block_id = ?
                  WHERE chain_id = ?""", (top['block_id'], chain_id))
 
-        if store.config['use_firstbits'] == "true" and b['height'] is not None:
+        if store.use_firstbits and b['height'] is not None:
             (addr_vers,) = store.selectrow("""
                 SELECT chain_address_version
                   FROM chain
