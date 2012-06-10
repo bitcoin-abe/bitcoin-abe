@@ -1,24 +1,9 @@
-FIRSTBITS PRELIMINARY NOTES
+FIRSTBITS NOTES
 
-I intend for Abe to support bidirectional translation between
-addresses and firstbits as on http://firstbits.com/.  This involves
-three steps:
-
-1. an upgrade option to compute and store firstbits of addresses
-   (pubkeys) currently in the database,
-
-2. additional block-importing code to compute and store new firstbits
-   found in a block, and
-
-3. front-end UI/API.
-
-Steps #1 and #2 are done.  The following commands create and populate
-the abe_firstbits table, given a database using the latest code from
-bitcoin-abe's "master" branch.  Replace "--config DB.conf" with your
-database connection parameters.  For a large database, this may take
-several hours:
-
-    python -m Abe.abe --config DB.conf --use-firstbits --upgrade
+Abe supports bidirectional translation between addresses and firstbits
+as on http://firstbits.com/.  This feature is disabled by default due
+to cost.  To enable it, add "use-firstbits" to the configuration
+*before* first running a version that supports it.
 
 If you run without use-firstbits, Abe will default it to false and
 will never create the table.  I'd like to have a script that turns
@@ -60,29 +45,19 @@ matches a row in chain_candidate where in_longest=1 and chain_id=1
 
 FIRSTBITS TECHNICAL DESIGN
 
-Maintenance of the abe_firstbits table will impose space and time
-costs on Abe instances.  To keep things simple, I do not plan to
-support firstbits calculation in some chains and not others.  If
-use_firstbits is in effect, a new database invariant will require the
-table to contain all firstbits corresponding to chain_candidate rows
-where block_height is not null.  If use_firstbits is false (the
-default) then Abe will behave as before and not touch abe_firstbits.
+Maintenance of the abe_firstbits table imposes space and time costs on
+Abe instances.  To keep things simple, Abe does not support firstbits
+calculation in only some chains and not others.  If use_firstbits is
+in effect, a database invariant requires the table to contain all
+firstbits corresponding to chain_candidate rows where block_height is
+not null.  If use_firstbits is false (the default) then Abe does not
+touch abe_firstbits.
 
 Finding firstbits requires a function that determines whether a given
 block is descended from another given block.  Why?  Because several
 firstbits records may collide with initial substrings of the new
 address, but only the ones in ancestral blocks can prevent it from
 receiving the firstbits.
-
-Abe currently [correction: formerly] implements the descended-from
-relationship in DataStore.is_descended_from, used in calculating
-coin-days destroyed.  This function suffers from two problems, which I
-would like to fix while adding firstbits support.  One, it is very
-complex.  Two, it relies heavily on most blocks belonging to a longest
-chain, so its performance may suffer in the presence of long
-side-chains, such as those created during 51% attacks.  The
-descended-from relationship is logically independent of any notion of
-longest chain.
 
 A naive implementation of is_descended_from(block, ancestor) would
 simply look up block's prev_block_id in the block table and repeat
@@ -95,19 +70,14 @@ containing a row for each block pair whose first block is descended
 from its second block.  But this table would grow as the square of the
 chain length, and that is too big.
 
-In implementing the upgrade.py function that populates firstbits from
-existing block data, I created ancestry.py, which implemented
-is_descended_from (in memory) with a compromise between size and
-speed.  My initial thought was to reuse this code in DataStore.py for
-the maintenance portion, but settled on an alternative approach
-involving a new block table column, search_block_id.
-
-Like block.prev_block_id, search_block_id points to an earlier block
-in the chain, but the earlier block's height is found by a function
-other than block_height-1.  The function depends only on block_height
-and should allow is_descended_from to use a more-or-less binary
-search.  Here is a paper by Chris Okasaki describing a somewhat
-similar structure: "Purely Functional Random-Access Lists"
+Abe's implementation (DataStore.is_descended_from) involves a new
+block table column, search_block_id.  Like block.prev_block_id,
+search_block_id points to an earlier block in the chain, but the
+earlier block's height is found by a function other than
+block_height-1.  The function depends only on block_height and allows
+is_descended_from to use a more-or-less binary search.  A paper by
+Chris Okasaki describes a somewhat similar structure: "Purely
+Functional Random-Access Lists"
 http://cs.oberlin.edu/~jwalker/refs/fpca95.ps
 
 The get_search_height function in util.py computes the search_block_id
@@ -137,7 +107,7 @@ Abe would contain the same logic in generic Python code.
 An alternative table-based approach is libbitcoin's span_left and
 span_right.  I have not got my head around the requirements for
 adjusting the span values when new side chains appear, though, and I
-think my more-or-less binary search will suffice.
+think the more-or-less binary search suffices.
 
 John Tobey
-2012-06-08
+2012-06-09

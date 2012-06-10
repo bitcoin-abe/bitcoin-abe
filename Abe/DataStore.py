@@ -2403,8 +2403,7 @@ store._ddl['txout_approx'],
         Return the address in lowercase.  An initial substring of this
         will become the firstbits.
         """
-        vh = version + hash
-        return base58.b58encode(vh + util.double_sha256(vh)[:4]).lower()
+        return util.hash_to_address(version, hash).lower()
 
     def insert_firstbits(store, pubkey_id, block_id, addr_vers, fb):
         store.sql("""
@@ -2537,6 +2536,62 @@ store._ddl['txout_approx'],
         for fb, ids in pubkeys.iteritems():
             count += store.do_firstbits(addr_vers, block_id, fb, ids, full)
         return count
+
+    def firstbits_to_addresses(store, fb, chain_id=None):
+        dbfb = fb.lower()
+        ret = []
+        bind = [fb[0:(i+1)] for i in xrange(len(fb))]
+        if chain_id is not None:
+            bind.append(chain_id)
+
+        for dbhash, vers in store.selectall("""
+            SELECT pubkey.pubkey_hash,
+                   fb.address_version
+              FROM abe_firstbits fb
+              JOIN pubkey ON (fb.pubkey_id = pubkey.pubkey_id)
+              JOIN chain_candidate cc ON (cc.block_id = fb.block_id)
+             WHERE fb.firstbits IN (?""" + (",?" * (len(fb)-1)) + """)""" + ( \
+                "" if chain_id is None else """
+               AND cc.chain_id = ?"""), tuple(bind)):
+            address = util.hash_to_address(store.binout(vers),
+                                           store.binout(dbhash))
+            if address.lower().startswith(dbfb):
+                ret.append(address)
+
+        if len(ret) == 0 or (len(ret) > 1 and fb in ret):
+            ret = [fb]  # assume exact address match
+
+        return ret
+
+    def get_firstbits(store, address_version=None, db_pubkey_hash=None,
+                      chain_id=None):
+        """
+        Return address's firstbits, or the longest of multiple
+        firstbits values if chain_id is not given, or None if address
+        has not appeared, or the empty string if address has appeared
+        but has no firstbits.
+        """
+        vers, dbhash = store.binin(address_version), db_pubkey_hash
+        rows = store.selectall("""
+            SELECT fb.firstbits
+              FROM abe_firstbits fb
+              JOIN pubkey ON (fb.pubkey_id = pubkey.pubkey_id)
+              JOIN chain_candidate cc ON (fb.block_id = cc.block_id)
+             WHERE cc.in_longest = 1
+               AND fb.address_version = ?
+               AND pubkey.pubkey_hash = ?""" + (
+                "" if chain_id is None else """
+               AND cc.chain_id = ?"""),
+                               (vers, dbhash) if chain_id is None else
+                               (vers, dbhash, chain_id))
+        if not rows:
+            return None
+
+        ret = ""
+        for (fb,) in rows:
+            if len(fb) > len(ret):
+                ret = fb;
+        return ret
 
 def new(args):
     return DataStore(args)

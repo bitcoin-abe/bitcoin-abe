@@ -2,7 +2,10 @@
 # Misc util routines
 #
 
+import re
+import base58
 import Crypto.Hash.SHA256 as SHA256
+
 try:
     import Crypto.Hash.RIPEMD160 as RIPEMD160
 except:
@@ -82,3 +85,25 @@ def get_search_height(n):
     while (n & bit) == 0:
         bit <<= 1
     return n - bit
+
+ADDRESS_RE = re.compile('[1-9A-HJ-NP-Za-km-z]{26,}\\Z')
+
+def possible_address(string):
+    return ADDRESS_RE.match(string)
+
+def hash_to_address(version, hash):
+    vh = version + hash
+    return base58.b58encode(vh + double_sha256(vh)[:4])
+
+def decode_check_address(address):
+    if possible_address(address):
+        version, hash = decode_address(address)
+        if hash_to_address(version, hash) == address:
+            return version, hash
+    return None, None
+
+def decode_address(addr):
+    bytes = base58.b58decode(addr, None)
+    if len(bytes) < 25:
+        bytes = ('\0' * (25 - len(bytes))) + bytes
+    return bytes[:-24], bytes[-24:-4]

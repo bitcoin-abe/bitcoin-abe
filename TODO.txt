@@ -1,7 +1,8 @@
-* Provide address short links in the style of http://firstbits.com/ as
-  an optional add-on.
-
 * Write a test suite.  Include reorgs and upgrades.
+
+* Search by firstbits.
+
+* Show firstbits on address history page.
 
 * Consider adjusting statistics for duplicate coinbase transactions.
 

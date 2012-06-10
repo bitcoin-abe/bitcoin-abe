@@ -85,7 +85,6 @@ DEFAULT_LOG_FORMAT = "%(message)s"
 LOG10COIN = 8
 COIN = 10 ** LOG10COIN
 
-ADDRESS_RE = re.compile('[1-9A-HJ-NP-Za-km-z]{26,}\\Z')
 # It is fun to change "6" to "3" and search lots of addresses.
 ADDR_PREFIX_RE = re.compile('[1-9A-HJ-NP-Za-km-z]{6,}\\Z')
 HEIGHT_RE = re.compile('(?:0|[1-9][0-9]*)\\Z')
@@ -149,7 +148,23 @@ class Abe:
                 abe.template_vars.get('download', ''))
         abe.base_url = args.base_url
         abe.address_history_rows_max = int(
-            args.address_history_rows_max or 1000);
+            args.address_history_rows_max or 1000)
+
+        if args.shortlink_type is None:
+            abe.shortlink_type = ("firstbits" if store.use_firstbits else
+                                  "non-firstbits")
+        else:
+            abe.shortlink_type = args.shortlink_type
+            if abe.shortlink_type != "firstbits":
+                abe.shortlink_type = int(abe.shortlink_type)
+                if abe.shortlink_type < 2:
+                    raise ValueError("shortlink-type: 2 character minimum")
+            elif not store.use_firstbits:
+                abe.shortlink_type = "non-firstbits"
+                abe.log.warn("Ignoring shortlink-type=firstbits since" +
+                             " the database does not support it.")
+        if abe.shortlink_type == "non-firstbits":
+            abe.shortlink_type = 10
 
     def __call__(abe, env, start_response):
         import urlparse
@@ -164,6 +179,7 @@ class Abe:
             "start_response": start_response,
             "content_type": str(abe.template_vars['CONTENT_TYPE']),
             "template": abe.template,
+            "chain": None,
             }
         if 'QUERY_STRING' in env:
             page['params'] = urlparse.parse_qs(env['QUERY_STRING'])
@@ -175,7 +191,7 @@ class Abe:
         cmd = wsgiref.util.shift_path_info(env)
         if cmd == '':
             cmd = abe.home
-        handler = getattr(abe, 'handle_' + cmd, None)
+        handler = abe.get_handler(cmd)
 
         try:
             if handler is None:
@@ -219,6 +235,9 @@ class Abe:
                 ' <a href="' + page['dotdot'] + 'download">Source</a>')
 
         return page['template'] % tvars
+
+    def get_handler(abe, cmd):
+        return getattr(abe, 'handle_' + cmd, None)
 
     def handle_chains(abe, page):
         page['title'] = ABE_APPNAME + ' Search'
@@ -316,20 +335,26 @@ class Abe:
               FROM chain
              WHERE chain_id = ?""", (chain_id,)))
 
+    def call_handler(abe, page, cmd):
+        handler = abe.get_handler(cmd)
+        if handler is None:
+            raise PageNotFound()
+        handler(page)
+
     def handle_chain(abe, page):
         symbol = wsgiref.util.shift_path_info(page['env'])
         chain = abe.chain_lookup_by_name(symbol)
+        page['chain'] = chain
 
         cmd = wsgiref.util.shift_path_info(page['env'])
-        if cmd == 'b':
-            return abe.show_block_number(chain, page)
         if cmd == '':
             page['env']['SCRIPT_NAME'] = page['env']['SCRIPT_NAME'][:-1]
             raise Redirect()
-        if cmd == 'q':
-            return abe.handle_q(page, chain=chain)
-        if cmd is not None:
+        if cmd == 'chain' or cmd == 'chains':
             raise PageNotFound()
+        if cmd is not None:
+            abe.call_handler(page, cmd)
+            return
 
         page['title'] = chain['name']
 
@@ -355,7 +380,7 @@ class Abe:
             else:
                 body += ['<p class="error">'
                          'The requested range contains no blocks.</p>\n']
-            return True
+            return
 
         rows = abe.store.selectall("""
             SELECT b.block_hash, b.block_height, b.block_nTime, b.block_num_tx,
@@ -452,7 +477,6 @@ class Abe:
                 '</td></tr>\n']
 
         body += ['</table>\n<p>', nav, '</p>\n']
-        return True
 
     def _show_block(abe, where, bind, page, dotdotblock, chain):
         address_version = ('\0' if chain is None
@@ -659,20 +683,6 @@ class Abe:
                 body += [': ', format_satoshis(txout['value'], chain), '<br />']
             body += ['</td></tr>\n']
         body += '</table>\n'
-
-    def show_block_number(abe, chain, page):
-        height = wsgiref.util.shift_path_info(page['env'])
-        try:
-            height = int(height)
-        except:
-            raise PageNotFound()
-        if height < 0 or page['env']['PATH_INFO'] != '':
-            raise PageNotFound()
-
-        page['title'] = [escape(chain['name']), ' ', height]
-        abe._show_block('chain_id = ? AND block_height = ? AND in_longest = 1',
-                        (chain['id'], height), page, page['dotdot'] + 'block/',
-                        chain)
 
     def handle_block(abe, page):
         block_hash = wsgiref.util.shift_path_info(page['env'])
@@ -902,7 +912,7 @@ class Abe:
 
         body = page['body']
         page['title'] = 'Address ' + escape(address)
-        version, binaddr = decode_check_address(address)
+        version, binaddr = util.decode_check_address(address)
         if binaddr is None:
             body += ['<p>Not a valid address.</p>']
             return
@@ -1024,14 +1034,25 @@ class Abe:
                 ret += [format_satoshis(amounts[chain_id], chain),
                         ' ', escape(chain['code3'])]
                 if link:
-                    other = hash_to_address(chain['address_version'], binaddr)
+                    other = util.hash_to_address(
+                        chain['address_version'], binaddr)
                     if other != address:
                         ret[-1] = ['<a href="', page['dotdot'],
                                    'address/', other,
                                    '">', ret[-1], '</a>']
             return ret
 
-        body += abe.short_link(page, 'a/' + address[:10])
+        if abe.shortlink_type == "firstbits":
+            link = abe.store.get_firstbits(
+                address_version=version, db_pubkey_hash=dbhash,
+                chain_id = (page['chain'] and page['chain']['id']))
+            if link:
+                link = link.replace('l', 'L')
+            else:
+                link = address
+        else:
+            link = address[0 : abe.shortlink_type]
+        body += abe.short_link(page, 'a/' + link)
 
         body += ['<p>Balance: '] + format_amounts(balance, True)
 
@@ -1090,7 +1111,7 @@ class Abe:
 
         found = []
         if HEIGHT_RE.match(q):      found += abe.search_number(int(q))
-        if ADDRESS_RE.match(q):     found += abe.search_address(q)
+        if util.possible_address(q):found += abe.search_address(q)
         elif ADDR_PREFIX_RE.match(q):found += abe.search_address_prefix(q)
         if is_hash_prefix(q):       found += abe.search_hash_prefix(q)
         found += abe.search_general(q)
@@ -1151,10 +1172,8 @@ class Abe:
                 else:
                     # XXX Use Bitcoin address version until we implement
                     # /pubkey/... for this to link to.
-                    addr = hash_to_address('\0', abe.store.binout(row[0]))
-                    return {
-                        'name': 'Address ' + addr,
-                        'uri': 'address/' + addr}
+                    return abe._found_address(
+                        util.hash_to_address('\0', abe.store.binout(row[0])))
                 hash = abe.store.hashout_hex(row[0])
                 return {
                     'name': name + ' ' + hash,
@@ -1177,12 +1196,15 @@ class Abe:
                 (lo, hi)))
         return ret
 
+    def _found_address(abe, address):
+        return { 'name': 'Address ' + address, 'uri': 'address/' + address }
+
     def search_address(abe, address):
         try:
             binaddr = base58.bc_address_to_hash_160(address)
         except:
             return abe.search_address_prefix(address)
-        return [{ 'name': 'Address ' + address, 'uri': 'address/' + address }]
+        return [abe._found_address(address)]
 
     def search_address_prefix(abe, ap):
         ret = []
@@ -1206,26 +1228,24 @@ class Abe:
 
         def process(row):
             hash = abe.store.binout(row[0])
-            address = hash_to_address(vl, hash)
+            address = util.hash_to_address(vl, hash)
             if address.startswith(ap):
                 v = vl
             else:
                 if vh != vl:
-                    address = hash_to_address(vh, hash)
+                    address = util.hash_to_address(vh, hash)
                     if not address.startswith(ap):
                         return None
                     v = vh
             if abe.is_address_version(v):
-                return {
-                    'name': 'Address ' + address,
-                    'uri': 'address/' + address,
-                    }
+                return abe._found_address(address)
 
         while l >= minlen:
-            vl, hl = decode_address(al)
-            vh, hh = decode_address(ah)
+            vl, hl = util.decode_address(al)
+            vh, hh = util.decode_address(ah)
             if ones:
-                if not all_ones and hash_to_address('\0', hh)[ones:][:1] == '1':
+                if not all_ones and \
+                        util.hash_to_address('\0', hh)[ones:][:1] == '1':
                     break
             elif vh == '\0':
                 break
@@ -1271,6 +1291,26 @@ class Abe:
                 ('tx',)))
 
     def handle_b(abe, page):
+        if 'chain' in page:
+            chain = page['chain']
+            height = wsgiref.util.shift_path_info(page['env'])
+            try:
+                height = int(height)
+            except:
+                raise PageNotFound()
+            if height < 0 or page['env']['PATH_INFO'] != '':
+                raise PageNotFound()
+
+            cmd = wsgiref.util.shift_path_info(page['env'])
+            if cmd is not None:
+                raise PageNotFound()  # XXX want to support /a/...
+
+            page['title'] = [escape(chain['name']), ' ', height]
+            abe._show_block(
+                'chain_id = ? AND block_height = ? AND in_longest = 1',
+                (chain['id'], height), page, page['dotdot'] + 'block/', chain)
+            return
+
         abe.show_search_results(
             page,
             abe.search_hash_prefix(
@@ -1278,17 +1318,23 @@ class Abe:
                 ('block',)))
 
     def handle_a(abe, page):
-        abe.show_search_results(
-            page,
-            abe.search_address_prefix(
-                wsgiref.util.shift_path_info(page['env'])))
+        arg = wsgiref.util.shift_path_info(page['env'])
+        if abe.shortlink_type == "firstbits":
+            addrs = map(
+                abe._found_address,
+                abe.store.firstbits_to_addresses(
+                    arg.lower(),
+                    chain_id = page['chain'] and page['chain']['id']))
+        else:
+            addrs = abe.search_address_prefix(arg)
+        abe.show_search_results(page, addrs)
 
     def do_raw(abe, page, body):
         page['content_type'] = 'text/plain'
         page['template'] = '%(body)s'
         page['body'] = body
 
-    def handle_q(abe, page, chain=None):
+    def handle_q(abe, page):
         cmd = wsgiref.util.shift_path_info(page['env'])
         if cmd is None:
             return abe.q(page)
@@ -1297,7 +1343,7 @@ class Abe:
         if func is None:
             raise PageNotFound()
 
-        abe.do_raw(page, func(page, chain))
+        abe.do_raw(page, func(page, page['chain']))
 
     def q(abe, page):
         page['body'] = ['<p>Supported APIs:</p>\n<ul>\n']
@@ -1330,10 +1376,10 @@ class Abe:
         if chain is None or addr is None:
             return 'Translates ADDRESS for use in CHAIN.\n' \
                 '/chain/CHAIN/q/translate_address/ADDRESS\n'
-        version, hash = decode_check_address(addr)
+        version, hash = util.decode_check_address(addr)
         if hash is None:
             return addr + " (INVALID ADDRESS)"
-        return hash_to_address(chain['address_version'], hash)
+        return util.hash_to_address(chain['address_version'], hash)
 
     def q_decode_address(abe, page, chain):
         """shows the version prefix and hash encoded in an address."""
@@ -1342,9 +1388,10 @@ class Abe:
             return "Shows ADDRESS's version byte(s) and public key hash" \
                 ' as hex strings separated by colon (":").\n' \
                 '/q/decode_address/ADDRESS\n'
-        version, hash = decode_address(addr)
+        # XXX error check?
+        version, hash = util.decode_address(addr)
         ret = version.encode('hex') + ":" + hash.encode('hex')
-        if hash_to_address(version, hash) != addr:
+        if util.hash_to_address(version, hash) != addr:
             ret = "INVALID(" + ret + ")"
         return ret
 
@@ -1356,7 +1403,7 @@ class Abe:
                 'For BBE compatibility, the address is not checked for' \
                 ' validity.  See also /q/decode_address.\n' \
                 '/q/addresstohash/ADDRESS\n'
-        version, hash = decode_address(addr)
+        version, hash = util.decode_address(addr)
         return hash.encode('hex').upper()
 
     def q_hashtoaddress(abe, page, chain):
@@ -1391,7 +1438,7 @@ class Abe:
             version = version.decode('hex')
         except:
             return 'ERROR: Arguments must be hexadecimal strings of even length'
-        return hash_to_address(version, hash)
+        return util.hash_to_address(version, hash)
 
     def q_hashpubkey(abe, page, chain):
         """shows the 160-bit hash of the given public key."""
@@ -1420,9 +1467,9 @@ class Abe:
                 "If ADDRESS is invalid, returns either X5, SZ, or CK for" \
                 " BBE compatibility.\n" \
                 "/q/checkaddress/ADDRESS\n"
-        if ADDRESS_RE.match(addr):
-            version, hash = decode_address(addr)
-            if hash_to_address(version, hash) == addr:
+        if util.possible_address(addr):
+            version, hash = util.decode_address(addr)
+            if util.hash_to_address(version, hash) == addr:
                 return version.encode('hex').upper()
             return 'CK'
         if len(addr) >= 26:
@@ -1554,24 +1601,24 @@ class Abe:
             return 'returns amount of money received by given address (not balance, sends are not subtracted)\n' \
                 '/chain/CHAIN/q/getreceivedbyaddress/ADDRESS\n'
 
-        if ADDRESS_RE.match(addr):
-            version, hash = decode_address(addr)
-            sql = """
-                SELECT COALESCE(SUM(txout.txout_value), 0)
-                  FROM pubkey
-                  JOIN txout ON txout.pubkey_id=pubkey.pubkey_id
-                  JOIN block_tx ON block_tx.tx_id=txout.tx_id
-                  JOIN block b ON b.block_id=block_tx.block_id
-                  JOIN chain_candidate cc ON cc.block_id=b.block_id
-                  WHERE
-                      pubkey.pubkey_hash = ? AND
-                      cc.chain_id = ? AND
-                      cc.in_longest = 1"""
-            row = abe.store.selectrow(
-                sql, (abe.store.binin(hash), chain['id']))
-            ret = format_satoshis(row[0], chain);
-        else:
-            ret = 'ERROR: address invalid'
+        if not util.possible_address(addr):
+            return 'ERROR: address invalid'
+
+        version, hash = util.decode_address(addr)
+        sql = """
+            SELECT COALESCE(SUM(txout.txout_value), 0)
+              FROM pubkey
+              JOIN txout ON txout.pubkey_id=pubkey.pubkey_id
+              JOIN block_tx ON block_tx.tx_id=txout.tx_id
+              JOIN block b ON b.block_id=block_tx.block_id
+              JOIN chain_candidate cc ON cc.block_id=b.block_id
+              WHERE
+                  pubkey.pubkey_hash = ? AND
+                  cc.chain_id = ? AND
+                  cc.in_longest = 1"""
+        row = abe.store.selectrow(
+            sql, (abe.store.binin(hash), chain['id']))
+        ret = format_satoshis(row[0], chain);
 
         return ret
 
@@ -1582,27 +1629,77 @@ class Abe:
             return 'returns amount of money sent from given address\n' \
                 '/chain/CHAIN/q/getsentbyaddress/ADDRESS\n'
 
-        if ADDRESS_RE.match(addr):
-            version, hash = decode_address(addr)
-            sql = """
-                SELECT COALESCE(SUM(txout.txout_value), 0)
-                  FROM pubkey
-                  JOIN txout ON txout.pubkey_id=pubkey.pubkey_id
-                  JOIN txin ON txin.txout_id=txout.txout_id
-                  JOIN block_tx ON block_tx.tx_id=txout.tx_id
-                  JOIN block b ON b.block_id=block_tx.block_id
-                  JOIN chain_candidate cc ON cc.block_id=b.block_id
-                  WHERE
-                      pubkey.pubkey_hash = ? AND
-                      cc.chain_id = ? AND
-                      cc.in_longest = 1"""
-            row = abe.store.selectrow(
-                sql, (abe.store.binin(hash), chain['id']))
-            ret = format_satoshis(row[0], chain);
-        else:
-            ret = 'ERROR: address invalid'
+        if not util.possible_address(addr):
+            return 'ERROR: address invalid'
+
+        version, hash = util.decode_address(addr)
+        sql = """
+            SELECT COALESCE(SUM(txout.txout_value), 0)
+              FROM pubkey
+              JOIN txout ON txout.pubkey_id=pubkey.pubkey_id
+              JOIN txin ON txin.txout_id=txout.txout_id
+              JOIN block_tx ON block_tx.tx_id=txout.tx_id
+              JOIN block b ON b.block_id=block_tx.block_id
+              JOIN chain_candidate cc ON cc.block_id=b.block_id
+              WHERE
+                  pubkey.pubkey_hash = ? AND
+                  cc.chain_id = ? AND
+                  cc.in_longest = 1"""
+        row = abe.store.selectrow(
+            sql, (abe.store.binin(hash), chain['id']))
+        ret = format_satoshis(row[0], chain);
 
         return ret
+
+    def q_fb(abe, page, chain):
+        """returns an address's firstbits."""
+
+        if not abe.store.use_firstbits:
+            raise PageNotFound()
+
+        addr = wsgiref.util.shift_path_info(page['env'])
+        if addr is None:
+            return 'Shows ADDRESS\'s firstbits:' \
+                ' the shortest initial substring that uniquely and' \
+                ' case-insensitively distinguishes ADDRESS from all' \
+                ' others first appearing before it or in the same block.\n' \
+                'See http://firstbits.com/.\n' \
+                'Returns empty if ADDRESS has no firstbits.\n' \
+                '/chain/CHAIN/q/fb/ADDRESS\n' \
+                '/q/fb/ADDRESS\n'
+
+        if not util.possible_address(addr):
+            return 'ERROR: address invalid'
+
+        version, dbhash = util.decode_address(addr)
+        ret = abe.store.get_firstbits(
+            address_version = version,
+            db_pubkey_hash = abe.store.binin(dbhash),
+            chain_id = (chain and chain['id']))
+
+        if ret is None:
+            return 'ERROR: address not in the chain.'
+
+        return ret
+
+    def q_addr(abe, page, chain):
+        """returns the full address having the given firstbits."""
+
+        if not abe.store.use_firstbits:
+            raise PageNotFound()
+
+        fb = wsgiref.util.shift_path_info(page['env'])
+        if fb is None:
+            return 'Shows the address identified by FIRSTBITS:' \
+                ' the first address in CHAIN to start with FIRSTBITS,' \
+                ' where the comparison is case-insensitive.\n' \
+                'See http://firstbits.com/.\n' \
+                'Returns the argument if none matches.\n' \
+                '/chain/CHAIN/q/addr/FIRSTBITS\n' \
+                '/q/addr/FIRSTBITS\n'
+
+        return "\n".join(abe.store.firstbits_to_addresses(
+                fb, chain_id = (chain and chain['id'])))
 
     def handle_download(abe, page):
         name = abe.args.download_name
@@ -1632,7 +1729,7 @@ class Abe:
             # XXX is "+ '/' + path" adequate for non-POSIX systems?
             found = open(abe.htdocs + '/' + path, "rb")
             import mimetypes
-            (type, enc) = mimetypes.guess_type(path)
+            type, enc = mimetypes.guess_type(path)
             # XXX Should do something with enc if not None.
             # XXX Should set Content-length.
             start_response('200 OK', [('Content-type', type or 'text/plain')])
@@ -1706,32 +1803,13 @@ def format_difficulty(diff):
         idiff = idiff / 1000
     return str(idiff) + ret
 
-def hash_to_address(version, hash):
-    if hash is None:
-        return 'UNKNOWN'
-    vh = version + hash
-    return base58.b58encode(vh + util.double_sha256(vh)[:4])
-
 def hash_to_address_link(version, hash, dotdot):
     if hash == DataStore.NULL_PUBKEY_HASH:
         return 'Destroyed'
     if hash is None:
         return 'UNKNOWN'
-    addr = hash_to_address(version, hash)
+    addr = util.hash_to_address(version, hash)
     return ['<a href="', dotdot, 'address/', addr, '">', addr, '</a>']
-
-def decode_check_address(address):
-    if ADDRESS_RE.match(address):
-        version, hash = decode_address(address)
-        if hash_to_address(version, hash) == address:
-            return version, hash
-    return None, None
-
-def decode_address(addr):
-    bytes = base58.b58decode(addr, None)
-    if len(bytes) < 25:
-        bytes = ('\0' * (25 - len(bytes))) + bytes
-    return bytes[:-24], bytes[-24:-4]
 
 def decode_script(script):
     try:
@@ -1865,6 +1943,7 @@ def main(argv):
         "base_url":                 None,
         "logging":                  None,
         "address_history_rows_max": None,
+        "shortlink_type":           None,
 
         "template":     DEFAULT_TEMPLATE,
         "template_vars": {
