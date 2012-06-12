@@ -1,4 +1,10 @@
+* Support new script types.  Fix the firstbits table on upgrade.
+
 * Write a test suite.  Include reorgs and upgrades.
+
+* Highlight any objects that are not in a main chain as such.  In
+  particular, don't imply that an output was "redeemed" when the
+  redeeming transaction is not in the chain.
 
 * Search by firstbits.
 
@@ -60,8 +66,6 @@
 * Perhaps write a validation module to check db data.  Begun as verify.py.
 
 * Abstract SQL into the DataStore class.
-
-* Highlight any objects that are not in a main chain as such.
 
 * Report block size, raw blocks, average transactions per block, fees
   per block, ...
