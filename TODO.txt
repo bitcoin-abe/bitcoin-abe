@@ -24,12 +24,13 @@
   tx_hash=b38bb421d9a54c58ea331c4b4823dd498f1e42e25ac96d3db643308fcc70503e,
   Bitcoin 168910, DUP DUP DUP.
   tx_hash=9c08a4d78931342b37fd5f72900fb9983087e6f46c4a097d8a1f52c74e28eaf6,
-  Bitcoin 170052, HASH160 20:19a7...960e EQUAL, redeemed with
-  37:5121...51ae.
+  Bitcoin 170052, HASH160 20:19a7...960e EQUAL, pay-to-script-hash,
+  redeemed with 37:5121...51ae.
   tx_hash=c0b69d1e5ed13732dbd704604f7c08bc96549cc556c464aa42cc7525b3897987,
   Bitcoin 170766, 3 DROP DROP 1, redeemed with 1.
   tx_hash=aea682d68a3ea5e3583e088dcbd699a5d44d4b083f02ad0aaf2598fe1fa4dfd4,
   Bitcoin 170877, MIN 3 EQUAL, redeemed with 1:03 1:03.
+  Cf. http://blockchain.info/strange-transactions
 
 * Highlight any objects that are not in a main chain as such.  In
   particular, don't imply that an output was "redeemed" when the
