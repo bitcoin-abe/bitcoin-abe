@@ -2200,7 +2200,9 @@ store._ddl['txout_approx'],
             store._refresh_dircfg(dircfg)
             filename = store.blkfile_name(dircfg)
             ds = BCDataStream.BCDataStream()
-            ds.map_file(open(filename, "rb"), 0)
+            file = open(filename, "rb")
+            ds.map_file(file, 0)
+            file.close()
             return ds
 
         try:
