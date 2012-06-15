@@ -1,3 +1,7 @@
+* Compress standard txout scripts by representing them as a pubkey_id
+  and script type.  Multi-signature outputs require thought; leave
+  pubkey_id null and retain the script for starters.
+
 * Support new script types.  Fix the firstbits table on upgrade.
   Recent non-zero outputs showing as Unknown:
   tx_hash=b728387a3cf1dfcff1eef13706816327907f79f9366a7098ee48fc0c00ad2726,
@@ -127,9 +131,6 @@
 
 * Perhaps create an "SQL script" DataStore subclass that outputs flat
   SQL INSERTs.
-
-* Perhaps compress scriptPubKey by representing as a pubkey_id and
-  address type.
 
 * Context-sensitive help as on http://blockexplorer.com.
 

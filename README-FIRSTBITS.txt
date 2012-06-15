@@ -1,9 +1,19 @@
 FIRSTBITS NOTES
 
-Abe supports bidirectional translation between addresses and firstbits
-as on http://firstbits.com/.  This feature is disabled by default due
-to cost.  To enable it, add "use-firstbits" to the configuration
-*before* first running a version that supports it.
+Abe experimentally supports bidirectional translation between
+addresses and firstbits as on http://firstbits.com/.  Abe will
+disagree with other firstbits implementations in some cases until the
+algorithm is better defined and all implementations start to use it.
+
+This disagreement has security implications.  Do not rely on the
+firstbits address reported by Abe to match the one on firstbits.com or
+another site when sending bitcoins.  See this forum thread, and note
+that Abe does not currently implement the algorithm proposed there:
+https://bitcointalk.org/index.php?topic=16217.msg960077#msg960077
+
+This feature is disabled by default due to performance impact.  To
+enable it, add "use-firstbits" to the configuration *before* first
+running a version that supports it.
 
 If you run without use-firstbits, Abe will default it to false and
 will never create the table.  I'd like to have a script that turns

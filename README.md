@@ -8,13 +8,6 @@ https://github.com/jtobey/bitcoin-abe
 Welcome to Abe!
 ===============
 
-****** EXPERIMENTAL FIRSTBITS BRANCH ******
-
-This Git revision contains incomplete, experimental code intended to
-support the Firstbits algorithm described at
-http://www.firstbits.com/.  See README-FIRSTBITS.txt.  You probably
-want the "master" or "b0.6" branch instead for production use.
-
 This software reads the Bitcoin block file, transforms and loads the
 data into a database, and presents a web interface similar to Bitcoin
 Block Explorer, http://blockexplorer.com/.
