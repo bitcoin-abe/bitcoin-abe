@@ -1081,7 +1081,7 @@ store._ddl['txout_approx'],
                   (NULL_PUBKEY_ID, store.binin(NULL_PUBKEY_HASH)))
 
         if store.args.use_firstbits:
-            config['use_firstbits'] = "true"
+            store.config['use_firstbits'] = "true"
             store.ddl(
                 """CREATE TABLE abe_firstbits (
                     pubkey_id       NUMERIC(26) NOT NULL,
@@ -1090,13 +1090,13 @@ store._ddl['txout_approx'],
                     firstbits       VARCHAR(50) NOT NULL,
                     PRIMARY KEY (address_version, pubkey_id, block_id),
                     FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id),
-                    FOREIGN KEY (block_id) REFERENCES block (block_id),
+                    FOREIGN KEY (block_id) REFERENCES block (block_id)
                 )""")
             store.ddl(
                 """CREATE INDEX x_abe_firstbits
-                    ON abe_firstbits (address_version, firstbits))""")
+                    ON abe_firstbits (address_version, firstbits)""")
         else:
-            config['use_firstbits'] = "false"
+            store.config['use_firstbits'] = "false"
 
         store.save_config()
         store.commit()
