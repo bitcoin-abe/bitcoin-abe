@@ -286,22 +286,28 @@ class DataStore(object):
             hashout     = rev
             hashout_hex = to_hex
 
-        elif val in ("buffer", "bytearray"):
-            if val == "buffer":
-                def to_btype(x):
-                    return None if x is None else buffer(x)
-            else:
+        elif val in ("buffer", "bytearray", "pg-bytea"):
+            if val == "bytearray":
                 def to_btype(x):
                     return None if x is None else bytearray(x)
+            else:
+                def to_btype(x):
+                    return None if x is None else buffer(x)
+
+            def to_str(x):
+                return None if x is None else str(x)
 
             binin       = to_btype
             binin_hex   = lambda x: to_btype(from_hex(x))
-            binout      = str
+            binout      = to_str
             binout_hex  = to_hex
             hashin      = lambda x: to_btype(rev(x))
             hashin_hex  = lambda x: to_btype(from_hex(x))
             hashout     = rev
             hashout_hex = to_hex
+
+            if val == "pg-bytea":
+                transform = store._sql_binary_as_bytea(transform)
 
         elif val == "hex":
             transform = store._sql_binary_as_hex(transform)
@@ -456,6 +462,25 @@ class DataStore(object):
         def ret(stmt):
             # XXX This assumes no string literals match.
             return fn(patt.sub(fixup, stmt).replace("X'", "'"))
+        return ret
+
+    # Convert the standard BIT type to the PostgreSQL BYTEA type.
+    def _sql_binary_as_bytea(store, fn):
+        type_patt = re.compile("BIT((?: VARYING)?)\\(([0-9]+)\\)")
+        lit_patt = re.compile("X'((?:[0-9a-fA-F][0-9a-fA-F])*)'")
+        def fix_type(match):
+            # XXX This assumes no string literals match.
+            return "BYTEA"
+        def fix_lit(match):
+            ret = "'"
+            for i in match.group(1).decode('hex'):
+                ret += r'\\%03o' % ord(i)
+            ret += "'::bytea"
+            return ret
+        def ret(stmt):
+            stmt = type_patt.sub(fix_type, stmt)
+            stmt = lit_patt.sub(fix_lit, stmt)
+            return fn(stmt)
         return ret
 
     # Converts VARCHAR types that are too long to CLOB or similar.
@@ -1115,7 +1140,7 @@ store._ddl['txout_approx'],
 
     def configure_binary_type(store):
         for val in (
-            ['str', 'bytearray', 'buffer', 'hex']
+            ['str', 'bytearray', 'buffer', 'hex', 'pg-bytea']
             if store.args.binary_type is None else
             [ store.args.binary_type ]):
 
