@@ -1609,13 +1609,16 @@ store._ddl['txout_approx'],
                 store.rollback()
                 # If the exception is due to another process having
                 # inserted the same block, it is okay.
-                row = store.selectrow(
-                    "SELECT block_id FROM block WHERE block_hash = ?",
+                row = store.selectrow("""
+                    SELECT block_id, block_satoshi_seconds
+                      FROM block
+                     WHERE block_hash = ?""",
                     (store.hashin(b['hash']),))
                 if row:
                     store.log.info("Block already inserted; block_id %d unsued",
                                    block_id)
-                    b['block_id'] = row[0]
+                    b['block_id'] = int(row[0])
+                    b['ss'] = None if row[1] is None else int(row[1])
                     store.offer_block_to_chains(b, chain_ids)
                     return
 
@@ -1811,7 +1814,7 @@ store._ddl['txout_approx'],
                     (height, next_id))
 
                 if store.use_firstbits:
-                    for (addr_vers,) in store.selectall(""""
+                    for (addr_vers,) in store.selectall("""
                         SELECT c.chain_address_version
                           FROM chain c
                           JOIN chain_candidate cc ON (c.chain_id = cc.chain_id)
