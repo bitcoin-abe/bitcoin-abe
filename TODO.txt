@@ -1,3 +1,34 @@
+* UnicodeEncodeError on non-ASCII MySQLdb connect params.
+
+* Bugs affecting bytea hashin?
+      File "Abe/DataStore.py", line 1539, in import_block
+        tx['tx_id'] = store.import_tx(tx, pos == 0)
+      File "Abe/DataStore.py", line 1875, in import_tx
+        store.intin(tx['lockTime']), len(tx['tx'])))
+      File "Abe/DataStore.py", line 418, in sql
+        store.cursor.execute(cached, params)
+    IntegrityError: duplicate key value violates unique constraint "tx_tx_hash_key"
+
+    Failed to catch up {'blkfile_number': 1, 'dirname': '/home/bitcoin/.bitcoin', 'c
+    hain_id': None, 'id': Decimal('1'), 'blkfile_offset': 434255480}
+    Traceback (most recent call last):
+      File "Abe/DataStore.py", line 2220, in catch_up
+        try:
+      File "Abe/DataStore.py", line 2243, in catch_up_dir
+        while (True):
+      File "Abe/DataStore.py", line 2359, in import_blkdat
+        chain_ids = frozenset([] if chain_id is None else [chain_id])
+      File "Abe/DataStore.py", line 1655, in import_block
+        (block_id, txin_id, oblock_id))
+      File "Abe/DataStore.py", line 418, in sql
+        store.cursor.execute(cached, params)
+    TransactionRollbackError: deadlock detected
+    DETAIL:  Process 8102 waits for ShareLock on transaction 3744470; blocked by pro
+    cess 20041.
+    Process 20041 waits for ShareLock on transaction 3744468; blocked by process 8102.
+    HINT:  See server log for query details.
+    CONTEXT:  SQL statement "SELECT 1 FROM ONLY "public"."block" x WHERE "block_id" OPERATOR(pg_catalog.=) $1 FOR SHARE OF x"
+
 * Compress standard txout scripts by representing them as a pubkey_id
   and script type.  Multi-signature outputs require thought; leave
   pubkey_id null and retain the script for starters.
