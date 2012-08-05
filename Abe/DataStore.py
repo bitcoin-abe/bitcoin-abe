@@ -176,23 +176,43 @@ class DataStore(object):
         if cargs is None:
             conn = store.module.connect()
         else:
-            if isinstance(cargs, dict):
-                if ""  in cargs:
-                    cargs = cargs.copy()
-                    nkwargs = cargs[""]
-                    del(cargs[""])
-                    if isinstance(nkwargs, list):
-                        conn = store.module.connect(*nkwargs, **cargs)
-                    else:
-                        conn = store.module.connect(nkwargs, **cargs)
-                else:
-                    conn = store.module.connect(**cargs)
-            elif isinstance(cargs, list):
-                conn = store.module.connect(*cargs)
-            else:
-                conn = store.module.connect(cargs)
+            try:
+                conn = store._connect(cargs)
+            except UnicodeError:
+                # Perhaps this driver needs its strings encoded.
+                # Python's default is ASCII.  Let's try UTF-8, which
+                # should be the default anyway.
+                #import locale
+                #enc = locale.getlocale()[1] or locale.getdefaultlocale()[1]
+                enc = 'UTF-8'
+                def to_utf8(obj):
+                    if isinstance(obj, dict):
+                        for k in obj.keys():
+                            obj[k] = to_utf8(obj[k])
+                    if isinstance(obj, list):
+                        return map(to_utf8, obj)
+                    if isinstance(obj, unicode):
+                        return obj.encode(enc)
+                    return obj
+                conn = store._connect(to_utf8(cargs))
+                store.log.info("Connection required conversion to UTF-8")
 
         return conn
+
+    def _connect(store, cargs):
+        if isinstance(cargs, dict):
+            if ""  in cargs:
+                cargs = cargs.copy()
+                nkwargs = cargs[""]
+                del(cargs[""])
+                if isinstance(nkwargs, list):
+                    return store.module.connect(*nkwargs, **cargs)
+                return store.module.connect(nkwargs, **cargs)
+            else:
+                return store.module.connect(**cargs)
+        if isinstance(cargs, list):
+            return store.module.connect(*cargs)
+        return store.module.connect(cargs)
 
     def reconnect(store):
         store.log.info("Reconnecting to database.")
