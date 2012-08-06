@@ -54,7 +54,7 @@ def parse_argv(argv, conf={}, config_name='config', strict=False):
 
         var = var.replace('-', '_')
         if var == config_name:
-            include(val, arg_dict, strict=strict)
+            _include(set(), val, arg_dict, config_name, strict)
         elif var not in conf:
             break
         elif add:
