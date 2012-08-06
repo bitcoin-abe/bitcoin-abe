@@ -233,7 +233,7 @@ def script_GetOp(bytes):
     i += 1
     if opcode >= opcodes.OP_SINGLEBYTE_END:
       opcode <<= 8
-      opcode |= bytes[i]
+      opcode |= ord(bytes[i])
       i += 1
 
     if opcode <= opcodes.OP_PUSHDATA4:
