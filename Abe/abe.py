@@ -50,7 +50,7 @@ DONATIONS_NMC = 'NJ3MSELK1cWnqUa6xhF2wUYAnz3RSrWXcK'
 # Abe-generated content should all be valid HTML and XHTML fragments.
 # Configurable templates may contain either.  HTML seems better supported
 # under Internet Explorer.
-DEFAULT_CONTENT_TYPE = "text/html"
+DEFAULT_CONTENT_TYPE = "text/html; charset=utf-8"
 DEFAULT_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -234,7 +234,10 @@ class Abe:
             tvars['download'] = (
                 ' <a href="' + page['dotdot'] + 'download">Source</a>')
 
-        return page['template'] % tvars
+        content = page['template'] % tvars
+        if isinstance(content, unicode):
+            content = content.encode('UTF-8')
+        return content
 
     def get_handler(abe, cmd):
         return getattr(abe, 'handle_' + cmd, None)
@@ -1851,6 +1854,8 @@ def flatten(l):
         return ''.join(map(flatten, l))
     if l is None:
         raise Exception('NoneType in HTML conversion')
+    if isinstance(l, unicode):
+        return l
     return str(l)
 
 def fix_path_info(env):
