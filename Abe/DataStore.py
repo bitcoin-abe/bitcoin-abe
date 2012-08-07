@@ -23,6 +23,7 @@
 
 import os
 import re
+import errno
 
 # bitcointools -- modified deserialize.py to return raw transaction
 import BCDataStream
@@ -2249,8 +2250,18 @@ store._ddl['txout_approx'],
             filename = store.blkfile_name(dircfg)
             ds = BCDataStream.BCDataStream()
             file = open(filename, "rb")
-            ds.map_file(file, 0)
-            file.close()
+            try:
+                ds.map_file(file, 0)
+            except:
+                # mmap can fail on an empty file, but empty files are okay.
+                file.seek(0, os.SEEK_END)
+                if file.tell() == 0:
+                    ds.input = ""
+                    ds.read_cursor = 0
+                else:
+                    ds.map_file(file, 0)
+            finally:
+                file.close()
             return ds
 
         try:
@@ -2259,15 +2270,22 @@ store._ddl['txout_approx'],
             store.log.warning("Skipping datadir %s: %s", dircfg['dirname'], e)
             return
 
-        while (True):
-            store.import_blkdat(dircfg, ds)
-            ds.close_file()
+        while True:
+            try:
+                store.import_blkdat(dircfg, ds)
+            finally:
+                try:
+                    ds.close_file()
+                except:
+                    pass
 
             # Try another file.
             dircfg['blkfile_number'] += 1
             try:
                 ds = open_blkfile()
-            except IOError:
+            except IOError, e:
+                if e.errno != errno.ENOENT:
+                    raise
                 # No more block files.
                 dircfg['blkfile_number'] -= 1
                 return
@@ -2640,7 +2658,7 @@ store._ddl['txout_approx'],
         ret = ""
         for (fb,) in rows:
             if len(fb) > len(ret):
-                ret = fb;
+                ret = fb
         return ret
 
 def new(args):
