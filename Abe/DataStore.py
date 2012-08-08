@@ -1342,7 +1342,7 @@ store._ddl['txout_approx'],
             store.ddl(
                 "CREATE TABLE abe_test_1 (test_id NUMERIC(2) NOT NULL PRIMARY KEY,"
                 " test_bit BIT(256), test_varbit BIT VARYING(80000))")
-            val = str(''.join(map(chr, range(32))))
+            val = str(''.join(map(chr, range(0, 256, 8))))
             store.sql("INSERT INTO abe_test_1 (test_id, test_bit, test_varbit)"
                       " VALUES (?, ?, ?)",
                       (1, store.hashin(val), store.binin(val)))
