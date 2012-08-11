@@ -16,13 +16,12 @@ enable it, add "use-firstbits" to the configuration *before* first
 running a version that supports it.
 
 If you run without use-firstbits, Abe will default it to false and
-will never create the table.  I'd like to have a script that turns
-firstbits on and off, but for now the best you can do is to stop Abe
-and run these (UNTESTED) SQL commands, once you have configured
-use-firstbits=true:
+will never create the table.  The Abe.reconfigure module turns
+firstbits on and off once you have upgraded Abe's schema.  Stop all
+processes using the database, change the use-firstbits setting in
+abe.conf, and run:
 
-DELETE FROM configvar WHERE configvar_name = 'use_firstbits' AND configvar_value <> 'true';
-UPDATE configvar SET configvar_value = 'Abe29.3' WHERE configvar_name = 'schema_version' AND configvar_value = 'Abe30';
+    python -m Abe.reconfigure --config abe.conf
 
 I have tried a few dozen addresses, and they match firstbits.com.
 Please report issues in the forum thread

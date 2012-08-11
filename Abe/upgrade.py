@@ -44,48 +44,12 @@ def run_upgrades_locked(store, upgrades):
             store.config['schema_version'] = sv
 
 def run_upgrades(store, upgrades):
-    lock = get_lock(store)
+    """Guard against concurrent upgrades."""
+    lock = store.get_lock()
     try:
         run_upgrades_locked(store, upgrades)
     finally:
-        release_lock(lock)
-
-def get_lock(store):
-    if version_below(store, 'Abe26'):
-        return None
-    conn = store.connect()
-    cur = conn.cursor()
-    cur.execute("UPDATE abe_lock SET pid = %d WHERE lock_id = 1"
-                % (os.getpid(),))
-    if cur.rowcount != 1:
-        raise Exception("unexpected rowcount")
-    cur.close()
-
-    # Check whether database supports concurrent updates.  Where it
-    # doesn't (SQLite) we get exclusive access automatically.
-    try:
-        import random
-        letters = "".join([chr(random.randint(65, 90)) for x in xrange(10)])
-        store.sql("""
-            INSERT INTO configvar (configvar_name, configvar_value)
-            VALUES (?, ?)""",
-                  ("upgrade-lock-" + letters, 'x'))
-    except:
-        release_lock(conn)
-        conn = None
-
-    store.rollback()
-    return conn
-
-def release_lock(conn):
-    if conn:
-        conn.rollback()
-        conn.close()
-
-def version_below(store, vers):
-    sv = store.config['schema_version'].replace('Abe', '')
-    vers = vers.replace('Abe', '')
-    return float(sv) < float(vers)
+        store.release_lock(lock)
 
 def add_block_value_in(store):
     store.sql("ALTER TABLE block ADD block_value_in NUMERIC(30)")
@@ -848,32 +812,9 @@ def add_fk_search_block_id(store):
     add_constraint(store, "block", "fk1_search_block_id",
                    "FOREIGN KEY (search_block_id) REFERENCES block (block_id)")
 
-def populate_firstbits(store):
-    if store.config['use_firstbits'] != "true":
-        return
-
-    blocks, fbs = 0, 0
-    log_incr = 1000
-
-    for addr_vers, block_id in store.selectall("""
-        SELECT c.chain_address_version,
-               cc.block_id
-          FROM chain c
-          JOIN chain_candidate cc ON (c.chain_id = cc.chain_id)
-         WHERE cc.block_height IS NOT NULL
-         ORDER BY cc.chain_id, cc.block_height"""):
-        fbs += store.do_vers_firstbits(addr_vers, int(block_id))
-        blocks += 1
-        if blocks % log_incr == 0:
-            store.commit()
-            store.log.info("%d firstbits in %d blocks" % (fbs, blocks))
-
-    if blocks % log_incr > 0:
-        store.commit()
-        store.log.info("%d firstbits in %d blocks" % (fbs, blocks))
-
 def create_firstbits(store):
     flag = store.config.get('use_firstbits')
+
     if flag is None:
         if store.args.use_firstbits is None:
             store.log.info("use_firstbits not found, defaulting to false.")
@@ -883,23 +824,15 @@ def create_firstbits(store):
         flag = "true" if store.args.use_firstbits else "false"
         store.config['use_firstbits'] = flag
         store.save_configvar("use_firstbits")
-    if flag == "false":
-        return
 
-    store.log.info("Creating firstbits table.")
-    store.ddl(
-        """CREATE TABLE abe_firstbits (
-            pubkey_id       NUMERIC(26) NOT NULL,
-            block_id        NUMERIC(14) NOT NULL,
-            address_version BIT VARYING(80) NOT NULL,
-            firstbits       VARCHAR(50) NOT NULL,
-            PRIMARY KEY (address_version, pubkey_id, block_id),
-            FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id),
-            FOREIGN KEY (block_id) REFERENCES block (block_id)
-        )""")
-    store.ddl(
-        """CREATE INDEX x_abe_firstbits
-            ON abe_firstbits (address_version, firstbits)""")
+    if flag == "true":
+        import firstbits
+        firstbits.create_firstbits(store)
+
+def populate_firstbits(store):
+    if store.config['use_firstbits'] == "true":
+        import firstbits
+        firstbits.populate_firstbits(store)
 
 upgrades = [
     ('6',    add_block_value_in),

@@ -1147,6 +1147,46 @@ store._ddl['txout_approx'],
         store.save_config()
         store.commit()
 
+    def get_lock(store):
+        if store.version_below('Abe26'):
+            return None
+        conn = store.connect()
+        cur = conn.cursor()
+        cur.execute("UPDATE abe_lock SET pid = %d WHERE lock_id = 1"
+                    % (os.getpid(),))
+        if cur.rowcount != 1:
+            raise Exception("unexpected rowcount")
+        cur.close()
+
+        # Check whether database supports concurrent updates.  Where it
+        # doesn't (SQLite) we get exclusive access automatically.
+        try:
+            import random
+            letters = "".join([chr(random.randint(65, 90)) for x in xrange(10)])
+            store.sql("""
+                INSERT INTO configvar (configvar_name, configvar_value)
+                VALUES (?, ?)""",
+                      ("upgrade-lock-" + letters, 'x'))
+        except:
+            store.release_lock(conn)
+            conn = None
+
+        store.rollback()
+
+        # XXX Should reread config.
+
+        return conn
+
+    def release_lock(store, conn):
+        if conn:
+            conn.rollback()
+            conn.close()
+
+    def version_below(store, vers):
+        sv = store.config['schema_version'].replace('Abe', '')
+        vers = vers.replace('Abe', '')
+        return float(sv) < float(vers)
+
     def configure(store):
         store.config = {}
 
