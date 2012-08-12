@@ -2512,7 +2512,7 @@ store._ddl['txout_approx'],
               FROM block b
               JOIN chain c ON (b.block_id = c.chain_last_block_id)
              WHERE c.chain_id = ?""", (chain_id,))
-        return None if rows is None else util.calculate_target(int(rows[0][0]))
+        return util.calculate_target(int(rows[0][0])) if rows else None
 
     def firstbits_full(store, version, hash):
         """

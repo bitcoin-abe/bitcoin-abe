@@ -1378,7 +1378,8 @@ class Abe:
         if chain is None:
             return 'Shows the difficulty of the last block in CHAIN.\n' \
                 '/chain/CHAIN/q/getdifficulty\n'
-        return util.target_to_difficulty(abe.store.get_target(chain['id']))
+        target = abe.store.get_target(chain['id'])
+        return "" if target is None else util.target_to_difficulty(target)
 
     def q_translate_address(abe, page, chain):
         """shows the address in a given chain with a given address's hash."""
