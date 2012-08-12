@@ -144,7 +144,7 @@
 * Perhaps support searching by hash/address non-initial substring.
 
 * /q functions:
-  getdifficulty       latesthash          hextarget
+                      latesthash          hextarget
   decimaltarget       probability         hashestowin
   nextretarget        estimate
   avgtxsize           avgtxvalue          avgblocksize

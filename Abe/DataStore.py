@@ -2506,6 +2506,14 @@ store._ddl['txout_approx'],
                AND in_longest = 1""", (chain_id,))
         return -1 if height is None else int(height)
 
+    def get_target(store, chain_id):
+        rows = store.selectall("""
+            SELECT b.block_nBits
+              FROM block b
+              JOIN chain c ON (b.block_id = c.chain_last_block_id)
+             WHERE c.chain_id = ?""", (chain_id,))
+        return None if rows is None else util.calculate_target(int(rows[0][0]))
+
     def firstbits_full(store, version, hash):
         """
         Return the address in lowercase.  An initial substring of this

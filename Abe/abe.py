@@ -1373,6 +1373,13 @@ class Abe:
                 '/chain/CHAIN/q/getblockcount\n'
         return abe.get_max_block_height(chain)
 
+    def q_getdifficulty(abe, page, chain):
+        """shows the current difficulty."""
+        if chain is None:
+            return 'Shows the difficulty of the last block in CHAIN.\n' \
+                '/chain/CHAIN/q/getdifficulty\n'
+        return util.target_to_difficulty(abe.store.get_target(chain['id']))
+
     def q_translate_address(abe, page, chain):
         """shows the address in a given chain with a given address's hash."""
         addr = wsgiref.util.shift_path_info(page['env'])
