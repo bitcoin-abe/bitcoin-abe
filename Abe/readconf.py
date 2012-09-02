@@ -50,7 +50,7 @@ def parse_argv(argv, conf={}, config_name='config', strict=False):
                 add = True
 
         if val is not True and looks_like_json(val):
-            val = parse_json(val, var)
+            val = parse_json(val)
 
         var = var.replace('-', '_')
         if var == config_name:
@@ -69,12 +69,60 @@ def include(filename, conf={}, config_name='config', strict=False):
     _include(set(), filename, conf, config_name, strict)
     return conf
 
+class _Reader:
+    __slots__ = ['fp', 'lineno', 'line']
+    def __init__(rdr, fp):
+        rdr.fp = fp
+        rdr.lineno = 1
+        rdr.line = rdr.fp.read(1)
+    def eof(rdr):
+        return rdr.line == ''
+    def getc(rdr):
+        if rdr.eof():
+            return ''
+        ret = rdr.line[-1]
+        if ret == '\n':
+            rdr.lineno += 1
+            rdr.line = ''
+        c = rdr.fp.read(1)
+        if c == '':
+            rdr.line = ''
+        rdr.line += c
+        return ret
+    def peek(rdr):
+        if rdr.eof():
+            return ''
+        return rdr.line[-1]
+    def _readline(rdr):
+        ret = rdr.fp.readline()
+        rdr.line += ret
+        return ret
+    def readline(rdr):
+        ret = rdr.peek() + rdr._readline()
+        rdr.getc()  # Consume the newline if not at EOF.
+        return ret
+    def get_error_context(rdr, e):
+        e.lineno = rdr.lineno
+        if not rdr.eof():
+            e.offset = len(rdr.line)
+            if rdr.peek() != '\n':
+                rdr._readline()
+            e.text = rdr.line
+
 def _include(seen, filename, conf, config_name, strict):
     if filename in seen:
         raise Exception('Config file recursion')
 
     with open(filename) as fp:
-        entries = read(fp)
+        rdr = _Reader(fp)
+        try:
+            entries = read(rdr)
+        except SyntaxError, e:
+            if e.filename is None:
+                e.filename = filename
+            if e.lineno is None:
+                rdr.get_error_context(e)
+            raise
     for var, val, additive in entries:
         var = var.replace('-', '_')
         if var == config_name:
@@ -92,11 +140,11 @@ def _include(seen, filename, conf, config_name, strict):
             conf[var] = val
     return
 
-def read(fp):
+def read(rdr):
     """
-    Read name-value pairs from fp and return the results as a list of
-    triples: (name, value, additive) where "additive" is true if "+="
-    occurred between name and value.
+    Read name-value pairs from file and return the results as a list
+    of triples: (name, value, additive) where "additive" is true if
+    "+=" occurred between name and value.
 
     "NAME=VALUE" and "NAME VALUE" are equivalent.  Whitespace around
     names and values is ignored, as are lines starting with '#' and
@@ -109,56 +157,55 @@ def read(fp):
     def store(name, value, additive):
         entries.append((name, value, additive))
 
-    def skipspace(c):
-        while c in (' ', '\t', '\r'):
-            c = fp.read(1)
-        return c
+    def skipspace(rdr):
+        while rdr.peek() in (' ', '\t', '\r'):
+            rdr.getc()
 
-    c = fp.read(1)
     while True:
-        c = skipspace(c)
-        if c == '':
+        skipspace(rdr)
+        if rdr.eof():
             break
-        if c == '\n':
-            c = fp.read(1)
+        if rdr.peek() == '\n':
+            rdr.getc()
             continue
-        if c == '#':
-            fp.readline()
-            c = fp.read(1)
+        if rdr.peek() == '#':
+            rdr.readline()
             continue
 
         name = ''
-        while c not in (' ', '\t', '\r', '\n', '=', '+', ''):
-            name += c
-            c = fp.read(1)
+        while rdr.peek() not in (' ', '\t', '\r', '\n', '=', '+', ''):
+            name += rdr.getc()
 
-        if c not in ('=', '+'):
-            c = skipspace(c)
+        if rdr.peek() not in ('=', '+'):
+            skipspace(rdr)
 
-        if c in ('\n', ''):
+        if rdr.peek() in ('\n', ''):
             store(name, True, False)
             continue
 
         additive = False
 
-        if c in ('=', '+'):
-            if c == '+':
-                c = fp.read(1)
-                if c != '=':
-                    raise SyntaxError("Unquoted '+'")
+        if rdr.peek() in ('=', '+'):
+            if rdr.peek() == '+':
+                rdr.getc()
+                if rdr.peek() != '=':
+                    raise SyntaxError("'+' without '='")
                 additive = True
-            c = skipspace(fp.read(1))
+            rdr.getc()
+            skipspace(rdr)
 
-        if c in ('"', '[', '{'):
-            js, c = scan_json(fp, c)
-            store(name, parse_json(js, name), additive)
+        if rdr.peek() in ('"', '[', '{'):
+            js = scan_json(rdr)
+            try:
+                store(name, parse_json(js), additive)
+            except ValueError, e:
+                raise wrap_json_error(rdr, js, e)
             continue
 
         # Unquoted, one-line string.
         value = ''
-        while c not in ('\n', ''):
-            value += c
-            c = fp.read(1)
+        while rdr.peek() not in ('\n', ''):
+            value += rdr.getc()
         value = value.strip()
 
         # Booleans and null.
@@ -192,10 +239,10 @@ def add(conf, var, val):
 # Scan to end of JSON object.  Grrr, why can't json.py do this without
 # reading all of fp?
 
-def _scan_json_string(fp):
-    ret = '"'
+def _scan_json_string(rdr):
+    ret = rdr.getc()  # '"'
     while True:
-        c = fp.read(1)
+        c = rdr.getc()
         if c == '':
             raise SyntaxError('End of file in JSON string')
 
@@ -209,64 +256,80 @@ def _scan_json_string(fp):
 
         ret += c
         if c == '"':
-            return ret, fp.read(1)
+            return ret
         if c == '\\':
-            c = fp.read(1)
-            ret += c
+            ret += rdr.getc()
 
-def _scan_json_nonstring(fp, c):
+def _scan_json_nonstring(rdr):
     # Assume we are at a number or true|false|null.
     # Scan the token.
     ret = ''
-    while c != '' and c in '-+0123456789.eEtrufalsn':
-        ret += c
-        c = fp.read(1)
-    return ret, c
+    while rdr.peek() != '' and rdr.peek() in '-+0123456789.eEtrufalsn':
+        ret += rdr.getc()
+    return ret
 
-def _scan_json_space(fp, c):
+def _scan_json_space(rdr):
     # Scan whitespace including "," and ":".  Strip comments for good measure.
     ret = ''
-    while c != '' and c in ' \t\r\n,:#':
+    while not rdr.eof() and rdr.peek() in ' \t\r\n,:#':
+        c = rdr.getc()
         if c == '#':
-            while c not in ('', '\n'):
-                c = fp.read(1)
+            c = rdr.readline() and '\n'
         ret += c
-        c = fp.read(1)
-    return ret, c
+    return ret
 
-def _scan_json_compound(fp, c, end):
+def _scan_json_compound(rdr):
     # Scan a JSON array or object.
-    ret = c
-    cs, c = _scan_json_space(fp, fp.read(1))
-    ret += cs
-    if c == end:
-        return ret + c, fp.read(1)
+    ret = rdr.getc()
+    if ret == '{': end = '}'
+    if ret == '[': end = ']'
+    ret += _scan_json_space(rdr)
+    if rdr.peek() == end:
+        return ret + rdr.getc()
     while True:
-        if c == '':
+        if rdr.eof():
             raise SyntaxError('End of file in JSON value')
-        cs, c = scan_json(fp, c)
-        ret += cs
-        cs, c = _scan_json_space(fp, c)
-        ret += cs
-        if c == end:
-            return ret + c, fp.read(1)
+        ret += scan_json(rdr)
+        ret += _scan_json_space(rdr)
+        if rdr.peek() == end:
+            return ret + rdr.getc()
 
-def scan_json(fp, c):
+def scan_json(rdr):
     # Scan a JSON value.
+    c = rdr.peek()
     if c == '"':
-        return _scan_json_string(fp)
-    if c == '[':
-        return _scan_json_compound(fp, c, ']')
-    if c == '{':
-        return _scan_json_compound(fp, c, '}')
-    cs, c = _scan_json_nonstring(fp, c)
-    if cs == '':
-        raise SyntaxError('Invalid initial JSON character: ' + c)
-    return cs, c
+        return _scan_json_string(rdr)
+    if c in ('[', '{'):
+        return _scan_json_compound(rdr)
+    ret = _scan_json_nonstring(rdr)
+    if ret == '':
+        raise SyntaxError('Invalid JSON')
+    return ret
 
-def parse_json(js, context):
+def parse_json(js):
+    import json
+    return json.loads(js)
+
+def wrap_json_error(rdr, js, e):
+    import re
+    match = re.search(r'(.*): line (\d+) column (\d+)', e.message, re.DOTALL)
+    if match:
+        e = SyntaxError(match.group(1))
+        json_lineno = int(match.group(2))
+        e.lineno = rdr.lineno - js.count('\n') + json_lineno - 1
+        e.text = js.split('\n')[json_lineno - 1]
+        e.offset = int(match.group(3))
+        if json_lineno == 1 and json_line1_column_bug():
+            e.offset += 1
+    return e
+
+def json_line1_column_bug():
+    ret = False
     try:
         import json
-        return json.loads(js)
-    except Exception, e:
-        raise SyntaxError('Invalid JSON for %s: %s' % (context, e))
+        json.loads("{:")
+    except ValueError, e:
+        if "column 1" in e.message:
+            ret = True
+    finally:
+        return ret
