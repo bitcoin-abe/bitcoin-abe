@@ -2386,6 +2386,7 @@ store._ddl['txout_approx'],
                                 length, chain_id)
                 ds.read_cursor = offset
                 break
+            end = ds.read_cursor + length
 
             hash = util.double_sha256(
                 ds.input[ds.read_cursor : ds.read_cursor + 80])
@@ -2405,7 +2406,6 @@ store._ddl['txout_approx'],
             if block_row:
                 # Block header already seen.  Don't import the block,
                 # but try to add it to the chain.
-                ds.read_cursor += length
                 if chain_id is not None:
                     b = {
                         "block_id":   block_row[0],
@@ -2435,6 +2435,11 @@ store._ddl['txout_approx'],
                 b["hash"] = hash
                 chain_ids = frozenset([] if chain_id is None else [chain_id])
                 store.import_block(b, chain_ids = chain_ids)
+                if ds.read_cursor != end:
+                    store.log.debug("Skipped %d bytes at block end",
+                                    end - ds.read_cursor)
+
+            ds.read_cursor = end
 
             bytes_done += length
             if bytes_done >= store.commit_bytes :
