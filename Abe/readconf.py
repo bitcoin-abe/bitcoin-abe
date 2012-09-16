@@ -1,4 +1,4 @@
-# Copyright(C) 2011 by John Tobey <John.Tobey@gmail.com>
+# Copyright(C) 2011,2012 by John Tobey <John.Tobey@gmail.com>
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -326,8 +326,7 @@ def wrap_json_error(rdr, js, e):
 def json_line1_column_bug():
     ret = False
     try:
-        import json
-        json.loads("{:")
+        parse_json("{:")
     except ValueError, e:
         if "column 1" in e.message:
             ret = True
