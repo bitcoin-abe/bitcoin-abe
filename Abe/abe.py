@@ -23,7 +23,6 @@ from cgi import escape
 import posixpath
 import wsgiref.util
 import time
-import math
 import logging
 
 import version
@@ -1712,69 +1711,6 @@ class Abe:
 
         return "\n".join(abe.store.firstbits_to_addresses(
                 fb, chain_id = (chain and chain['id'])))
-
-    # XXX much faster(?) if intermediate results were stored in database.
-    def q_speed(abe, page, chain):
-        """returns estimated network hash rate over time at given window size"""
-        if chain is None:
-            return 'returns TIME,HASHRATE for time from START to STOP\n' \
-                'each INTERVAL seconds.  WINDOW determines the smoothing\n' \
-                'and is measured in seconds.  START defaults to the\n' \
-                'genesis block time.  STOP defaults to the current time.\n' \
-                'All times are expressed in seconds since 1970 UTC.\n' \
-                'HASHRATE may be expressed in exponential notation.\n' \
-                '/chain/CHAIN/q/speed[/WINDOW[/INTERVAL[/START[/STOP]]]]\n'
-
-        window = float(path_info_int(page, 30*24*60*60))
-        interval = path_info_int(page, 14*24*60*60)
-        start = path_info_int(page, None)
-        stop = path_info_int(page, None)
-
-        if stop is None:
-            stop = time.time()
-        if start is not None and start > stop:
-            return "ERROR: start and stop times reversed."
-        if window <= 0:
-            return "ERROR: window must be positive."
-        if interval <= 0:
-            return "ERROR: interval must be positive."
-
-        rows = abe.store.selectall("""
-            SELECT b.block_nTime, b.block_nBits
-              FROM block b
-              JOIN chain_candidate cc ON cc.block_id=b.block_id
-             WHERE cc.chain_id = ? AND
-                   cc.in_longest = 1 AND
-                   b.block_nTime <= ?
-             ORDER BY cc.block_height""", (chain['id'], stop))
-        nrows = len(rows)
-
-        ret = "TIME,HASHRATE\n"
-        if start is None:
-            if nrows == 0:
-                return ret
-            start = float(rows[0][0])
-
-        t0 = start
-        t = start
-        rate = 0.0
-        i = 0
-
-        while t0 <= stop:
-            while i < nrows and rows[i][0] <= t0:
-                nt = float(rows[i][0])
-                nBits = int(rows[i][1])
-                rate *= math.exp((t - nt) / window)
-                rate += util.target_to_work(util.calculate_target(nBits)) \
-                    / window
-                t = nt
-                i += 1
-            rate *= math.exp((t - t0) / window)
-            t = t0
-            ret += "%d,%g\n" % (t0, rate)
-            t0 += interval
-
-        return ret
 
     def handle_download(abe, page):
         name = abe.args.download_name
