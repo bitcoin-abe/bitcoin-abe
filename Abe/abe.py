@@ -23,6 +23,7 @@ from cgi import escape
 import posixpath
 import wsgiref.util
 import time
+import calendar
 import math
 import logging
 
@@ -47,6 +48,9 @@ COPYRIGHT_URL = "mailto:John.Tobey@gmail.com"
 
 DONATIONS_BTC = '1PWC7PNHL1SgvZaN7xEtygenKjWobWsCuf'
 DONATIONS_NMC = 'NJ3MSELK1cWnqUa6xhF2wUYAnz3RSrWXcK'
+
+TIME1970 = time.strptime('1970-01-01','%Y-%m-%d')
+EPOCH1970 = calendar.timegm(TIME1970)
 
 # Abe-generated content should all be valid HTML and XHTML fragments.
 # Configurable templates may contain either.  HTML seems better supported
@@ -255,7 +259,7 @@ class Abe:
             '% <a href="https://en.bitcoin.it/wiki/Bitcoin_Days_Destroyed">',
             'CoinDD</a></th>',
             '</tr>\n']
-        now = time.time()
+        now = time.time() - EPOCH1970
 
         rows = abe.store.selectall("""
             SELECT c.chain_name, b.block_height, b.block_nTime,
@@ -1716,28 +1720,79 @@ class Abe:
     # XXX much faster(?) if intermediate results were stored in database.
     def q_speed(abe, page, chain):
         """returns estimated network hash rate over time at given window size"""
+
+        default_interval = '14DAY'
+
         if chain is None:
-            return 'returns TIME,HASHRATE for time from START to STOP\n' \
-                'each INTERVAL seconds.  WINDOW determines the smoothing\n' \
-                'and is measured in seconds.  START defaults to the\n' \
-                'genesis block time.  STOP defaults to the current time.\n' \
-                'All times are expressed in seconds since 1970 UTC.\n' \
-                'HASHRATE may be expressed in exponential notation.\n' \
+            return 'returns TIME,LOGRATE... for time from START to STOP\n' \
+                'each INTERVAL.  WINDOW determines the smoothing.  WINDOW\n' \
+                'and INTERVAL are expressed in seconds or, e.g., "3DAY",\n' \
+                '"1WEEK", "12HOUR".  WINDOW may be multiple values\n' \
+                'separated by commas.  Each WINDOW value produces a\n' \
+                'corresponding LOGRATE column.  LOGRATE is the base-10\n' \
+                'logarithm of estimated hash rate using the given window\n' \
+                'size.  START defaults to the genesis block time.\n' \
+                'STOP defaults to the current time.\n' \
+                'Times are expressed in seconds since 1970 UTC.  START and\n' \
+                'STOP may alternatively be in YYYY-MM-DD.\n' \
                 '/chain/CHAIN/q/speed[/WINDOW[/INTERVAL[/START[/STOP]]]]\n'
 
-        window = float(path_info_int(page, 30*24*60*60))
-        interval = path_info_int(page, 14*24*60*60)
-        start = path_info_int(page, None)
-        stop = path_info_int(page, None)
+        labels = wsgiref.util.shift_path_info(page['env'])
+        interval = wsgiref.util.shift_path_info(page['env'])
+        start = wsgiref.util.shift_path_info(page['env'])
+        stop = wsgiref.util.shift_path_info(page['env'])
 
-        if stop is None:
-            stop = time.time()
+        if labels is None or labels == '':
+            labels = '14D'
+        labels = labels.split(',')
+
+        def parse_interval(w):
+            match = re.match('^(\d+)(.*)$', w)
+            if match:
+                unit = match.group(2).lower()
+                if   unit in ('w', 'week', 'weeks'):         unit = 7*24*60*60
+                elif unit in ('d', 'day', 'days'):           unit =   24*60*60
+                elif unit in ('h', 'hour', 'hours'):         unit =      60*60
+                elif unit in ('minute', 'minutes'):          unit =         60
+                elif unit in ('', 's', 'second', 'seconds'): unit =          1
+                else:
+                    unit = 0
+                ret = unit * float(match.group(1))
+                if ret > 0.0:
+                    return ret
+            raise ValueError('invalid window: ' + w)
+
+        if interval is None or interval == '':
+            interval = '14d'
+        try:
+            interval = parse_interval(interval)
+        except ValueError:
+            return "ERROR: interval must be positive."
+
+        try:
+            windows = map(parse_interval, labels)
+        except ValueError:
+            return 'ERROR: could not understand WINDOW.'
+
+        def parse_time(s):
+            if s is None or s == '':
+                return None
+            m = re.match(r'^(\d+)$', s)
+            if m:
+                return int(m.group(1))
+            m = re.match(r'^(\d{4})-(\d\d)-(\d\d)$', s)
+            if m:
+                return calendar.timegm(time.strptime(s, '%Y-%m-%d')) - EPOCH1970
+            raise ValueError('invalid time: ' + s)
+
+        try:
+            stop = parse_time(stop) or time.time() - EPOCH1970
+            start = parse_time(start)
+        except ValueError:
+            return 'ERROR: could not understand start/stop time'
+
         if start is not None and start > stop:
             return "ERROR: start and stop times reversed."
-        if window <= 0:
-            return "ERROR: window must be positive."
-        if interval <= 0:
-            return "ERROR: interval must be positive."
 
         rows = abe.store.selectall("""
             SELECT b.block_nTime, b.block_nBits
@@ -1748,8 +1803,13 @@ class Abe:
                    b.block_nTime <= ?
              ORDER BY cc.block_height""", (chain['id'], stop))
         nrows = len(rows)
+        nwindows = len(windows)
 
-        ret = "TIME,HASHRATE\n"
+        ret = "TIME"
+        for j in xrange(nwindows):
+            ret += ",LOGRATE" + labels[j]
+        ret += '\n'
+
         if start is None:
             if nrows == 0:
                 return ret
@@ -1757,21 +1817,27 @@ class Abe:
 
         t0 = start
         t = start
-        rate = 0.0
+        rates = [0.0] * nwindows
         i = 0
 
         while t0 <= stop:
             while i < nrows and rows[i][0] <= t0:
                 nt = float(rows[i][0])
                 nBits = int(rows[i][1])
-                rate *= math.exp((t - nt) / window)
-                rate += util.target_to_work(util.calculate_target(nBits)) \
-                    / window
+                work = util.target_to_work(util.calculate_target(nBits))
+                for j in xrange(nwindows):
+                    rates[j] *= math.exp((t - nt) / windows[j])
+                    rates[j] += work / windows[j]
                 t = nt
                 i += 1
-            rate *= math.exp((t - t0) / window)
+            ret += "%d" % t0
+            for j in xrange(nwindows):
+                rates[j] *= math.exp((t - t0) / windows[j])
+                ret += ","
+                if rates[j] > 0:
+                    ret += "%f" % math.log10(rates[j])
+            ret += '\n'
             t = t0
-            ret += "%d,%g\n" % (t0, rate)
             t0 += interval
 
         return ret
