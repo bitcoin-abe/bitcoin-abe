@@ -1763,7 +1763,7 @@ class Abe:
             raise ValueError('invalid window: ' + w)
 
         if interval is None or interval == '':
-            interval = '14d'
+            interval = default_interval
         try:
             interval = parse_interval(interval)
         except ValueError:
