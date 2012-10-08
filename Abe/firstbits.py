@@ -74,6 +74,7 @@ def reconfigure(store, args):
             drop_firstbits(store)
             store.config['use_firstbits'] = "false"
 
+        store.use_firstbits = want
         store.save_configvar("use_firstbits")
         store.commit()
 

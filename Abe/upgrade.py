@@ -313,7 +313,7 @@ def index_block_nTime(store):
 
 def replace_chain_summary(store):
     store.sql("DROP VIEW chain_summary")
-    store.sql(store._ddl['chain_summary'])
+    store.sql(store.get_ddl('chain_summary'))
 
 def drop_block_ss_columns(store):
     """Drop columns that may have been added in error."""
@@ -371,14 +371,14 @@ def create_x_cc_block_height(store):
         "CREATE INDEX x_cc_block_height ON chain_candidate (block_height)")
 
 def create_txout_approx(store):
-    store.sql(store._ddl['txout_approx'])
+    store.sql(store.get_ddl('txout_approx'))
 
 def add_fk_chain_candidate_block_id(store):
     add_constraint(store, "chain_candidate", "fk1_chain_candidate",
                    "FOREIGN KEY (block_id) REFERENCES block (block_id)")
 
 def create_configvar(store):
-    store.sql(store._ddl['configvar'])
+    store.sql(store.get_ddl('configvar'))
 
 def configure(store):
     store.args.binary_type = store.config['binary_type']
@@ -834,6 +834,10 @@ def populate_firstbits(store):
         import firstbits
         firstbits.populate_firstbits(store)
 
+def add_keep_scriptsig(store):
+    store.config['keep_scriptsig'] = "true"
+    store.save_configvar("use_firstbits")
+
 upgrades = [
     ('6',    add_block_value_in),
     ('6.1',  add_block_value_out),
@@ -909,7 +913,8 @@ upgrades = [
     ('Abe29.2', add_fk_search_block_id), # Seconds
     ('Abe29.3', create_firstbits),       # Fast
     ('Abe29.4', populate_firstbits),     # Slow if config use_firstbits=true
-    ('Abe30', None)
+    ('Abe30',   add_keep_scriptsig),     # Fast
+    ('Abe31', None)
 ]
 
 def upgrade_schema(store):

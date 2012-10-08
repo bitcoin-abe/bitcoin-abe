@@ -789,16 +789,18 @@ class Abe:
             else:
                 body += hash_to_address_link(chain['address_version'],
                                              row['binaddr'], '../')
-            body += [
-                '</td>\n',
-                '<td>', escape(decode_script(row['script'])),
-                '</td>\n</tr>\n']
+            body += ['</td>\n']
+            if row['script'] is not None:
+                body += ['<td>', escape(decode_script(row['script'])),
+                '</td>\n']
+            body += ['</tr>\n']
 
         # XXX Unneeded outer join.
         in_rows = map(parse_row, abe.store.selectall("""
             SELECT
-                txin.txin_pos,
-                txin.txin_scriptSig,
+                txin.txin_pos""" + (""",
+                txin.txin_scriptSig""" if abe.store.keep_scriptsig else """,
+                NULL""") + """,
                 txout.txout_value,
                 COALESCE(prevtx.tx_hash, u.txout_tx_hash),
                 COALESCE(txout.txout_pos, u.txout_pos),
@@ -880,7 +882,10 @@ class Abe:
         body += ['</p>\n',
                  '<a name="inputs"><h3>Inputs</h3></a>\n<table>\n',
                  '<tr><th>Index</th><th>Previous output</th><th>Amount</th>',
-                 '<th>From address</th><th>ScriptSig</th></tr>\n']
+                 '<th>From address</th>']
+        if abe.store.keep_scriptsig:
+            body += ['<th>ScriptSig</th>']
+        body += ['</tr>\n']
         for row in in_rows:
             row_to_html(row, 'i', 'o',
                         'Generation' if is_coinbase else 'Unknown')
@@ -1823,6 +1828,8 @@ def hash_to_address_link(version, hash, dotdot):
     return ['<a href="', dotdot, 'address/', addr, '">', addr, '</a>']
 
 def decode_script(script):
+    if script is None:
+        return ''
     try:
         return deserialize.decode_script(script)
     except KeyError, e:

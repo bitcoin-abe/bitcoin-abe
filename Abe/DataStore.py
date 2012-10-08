@@ -32,7 +32,7 @@ import util
 import logging
 import base58
 
-SCHEMA_VERSION = "Abe30"
+SCHEMA_VERSION = "Abe31"
 
 CONFIG_DEFAULTS = {
     "dbtype":             None,
@@ -44,7 +44,8 @@ CONFIG_DEFAULTS = {
     "log_sql":            None,
     "datadir":            None,
     "ignore_bit8_chains": None,
-    "use_firstbits":      None,
+    "use_firstbits":      False,
+    "keep_scriptsig":     True,
 }
 
 WORK_BITS = 304  # XXX more than necessary.
@@ -138,11 +139,19 @@ class DataStore(object):
         store.module = __import__(args.dbtype)
         store.conn = store.connect()
         store.cursor = store.conn.cursor()
-        store._ddl = store._get_ddl()
         store._blocks = {}
 
         # Read the CONFIG and CONFIGVAR tables if present.
         store.config = store._read_config()
+
+        if store.config is None:
+            store.keep_scriptsig = args.keep_scriptsig
+        elif 'keep_scriptsig' in store.config:
+            store.keep_scriptsig = store.config.get('keep_scriptsig') == "true"
+        else:
+            store.keep_scriptsig = CONFIG_DEFAULTS['keep_scriptsig']
+
+        store.refresh_ddl()
 
         if store.config is None:
             store.initialize()
@@ -766,8 +775,11 @@ class DataStore(object):
         store.sqllog.info("CLOSE")
         store.conn.close()
 
-    def _get_ddl(store):
-        return {
+    def get_ddl(store, key):
+        return store._ddl[key]
+
+    def refresh_ddl(store):
+        store._ddl = {
             "chain_summary":
 # XXX I could do a lot with MATERIALIZED views.
 """CREATE VIEW chain_summary AS SELECT
@@ -838,9 +850,11 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
     tx.tx_size,
     txin.txin_id,
     txin.txin_pos,
-    txin.txout_id prevout_id,
+    txin.txout_id prevout_id""" + (""",
     txin.txin_scriptSig,
-    txin.txin_sequence,
+    txin.txin_sequence""" if store.keep_scriptsig else """,
+    NULL txin_scriptSig,
+    NULL txin_sequence""") + """,
     prevout.txout_value txin_value,
     pubkey.pubkey_id,
     pubkey.pubkey_hash,
@@ -1042,9 +1056,9 @@ store._ddl['configvar'],
     txin_id       NUMERIC(26) NOT NULL PRIMARY KEY,
     tx_id         NUMERIC(26) NOT NULL,
     txin_pos      NUMERIC(10) NOT NULL,
-    txout_id      NUMERIC(26),
+    txout_id      NUMERIC(26)""" + (""",
     txin_scriptSig BIT VARYING(80000),
-    txin_sequence NUMERIC(10),
+    txin_sequence NUMERIC(10)""" if store.keep_scriptsig else "") + """,
     UNIQUE (tx_id, txin_pos),
     FOREIGN KEY (tx_id)
         REFERENCES tx (tx_id)
@@ -1143,6 +1157,9 @@ store._ddl['txout_approx'],
                     ON abe_firstbits (address_version, firstbits)""")
         else:
             store.config['use_firstbits'] = "false"
+
+        store.config['keep_scriptsig'] = \
+            "true" if store.args.keep_scriptsig else "false"
 
         store.save_config()
         store.commit()
@@ -1251,6 +1268,12 @@ store._ddl['txout_approx'],
     def drop_sequence_if_exists(store, key):
         try:
             store.drop_sequence(key)
+        except store.module.DatabaseError:
+            store.rollback()
+
+    def drop_column_if_exists(store, table, column):
+        try:
+            store.ddl("ALTER TABLE " + table + " DROP COLUMN " + column)
         except store.module.DatabaseError:
             store.rollback()
 
@@ -1979,12 +2002,15 @@ store._ddl['txout_approx'],
 
             store.sql("""
                 INSERT INTO txin (
-                    txin_id, tx_id, txin_pos, txout_id,
-                    txin_scriptSig, txin_sequence
-                ) VALUES (?, ?, ?, ?, ?, ?)""",
+                    txin_id, tx_id, txin_pos, txout_id""" + (""",
+                    txin_scriptSig, txin_sequence""" if store.keep_scriptsig
+                                                             else "") + """
+                ) VALUES (?, ?, ?, ?""" + (", ?, ?" if store.keep_scriptsig
+                                           else "") + """)""",
                       (txin_id, tx_id, pos, txout_id,
                        store.binin(txin['scriptSig']),
-                       store.intin(txin['sequence'])))
+                       store.intin(txin['sequence'])) if store.keep_scriptsig
+                      else (txin_id, tx_id, pos, txout_id))
             if not is_coinbase and txout_id is None:
                 store.sql("""
                     INSERT INTO unlinked_txin (
@@ -2046,18 +2072,20 @@ store._ddl['txout_approx'],
         tx['size']      = int(row[3])
 
         tx['in'] = []
-        for prevout_hash, prevout_n, scriptSig, sequence in store.selectall("""
+        for row in store.selectall("""
             SELECT
                 COALESCE(tx.tx_hash, uti.txout_tx_hash),
-                COALESCE(txout.txout_pos, uti.txout_pos),
+                COALESCE(txout.txout_pos, uti.txout_pos)""" + (""",
                 txin_scriptSig,
-                txin_sequence
+                txin_sequence""" if store.keep_scriptsig else "") + """
             FROM txin
             LEFT JOIN txout ON (txin.txout_id = txout.txout_id)
             LEFT JOIN tx ON (txout.tx_id = tx.tx_id)
             LEFT JOIN unlinked_txin uti ON (txin.txin_id = uti.txin_id)
             WHERE txin.tx_id = ?
             ORDER BY txin.txin_pos""", (tx_id,)):
+            prevout_hash = row[0]
+            prevout_n = row[1]
             if prevout_hash is None:
                 prev_out = {
                     'hash': "0" * 64,  # XXX should store this?
@@ -2066,10 +2094,11 @@ store._ddl['txout_approx'],
                 prev_out = {
                     'hash': store.hashout_hex(prevout_hash),
                     'n': int(prevout_n)}
-            tx['in'].append({
-                    'prev_out': prev_out,
-                    'raw_scriptSig': store.binout_hex(scriptSig),
-                    'sequence': int(sequence)})
+            txin = {'prev_out': prev_out}
+            if store.keep_scriptsig:
+                txin['raw_scriptSig'] = store.binout_hex(row[2])
+                txin['sequence'] = store.binout_hex(row[3])
+            tx['in'].append(txin)
         tx['vin_sz'] = len(tx['in'])
 
         tx['out'] = []
