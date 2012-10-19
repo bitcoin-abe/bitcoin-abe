@@ -1535,8 +1535,8 @@ store._ddl['txout_approx'],
         store.save_configvar(name)
 
     def cache_block(store, block_id, height, prev_id, search_id):
-        assert isinstance(block_id, int)
-        assert isinstance(height, int)
+        assert isinstance(block_id, int), block_id
+        assert isinstance(height, int), height
         assert prev_id is None or isinstance(prev_id, int)
         assert search_id is None or isinstance(search_id, int)
         block = {
@@ -1563,6 +1563,8 @@ store._ddl['txout_approx'],
         return block
 
     def get_block_id_at_height(store, height, descendant_id):
+        if height is None:
+            return None
         while True:
             block = store._load_block(descendant_id)
             if block['height'] == height:
@@ -1720,23 +1722,8 @@ store._ddl['txout_approx'],
                       (block_id, tx['tx_id'], tx_pos))
             store.log.info("block_tx %d %d", block_id, tx['tx_id'])
 
-        # Create rows in block_txin.  In case of duplicate transactions,
-        # choose the one with the lowest block ID.  XXX For consistency,
-        # it should be the lowest height instead of block ID.
-        for row in store.selectall("""
-            SELECT txin.txin_id, MIN(obt.block_id)
-              FROM block_tx bt
-              JOIN txin ON (txin.tx_id = bt.tx_id)
-              JOIN txout ON (txin.txout_id = txout.txout_id)
-              JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
-             WHERE bt.block_id = ?
-             GROUP BY txin.txin_id""", (block_id,)):
-            (txin_id, oblock_id) = row
-            if store.is_descended_from(block_id, int(oblock_id)):
-                store.sql("""
-                    INSERT INTO block_txin (block_id, txin_id, out_block_id)
-                    VALUES (?, ?, ?)""",
-                          (block_id, txin_id, oblock_id))
+        if b['height'] is not None:
+            store._populate_block_txin(block_id)
 
         b['ss_destroyed'] = store._get_block_ss_destroyed(
             block_id, b['nTime'],
@@ -1780,9 +1767,31 @@ store._ddl['txout_approx'],
             store.sql("DELETE FROM orphan_block WHERE block_id = ?",
                       (orphan_id,))
 
+        # offer_block_to_chains calls adopt_orphans, which propagates
+        # block_height and other cumulative data to the blocks
+        # attached above.
         store.offer_block_to_chains(b, chain_ids)
 
         return block_id
+
+    def _populate_block_txin(store, block_id):
+        # Create rows in block_txin.  In case of duplicate transactions,
+        # choose the one with the lowest block ID.  XXX For consistency,
+        # it should be the lowest height instead of block ID.
+        for row in store.selectall("""
+            SELECT txin.txin_id, MIN(obt.block_id)
+              FROM block_tx bt
+              JOIN txin ON (txin.tx_id = bt.tx_id)
+              JOIN txout ON (txin.txout_id = txout.txout_id)
+              JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
+             WHERE bt.block_id = ?
+             GROUP BY txin.txin_id""", (block_id,)):
+            (txin_id, oblock_id) = row
+            if store.is_descended_from(block_id, int(oblock_id)):
+                store.sql("""
+                    INSERT INTO block_txin (block_id, txin_id, out_block_id)
+                    VALUES (?, ?, ?)""",
+                          (block_id, txin_id, oblock_id))
 
     def _get_block_ss_destroyed(store, block_id, nTime, tx_ids):
         block_ss_destroyed = 0
@@ -1852,8 +1861,14 @@ store._ddl['txout_approx'],
 
             if b['seconds'] is None:
                 seconds = None
+                total_ss = None
             else:
-                seconds = b['seconds'] + nTime - b['nTime']
+                new_seconds = nTime - b['nTime']
+                seconds = b['seconds'] + new_seconds
+                if b['total_ss'] is None or b['satoshis'] is None:
+                    total_ss = None
+                else:
+                    total_ss = b['total_ss'] + new_seconds * b['satoshis']
 
             if b['satoshis'] is None or generated is None:
                 satoshis = None
@@ -1881,12 +1896,14 @@ store._ddl['txout_approx'],
                        block_total_seconds = ?,
                        block_total_satoshis = ?,
                        block_satoshi_seconds = ?,
+                       block_total_ss = ?,
                        block_ss_destroyed = ?,
                        search_block_id = ?
                  WHERE block_id = ?""",
                       (height, store.binin_int(chain_work, WORK_BITS),
                        store.intin(seconds), store.intin(satoshis),
-                       store.intin(ss), store.intin(destroyed),
+                       store.intin(ss), store.intin(total_ss),
+                       store.intin(destroyed),
                        store.get_block_id_at_height(
                         util.get_search_height(height), block_id),
                        next_id))
@@ -1896,6 +1913,8 @@ store._ddl['txout_approx'],
                     UPDATE chain_candidate SET block_height = ?
                      WHERE block_id = ?""",
                     (height, next_id))
+
+                store._populate_block_txin(int(next_id))
 
                 if store.use_firstbits:
                     for (addr_vers,) in store.selectall("""
@@ -2471,7 +2490,7 @@ store._ddl['txout_approx'],
             ds.read_cursor = end
 
             bytes_done += length
-            if bytes_done >= store.commit_bytes :
+            if bytes_done >= store.commit_bytes:
                 store.log.debug("commit")
                 store.save_blkfile_offset(dircfg, ds.read_cursor)
                 store.commit()
