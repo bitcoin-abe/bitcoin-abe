@@ -1904,12 +1904,8 @@ def serve(store):
         port = int(args.port or 80)
         httpd = make_server(args.host, port, abe)
         abe.log.warning("Listening on http://%s:%d", args.host, port)
-        try:
-            httpd.serve_forever()
-        except:
-            abe.log.warning("Shutting down.")
-            httpd.shutdown()
-            raise
+        # httpd.shutdown() sometimes hangs, so don't call it.  XXX
+        httpd.serve_forever()
     else:
         # FastCGI server.
         from flup.server.fcgi import WSGIServer
