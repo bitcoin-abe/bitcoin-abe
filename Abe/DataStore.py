@@ -360,10 +360,14 @@ class DataStore(object):
 
         elif val == 'decimal':
             import decimal
-            intin = decimal.Decimal
+            def _intin(x):
+                return None if x is None else decimal.Decimal(x)
+            intin = _intin
 
         elif val == 'str':
-            intin = str
+            def _intin(x):
+                return None if x is None else str(x)
+            intin = _intin
             # Work around sqlite3's integer overflow.
             transform = store._approximate_txout(transform)
 
@@ -936,18 +940,18 @@ store._ddl['configvar'],
     block_nTime   NUMERIC(20),
     block_nBits   NUMERIC(10),
     block_nNonce  NUMERIC(10),
-    block_height  NUMERIC(14),
+    block_height  NUMERIC(14) NULL,
     prev_block_id NUMERIC(14) NULL,
     search_block_id NUMERIC(14) NULL,
     block_chain_work BIT(""" + str(WORK_BITS) + """),
-    block_value_in NUMERIC(30),
+    block_value_in NUMERIC(30) NULL,
     block_value_out NUMERIC(30),
-    block_total_satoshis NUMERIC(26),
-    block_total_seconds NUMERIC(20),
-    block_satoshi_seconds NUMERIC(28),
-    block_total_ss NUMERIC(28),
+    block_total_satoshis NUMERIC(26) NULL,
+    block_total_seconds NUMERIC(20) NULL,
+    block_satoshi_seconds NUMERIC(28) NULL,
+    block_total_ss NUMERIC(28) NULL,
     block_num_tx  NUMERIC(10) NOT NULL,
-    block_ss_destroyed NUMERIC(28),
+    block_ss_destroyed NUMERIC(28) NULL,
     FOREIGN KEY (prev_block_id)
         REFERENCES block (block_id),
     FOREIGN KEY (search_block_id)
@@ -1624,7 +1628,10 @@ store._ddl['txout_approx'],
                 else:
                     tx['tx_id'] = store.import_tx(tx, pos == 0)
 
-            b['value_in'] += tx['value_in']
+            if tx['value_in'] is None:
+                b['value_in'] = None
+            elif b['value_in'] is not None:
+                b['value_in'] += tx['value_in']
             b['value_out'] += tx['value_out']
             b['value_destroyed'] += tx['value_destroyed']
 
@@ -1653,7 +1660,7 @@ store._ddl['txout_approx'],
             b['seconds'] = None
         else:
             b['seconds'] = prev_seconds + b['nTime'] - prev_nTime
-        if prev_satoshis is None:
+        if prev_satoshis is None or b['value_in'] is None:
             b['satoshis'] = None
         else:
             b['satoshis'] = prev_satoshis + b['value_out'] - b['value_in'] \
@@ -1729,7 +1736,10 @@ store._ddl['txout_approx'],
             block_id, b['nTime'],
             map(lambda tx: tx['tx_id'], b['transactions']))
 
-        if prev_satoshis is not None:
+        if prev_satoshis is None:
+            b['ss'] = None
+            b['total_ss'] = None
+        else:
             ss_created = prev_satoshis * (b['nTime'] - prev_nTime)
             b['ss'] = prev_ss + ss_created - b['ss_destroyed']
             b['total_ss'] = prev_total_ss + ss_created
@@ -1844,13 +1854,12 @@ store._ddl['txout_approx'],
 
         for row in store.selectall("""
             SELECT bn.next_block_id, b.block_nBits,
-                   b.block_value_out - b.block_value_in, b.block_nTime
+                   b.block_value_out, b.block_value_in, b.block_nTime
               FROM block_next bn
               JOIN block b ON (bn.next_block_id = b.block_id)
              WHERE bn.block_id = ?""", (block_id,)):
-            next_id, nBits, generated, nTime = row
+            next_id, nBits, value_out, value_in, nTime = row
             nBits = int(nBits)
-            generated = None if generated is None else int(generated)
             nTime = int(nTime)
             new_work = util.calculate_work(orphan_work, nBits)
 
@@ -1858,6 +1867,25 @@ store._ddl['txout_approx'],
                 chain_work = None
             else:
                 chain_work = b['chain_work'] + new_work - orphan_work
+
+            if value_in is None:
+                value, count1, count2 = store.selectrow("""
+                    SELECT SUM(txout.txout_value),
+                           COUNT(1),
+                           COUNT(txout.txout_value)
+                      FROM block_tx bt
+                      JOIN txin ON (bt.tx_id = txin.tx_id)
+                      LEFT JOIN txout ON (txout.txout_id = txin.txout_id)
+                     WHERE bt.block_id = ?""", (next_id,))
+                if count1 == count2 + 1:
+                    value_in = int(value)
+                else:
+                    store.log.warning(
+                        "not updating block %d value_in: %s != %s + 1",
+                        next_id, repr(count1), repr(count2))
+            else:
+                value_in = int(value_in)
+            generated = None if value_in is None else int(value_out - value_in)
 
             if b['seconds'] is None:
                 seconds = None
@@ -1893,6 +1921,7 @@ store._ddl['txout_approx'],
                 UPDATE block
                    SET block_height = ?,
                        block_chain_work = ?,
+                       block_value_in = ?,
                        block_total_seconds = ?,
                        block_total_satoshis = ?,
                        block_satoshi_seconds = ?,
@@ -1901,6 +1930,7 @@ store._ddl['txout_approx'],
                        search_block_id = ?
                  WHERE block_id = ?""",
                       (height, store.binin_int(chain_work, WORK_BITS),
+                       store.intin(value_in),
                        store.intin(seconds), store.intin(satoshis),
                        store.intin(ss), store.intin(total_ss),
                        store.intin(destroyed),
@@ -1955,12 +1985,14 @@ store._ddl['txout_approx'],
             tx_id, value_out, undestroyed = row
             value_out = 0 if value_out is None else int(value_out)
             undestroyed = 0 if undestroyed is None else int(undestroyed)
-            (value_in,) = store.selectrow("""
-                SELECT SUM(prevout.txout_value)
+            count_in, value_in = store.selectrow("""
+                SELECT COUNT(1), SUM(prevout.txout_value)
                   FROM txin
                   JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
                  WHERE txin.tx_id = ?""", (tx_id,))
-            tx['value_in'] = 0 if value_in is None else int(value_in)
+            if (count_in or 0) < len(tx['txIn']):
+                value_in = None
+            tx['value_in'] = None if value_in is None else int(value_in)
             tx['value_out'] = value_out
             tx['value_destroyed'] = value_out - undestroyed
             return tx_id
@@ -2017,7 +2049,10 @@ store._ddl['txout_approx'],
             else:
                 txout_id, value = store.lookup_txout(
                     txin['prevout_hash'], txin['prevout_n'])
-                tx['value_in'] += value
+                if value is None:
+                    tx['value_in'] = None
+                elif tx['value_in'] is not None:
+                    tx['value_in'] += value
 
             store.sql("""
                 INSERT INTO txin (
@@ -2261,7 +2296,7 @@ store._ddl['txout_approx'],
                AND tx.tx_hash = ?
                AND txout.txout_pos = ?""",
                   (store.hashin(tx_hash), txout_pos))
-        return (None, 0) if row is None else (row[0], int(row[1]))
+        return (None, None) if row is None else (row[0], int(row[1]))
 
     def script_to_pubkey_id(store, script):
         """Extract address from transaction output script."""
@@ -2361,6 +2396,9 @@ store._ddl['txout_approx'],
         while True:
             try:
                 store.import_blkdat(dircfg, ds)
+            except:
+                store.log.warning("Exception at %d" % ds.read_cursor)
+                raise
             finally:
                 try:
                     ds.close_file()
