@@ -430,12 +430,16 @@ class DataStore(object):
         store.hashout_hex = hashout_hex
 
         # Might reimplement these someday...
-        store.binout_int = lambda x: int(binout_hex(x), 16)
+        def binout_int(x):
+            if x is None:
+                return None
+            return int(binout_hex(x), 16)
         def binin_int(x, bits):
             if x is None:
                 return None
             return binin_hex(("%%0%dx" % (bits / 4)) % x)
-        store.binin_int = binin_int
+        store.binout_int  = binout_int
+        store.binin_int   = binin_int
 
         store.intin       = intin
         store.new_id      = new_id
@@ -1675,7 +1679,7 @@ store._ddl['txout_approx'],
             b['satoshis'] = prev_satoshis + b['value_out'] - b['value_in'] \
                 - b['value_destroyed']
 
-        if prev_satoshis is None:
+        if prev_satoshis is None or prev_satoshis < 0:
             ss_created = None
             b['total_ss'] = None
         else:
