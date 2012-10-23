@@ -1662,7 +1662,7 @@ store._ddl['txout_approx'],
             b['seconds'] = prev_seconds + b['nTime'] - prev_nTime
         if prev_satoshis is None or b['value_in'] is None:
             # XXX Abuse this field to save work in adopt_orphans.
-            b['satoshis'] = - b['value_destroyed']
+            b['satoshis'] = -1 - b['value_destroyed']
         else:
             b['satoshis'] = prev_satoshis + b['value_out'] - b['value_in'] \
                 - b['value_destroyed']
@@ -1855,13 +1855,15 @@ store._ddl['txout_approx'],
 
         for row in store.selectall("""
             SELECT bn.next_block_id, b.block_nBits,
-                   b.block_value_out, b.block_value_in, b.block_nTime
+                   b.block_value_out, b.block_value_in, b.block_nTime,
+                   b.block_total_satoshis
               FROM block_next bn
               JOIN block b ON (bn.next_block_id = b.block_id)
              WHERE bn.block_id = ?""", (block_id,)):
-            next_id, nBits, value_out, value_in, nTime = row
+            next_id, nBits, value_out, value_in, nTime, satoshis = row
             nBits = int(nBits)
             nTime = int(nTime)
+            satoshis = None if satoshis is None else int(satoshis)
             new_work = util.calculate_work(orphan_work, nBits)
 
             if b['chain_work'] is None:
@@ -1899,10 +1901,9 @@ store._ddl['txout_approx'],
                 else:
                     total_ss = b['total_ss'] + new_seconds * b['satoshis']
 
-            if b['satoshis'] is None or generated is None:
-                satoshis = None
-            else:
-                satoshis = b['satoshis'] + generated
+            if satoshis < 0 and b['satoshis'] is not None and \
+                    b['satoshis'] >= 0 and generated is not None:
+                satoshis += 1 + b['satoshis'] + generated
 
             if b['ss'] is None or b['satoshis'] is None or b['seconds'] is None:
                 destroyed = None
@@ -1930,9 +1931,7 @@ store._ddl['txout_approx'],
                        block_chain_work = ?,
                        block_value_in = ?,
                        block_total_seconds = ?,
-                       block_total_satoshis = ? + CASE WHEN
-                           block_total_satoshis < 0 THEN block_total_satoshis
-                           ELSE 0 END,
+                       block_total_satoshis = ?,
                        block_satoshi_seconds = ?,
                        block_total_ss = ?,
                        block_ss_destroyed = ?,
