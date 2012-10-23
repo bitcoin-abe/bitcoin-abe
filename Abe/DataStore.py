@@ -1672,7 +1672,7 @@ store._ddl['txout_approx'],
             b['seconds'] = None
         else:
             b['seconds'] = prev_seconds + b['nTime'] - prev_nTime
-        if prev_satoshis is None or b['value_in'] is None:
+        if prev_satoshis is None or prev_satoshis < 0 or b['value_in'] is None:
             # XXX Abuse this field to save work in adopt_orphans.
             b['satoshis'] = -1 - b['value_destroyed']
         else:
