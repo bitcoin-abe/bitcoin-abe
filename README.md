@@ -135,7 +135,8 @@ e.g.:
             "address_version": "o" }]
 
 Note that "+=" adds to the existing datadir configuration, while "="
-replaces it.
+replaces it.  For help with address_version, please open doc/FAQ.html
+in a web browser.
 
 More information
 ----------------

@@ -1,5 +1,5 @@
-New in 0.7
-==========
+New in 0.7 - 2012-10-23
+=======================
 
 * Tell search engines not to crawl the whole chain.
 
