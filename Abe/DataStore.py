@@ -1661,7 +1661,8 @@ store._ddl['txout_approx'],
         else:
             b['seconds'] = prev_seconds + b['nTime'] - prev_nTime
         if prev_satoshis is None or b['value_in'] is None:
-            b['satoshis'] = None
+            # XXX Abuse this field to save work in adopt_orphans.
+            b['satoshis'] = - b['value_destroyed']
         else:
             b['satoshis'] = prev_satoshis + b['value_out'] - b['value_in'] \
                 - b['value_destroyed']
@@ -1736,7 +1737,7 @@ store._ddl['txout_approx'],
             block_id, b['nTime'],
             map(lambda tx: tx['tx_id'], b['transactions']))
 
-        if prev_satoshis is None:
+        if prev_satoshis is None or prev_ss is None:
             b['ss'] = None
             b['total_ss'] = None
         else:
@@ -1917,13 +1918,21 @@ store._ddl['txout_approx'],
                     next_id, nTime, tx_ids)
                 ss = b['ss'] + b['satoshis'] * (nTime - b['nTime']) - destroyed
 
+            if height is None or height < 2:
+                search_block_id = None
+            else:
+                search_block_id = store.get_block_id_at_height(
+                    util.get_search_height(height), int(block_id))
+
             store.sql("""
                 UPDATE block
                    SET block_height = ?,
                        block_chain_work = ?,
                        block_value_in = ?,
                        block_total_seconds = ?,
-                       block_total_satoshis = ?,
+                       block_total_satoshis = ? + CASE WHEN
+                           block_total_satoshis < 0 THEN block_total_satoshis
+                           ELSE 0 END,
                        block_satoshi_seconds = ?,
                        block_total_ss = ?,
                        block_ss_destroyed = ?,
@@ -1933,9 +1942,7 @@ store._ddl['txout_approx'],
                        store.intin(value_in),
                        store.intin(seconds), store.intin(satoshis),
                        store.intin(ss), store.intin(total_ss),
-                       store.intin(destroyed),
-                       store.get_block_id_at_height(
-                        util.get_search_height(height), block_id),
+                       store.intin(destroyed), search_block_id,
                        next_id))
 
             if height is not None:
@@ -1961,6 +1968,7 @@ store._ddl['txout_approx'],
                 "nTime": nTime,
                 "seconds": seconds,
                 "satoshis": satoshis,
+                "total_ss": total_ss,
                 "ss": ss}
             next_ret = store.adopt_orphans(nb, new_work, None, chain_mask)
 
