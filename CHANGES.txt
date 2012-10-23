@@ -1,3 +1,27 @@
+New in 0.7
+==========
+
+* Tell search engines not to crawl the whole chain.
+
+* Raw transaction output in JSON format.
+
+* Prevent denial of service via huge address history.
+
+* Optional short addresses resembling Firstbits.
+
+* Option to omit signature scripts for 20% space reduction.
+
+* HTTP API function: getdifficulty.
+
+* Work around failure to quit on Ctrl-C with SQLite.
+
+* Report line number of errors in config file.
+
+* Fixed bugs that cause wrong statistics when blocks arrive out of order.
+
+* Minor fixes and updates.
+
+
 New in 0.6 - 2011-08-31
 =======================
 

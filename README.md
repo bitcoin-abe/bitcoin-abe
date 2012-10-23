@@ -27,8 +27,9 @@ or simply run Abe from the directory containing setup.py.
 
 Abe depends on Python 2.7 (or 2.6), the pycrypto package, and an SQL
 database supporting ROLLBACK.  Abe runs on PostgreSQL, MySQL's InnoDB
-engine, SQLite, some ODBC configurations, Oracle, and IBM DB2.  Other
-SQL databases may work with minor changes.  See the comments in
+engine, and SQLite.  Other SQL databases may work with minor changes.
+Abe formerly ran on some ODBC configurations, Oracle, and IBM DB2, but
+I have not tested to be sure it still works.  See the comments in
 abe.conf about dbtype for configuration examples.
 
 You will need a copy of the block file (blk0001.dat in your Bitcoin
@@ -121,7 +122,8 @@ the default Bitcoin directory, specify "datadir" in abe.conf, e.g.:
 
     datadir = /home/bitcoin/.namecoin
 
-Note that this software is currently unaware of name transactions.
+Note that the web interface is currently unaware of name transactions,
+but see namecoin_dump.py in the tools directory.
 
 The datadir directive can include a new chain's basic configuration,
 e.g.:

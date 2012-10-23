@@ -36,7 +36,7 @@ setup(
     long_description = """Abe reads the Bitcoin block chain from disk, loads
 it into a database, indexes it, and provides a web interface to search
 and navigate it.  Abe works with several Bitcoin-derived currencies,
-including Namecoin and SolidCoin.
+including Namecoin and LiteCoin.
 
 Abe draws inspiration from Bitcoin Block Explorer (BBE,
 http://blockexplorer.com/) and seeks some level of compatibility with
