@@ -40,7 +40,8 @@ Look for output such as:
     block_tx 2 2
     ...
 
-This step may take several hours.  Then run the web server as:
+This step may take several days depending on chain size and hardware.
+Then run the web server as:
 
     python -m Abe.abe --config abe-my.conf
 
