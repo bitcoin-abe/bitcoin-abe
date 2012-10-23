@@ -42,6 +42,10 @@ def mixup_blocks(store, ds, count, datadir_chain_id = None, seed = None):
     if seed > 1 and seed <= count:
         for i in xrange(0, seed * int(count/seed), seed):
             offsets[i : i + seed] = offsets[i : i + seed][::-1]
+    elif seed == -3:
+        for i in xrange(0, 3 * int(count/3), 3):
+            offsets[i : i + 3] = offsets[i+1 : i + 3] + [offsets[i]]
+        print offsets
     elif seed:
         offsets = offsets[::-1]  # XXX want random
 
