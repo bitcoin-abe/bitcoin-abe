@@ -838,6 +838,9 @@ def add_keep_scriptsig(store):
     store.config['keep_scriptsig'] = "true"
     store.save_configvar("use_firstbits")
 
+def drop_satoshi_seconds_destroyed(store):
+    store.drop_column_if_exists("block_txin", "satoshi_seconds_destroyed")
+
 upgrades = [
     ('6',    add_block_value_in),
     ('6.1',  add_block_value_out),
@@ -914,7 +917,8 @@ upgrades = [
     ('Abe29.3', create_firstbits),       # Fast
     ('Abe29.4', populate_firstbits),     # Slow if config use_firstbits=true
     ('Abe30',   add_keep_scriptsig),     # Fast
-    ('Abe31', None)
+    ('Abe31',   drop_satoshi_seconds_destroyed), # Seconds
+    ('Abe32', None)
 ]
 
 def upgrade_schema(store):

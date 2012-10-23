@@ -1023,7 +1023,6 @@ store._ddl['configvar'],
     block_id      NUMERIC(14) NOT NULL,
     tx_id         NUMERIC(26) NOT NULL,
     tx_pos        NUMERIC(10) NOT NULL,
-    satoshi_seconds_destroyed NUMERIC(28),
     PRIMARY KEY (block_id, tx_id),
     UNIQUE (block_id, tx_pos),
     FOREIGN KEY (block_id)
@@ -1615,6 +1614,11 @@ store._ddl['txout_approx'],
         b['value_out'] = 0
         b['value_destroyed'] = 0
         tx_hash_array = []
+
+        # In the common case, all the block's txins _are_ linked, and we
+        # can avoid a query if we notice this.
+        all_txins_linked = True
+
         for pos in xrange(len(b['transactions'])):
             tx = b['transactions'][pos]
             if 'hash' not in tx:
@@ -1622,11 +1626,15 @@ store._ddl['txout_approx'],
             tx_hash_array.append(tx['hash'])
             tx['tx_id'] = store.tx_find_id_and_value(tx)
 
-            if not tx['tx_id']:
+            if tx['tx_id']:
+                all_txins_linked = False
+            else:
                 if store.commit_bytes == 0:
                     tx['tx_id'] = store.import_and_commit_tx(tx, pos == 0)
                 else:
                     tx['tx_id'] = store.import_tx(tx, pos == 0)
+                if tx['unlinked_count'] > 0:
+                    all_txins_linked = False
 
             if tx['value_in'] is None:
                 b['value_in'] = None
@@ -1667,6 +1675,13 @@ store._ddl['txout_approx'],
             b['satoshis'] = prev_satoshis + b['value_out'] - b['value_in'] \
                 - b['value_destroyed']
 
+        if prev_satoshis is None:
+            ss_created = None
+            b['total_ss'] = None
+        else:
+            ss_created = prev_satoshis * (b['nTime'] - prev_nTime)
+            b['total_ss'] = prev_total_ss + ss_created
+
         if b['height'] is None or b['height'] < 2:
             b['search_block_id'] = None
         else:
@@ -1682,9 +1697,10 @@ store._ddl['txout_approx'],
                     block_nTime, block_nBits, block_nNonce, block_height,
                     prev_block_id, block_chain_work, block_value_in,
                     block_value_out, block_total_satoshis,
-                    block_total_seconds, block_num_tx, search_block_id
+                    block_total_seconds, block_total_ss, block_num_tx,
+                    search_block_id
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )""",
                 (block_id, store.hashin(b['hash']), store.intin(b['version']),
                  store.hashin(b['hashMerkleRoot']), store.intin(b['nTime']),
@@ -1693,6 +1709,7 @@ store._ddl['txout_approx'],
                  store.binin_int(b['chain_work'], WORK_BITS),
                  store.intin(b['value_in']), store.intin(b['value_out']),
                  store.intin(b['satoshis']), store.intin(b['seconds']),
+                 store.intin(b['total_ss']),
                  len(b['transactions']), b['search_block_id']))
 
         except store.module.DatabaseError:
@@ -1733,28 +1750,26 @@ store._ddl['txout_approx'],
         if b['height'] is not None:
             store._populate_block_txin(block_id)
 
-        b['ss_destroyed'] = store._get_block_ss_destroyed(
-            block_id, b['nTime'],
-            map(lambda tx: tx['tx_id'], b['transactions']))
+            if all_txins_linked or not store._has_unlinked_txins(block_id):
+                b['ss_destroyed'] = store._get_block_ss_destroyed(
+                    block_id, b['nTime'],
+                    map(lambda tx: tx['tx_id'], b['transactions']))
+                if ss_created is None or prev_ss is None:
+                    b['ss'] = None
+                else:
+                    b['ss'] = prev_ss + ss_created - b['ss_destroyed']
 
-        if prev_satoshis is None or prev_ss is None:
-            b['ss'] = None
-            b['total_ss'] = None
-        else:
-            ss_created = prev_satoshis * (b['nTime'] - prev_nTime)
-            b['ss'] = prev_ss + ss_created - b['ss_destroyed']
-            b['total_ss'] = prev_total_ss + ss_created
-
-            store.sql("""
-                UPDATE block
-                   SET block_satoshi_seconds = ?,
-                       block_total_ss = ?,
-                       block_ss_destroyed = ?
-                 WHERE block_id = ?""",
-                      (store.intin(b['ss']),
-                       store.intin(b['total_ss']),
-                       store.intin(b['ss_destroyed']),
-                       block_id))
+                store.sql("""
+                    UPDATE block
+                       SET block_satoshi_seconds = ?,
+                           block_ss_destroyed = ?
+                     WHERE block_id = ?""",
+                          (store.intin(b['ss']),
+                           store.intin(b['ss_destroyed']),
+                           block_id))
+            else:
+                b['ss_destroyed'] = None
+                b['ss'] = None
 
         # Store the inverse hashPrev relationship or mark the block as
         # an orphan.
@@ -1804,6 +1819,15 @@ store._ddl['txout_approx'],
                     VALUES (?, ?, ?)""",
                           (block_id, txin_id, oblock_id))
 
+    def _has_unlinked_txins(store, block_id):
+        (unlinked_count,) = store.selectrow("""
+            SELECT COUNT(1)
+              FROM block_tx bt
+              JOIN txin ON (bt.tx_id = txin.tx_id)
+              JOIN unlinked_txin u ON (txin.txin_id = u.txin_id)
+             WHERE bt.block_id = ?""", (block_id,))
+        return unlinked_count > 0
+
     def _get_block_ss_destroyed(store, block_id, nTime, tx_ids):
         block_ss_destroyed = 0
         for tx_id in tx_ids:
@@ -1818,12 +1842,6 @@ store._ddl['txout_approx'],
                  WHERE bti.block_id = ? AND txin.tx_id = ?""",
                                             (nTime, block_id, tx_id))[0])
             block_ss_destroyed += destroyed
-            store.sql("""
-                UPDATE block_tx
-                   SET satoshi_seconds_destroyed = ?
-                 WHERE block_id = ?
-                   AND tx_id = ?""",
-                      (store.intin(destroyed), block_id, tx_id))
         return block_ss_destroyed
 
     # Propagate cumulative values to descendant blocks.  Return info
@@ -1905,20 +1923,6 @@ store._ddl['txout_approx'],
                     b['satoshis'] >= 0 and generated is not None:
                 satoshis += 1 + b['satoshis'] + generated
 
-            if b['ss'] is None or b['satoshis'] is None or b['seconds'] is None:
-                destroyed = None
-                ss = None
-            else:
-                tx_ids = map(
-                    lambda row: row[0],
-                    store.selectall("""
-                        SELECT tx_id
-                          FROM block_tx
-                         WHERE block_id = ?""", (next_id,)))
-                destroyed = store._get_block_ss_destroyed(
-                    next_id, nTime, tx_ids)
-                ss = b['ss'] + b['satoshis'] * (nTime - b['nTime']) - destroyed
-
             if height is None or height < 2:
                 search_block_id = None
             else:
@@ -1932,17 +1936,16 @@ store._ddl['txout_approx'],
                        block_value_in = ?,
                        block_total_seconds = ?,
                        block_total_satoshis = ?,
-                       block_satoshi_seconds = ?,
                        block_total_ss = ?,
-                       block_ss_destroyed = ?,
                        search_block_id = ?
                  WHERE block_id = ?""",
                       (height, store.binin_int(chain_work, WORK_BITS),
                        store.intin(value_in),
                        store.intin(seconds), store.intin(satoshis),
-                       store.intin(ss), store.intin(total_ss),
-                       store.intin(destroyed), search_block_id,
+                       store.intin(total_ss), search_block_id,
                        next_id))
+
+            ss = None
 
             if height is not None:
                 store.sql("""
@@ -1951,6 +1954,29 @@ store._ddl['txout_approx'],
                     (height, next_id))
 
                 store._populate_block_txin(int(next_id))
+
+                if b['ss'] is None or store._has_unlinked_txins(next_id):
+                    pass
+                else:
+                    tx_ids = map(
+                        lambda row: row[0],
+                        store.selectall("""
+                            SELECT tx_id
+                              FROM block_tx
+                             WHERE block_id = ?""", (next_id,)))
+                    destroyed = store._get_block_ss_destroyed(
+                        next_id, nTime, tx_ids)
+                    ss = b['ss'] + b['satoshis'] * (nTime - b['nTime']) \
+                        - destroyed
+
+                    store.sql("""
+                        UPDATE block
+                           SET block_satoshi_seconds = ?,
+                               block_ss_destroyed = ?
+                         WHERE block_id = ?""",
+                              (store.intin(ss),
+                               store.intin(destroyed),
+                               next_id))
 
                 if store.use_firstbits:
                     for (addr_vers,) in store.selectall("""
@@ -2047,6 +2073,7 @@ store._ddl['txout_approx'],
 
         # Import transaction inputs.
         tx['value_in'] = 0
+        tx['unlinked_count'] = 0
         for pos in xrange(len(tx['txIn'])):
             txin = tx['txIn'][pos]
             txin_id = store.new_id("txin")
@@ -2073,6 +2100,7 @@ store._ddl['txout_approx'],
                        store.intin(txin['sequence'])) if store.keep_scriptsig
                       else (txin_id, tx_id, pos, txout_id))
             if not is_coinbase and txout_id is None:
+                tx['unlinked_count'] += 1
                 store.sql("""
                     INSERT INTO unlinked_txin (
                         txin_id, txout_tx_hash, txout_pos
