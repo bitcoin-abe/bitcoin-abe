@@ -836,7 +836,7 @@ def populate_firstbits(store):
 
 def add_keep_scriptsig(store):
     store.config['keep_scriptsig'] = "true"
-    store.save_configvar("use_firstbits")
+    store.save_configvar("keep_scriptsig")
 
 def drop_satoshi_seconds_destroyed(store):
     store.drop_column_if_exists("block_txin", "satoshi_seconds_destroyed")
