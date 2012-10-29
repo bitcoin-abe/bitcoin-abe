@@ -841,6 +841,25 @@ def add_keep_scriptsig(store):
 def drop_satoshi_seconds_destroyed(store):
     store.drop_column_if_exists("block_txin", "satoshi_seconds_destroyed")
 
+def widen_blkfile_number(store):
+    data = store.selectall("""
+        SELECT datadir_id, dirname, blkfile_number, blkfile_offset, chain_id
+          FROM abe_tmp_datadir""")
+    store.drop_table_if_exists("datadir")
+
+    store.ddl("""CREATE TABLE datadir (
+        datadir_id  NUMERIC(10) NOT NULL PRIMARY KEY,
+        dirname     VARCHAR(2000) NOT NULL,
+        blkfile_number NUMERIC(8) NULL,
+        blkfile_offset NUMERIC(20) NULL,
+        chain_id    NUMERIC(10) NULL
+    )""")
+    for row in data:
+        store.sql("""
+            INSERT INTO datadir (
+                datadir_id, dirname, blkfile_number, blkfile_offset, chain_id
+            ) VALUES (?, ?, ?, ?, ?)""", row)
+
 upgrades = [
     ('6',    add_block_value_in),
     ('6.1',  add_block_value_out),
@@ -918,7 +937,10 @@ upgrades = [
     ('Abe29.4', populate_firstbits),     # Slow if config use_firstbits=true
     ('Abe30',   add_keep_scriptsig),     # Fast
     ('Abe31',   drop_satoshi_seconds_destroyed), # Seconds
-    ('Abe32', None)
+    ('Abe32',   save_datadir),           # Fast
+    ('Abe32.1', widen_blkfile_number),   # Fast
+    ('Abe32.2', drop_tmp_datadir),       # Fast
+    ('Abe33', None)
 ]
 
 def upgrade_schema(store):

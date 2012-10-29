@@ -32,7 +32,7 @@ import util
 import logging
 import base58
 
-SCHEMA_VERSION = "Abe31"
+SCHEMA_VERSION = "Abe33"
 
 CONFIG_DEFAULTS = {
     "dbtype":             None,
@@ -915,7 +915,7 @@ store._ddl['configvar'],
 """CREATE TABLE datadir (
     datadir_id  NUMERIC(10) NOT NULL PRIMARY KEY,
     dirname     VARCHAR(2000) NOT NULL,
-    blkfile_number NUMERIC(4) NULL,
+    blkfile_number NUMERIC(8) NULL,
     blkfile_offset NUMERIC(20) NULL,
     chain_id    NUMERIC(10) NULL
 )""",
