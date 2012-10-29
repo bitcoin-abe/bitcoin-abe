@@ -1,4 +1,5 @@
 New in 0.7.1 - 2012-10-29
+=========================
 
 * Fixed bug affecting database upgrade.
 
