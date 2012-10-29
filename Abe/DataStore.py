@@ -2407,11 +2407,30 @@ store._ddl['txout_approx'],
 
     # Load all blocks starting at the current file and offset.
     def catch_up_dir(store, dircfg):
+        filename = [None]
+
         def open_blkfile():
             store._refresh_dircfg(dircfg)
-            filename = store.blkfile_name(dircfg)
             ds = BCDataStream.BCDataStream()
-            file = open(filename, "rb")
+
+            filename[0] = store.blkfile_name(dircfg)
+            try:
+                file = open(filename[0], "rb")
+            except IOError, e:
+                # Early bitcoind used blk0001.dat to blk9999.dat.
+                # Now it uses blocks/blk00000.dat to blocks/blk99999.dat.
+                # Abe starts by assuming the former scheme.  If we don't
+                # find the expected file but do see blocks/blk00000.dat,
+                # switch to the new scheme.  Record the switch by adding
+                # 100000 to each file number, so for example, 100123 means
+                # blocks/blk00123.dat but 123 still means blk0123.dat.
+                if dircfg['blkfile_number'] > 9999 or e.errno != errno.ENOENT:
+                    raise
+                new_number = 100000
+                filename[0] = store.blkfile_name(dircfg, new_number)
+                file = open(filename[0], "rb")
+                dircfg['blkfile_number'] = new_number
+
             try:
                 ds.map_file(file, 0)
             except:
@@ -2434,7 +2453,7 @@ store._ddl['txout_approx'],
 
         while True:
             try:
-                store.import_blkdat(dircfg, ds)
+                store.import_blkdat(dircfg, ds, filename[0])
             except:
                 store.log.warning("Exception at %d" % ds.read_cursor)
                 raise
@@ -2458,7 +2477,7 @@ store._ddl['txout_approx'],
             dircfg['blkfile_offset'] = 0
 
     # Load all blocks from the given data stream.
-    def import_blkdat(store, dircfg, ds):
+    def import_blkdat(store, dircfg, ds, filename="[unknown]"):
         filenum = dircfg['blkfile_number']
         ds.read_cursor = dircfg['blkfile_offset']
         bytes_done = 0
@@ -2495,7 +2514,6 @@ store._ddl['txout_approx'],
                                    ds.read_cursor - offset)
                     continue
 
-                filename = store.blkfile_name(dircfg)
                 store.log.error(
                     "Chain not found for magic number %s in block file %s at"
                     " offset %d.  If file contents have changed, consider"
@@ -2593,9 +2611,13 @@ store._ddl['txout_approx'],
             d['transactions'].append(deserialize.parse_Transaction(ds))
         return d
 
-    def blkfile_name(store, dircfg):
-        return os.path.join(dircfg['dirname'], "blk%04d.dat"
-                            % (dircfg['blkfile_number'],))
+    def blkfile_name(store, dircfg, number=None):
+        if number is None:
+            number = dircfg['blkfile_number']
+        if number > 9999:
+            return os.path.join(dircfg['dirname'], "blocks", "blk%05d.dat"
+                                % (number - 100000,))
+        return os.path.join(dircfg['dirname'], "blk%04d.dat" % (number,))
 
     def save_blkfile_offset(store, dircfg, offset):
         store.sql("""
