@@ -1628,7 +1628,7 @@ store._ddl['txout_approx'],
             if 'hash' not in tx:
                 tx['hash'] = util.double_sha256(tx['tx'])
             tx_hash_array.append(tx['hash'])
-            tx['tx_id'] = store.tx_find_id_and_value(tx)
+            tx['tx_id'] = store.tx_find_id_and_value(tx, pos == 0)
 
             if tx['tx_id']:
                 all_txins_linked = False
@@ -2008,7 +2008,7 @@ store._ddl['txout_approx'],
 
         return ret
 
-    def tx_find_id_and_value(store, tx):
+    def tx_find_id_and_value(store, tx, is_coinbase):
         row = store.selectrow("""
             SELECT tx.tx_id, SUM(txout.txout_value), SUM(
                        CASE WHEN txout.pubkey_id > 0 THEN txout.txout_value
@@ -2028,7 +2028,7 @@ store._ddl['txout_approx'],
                   JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
                  WHERE txin.tx_id = ?""", (tx_id,))
             if (count_in or 0) < len(tx['txIn']):
-                value_in = None
+                value_in = 0 if is_coinbase else None
             tx['value_in'] = None if value_in is None else int(value_in)
             tx['value_out'] = value_out
             tx['value_destroyed'] = value_out - undestroyed
@@ -2125,7 +2125,7 @@ store._ddl['txout_approx'],
         except store.module.DatabaseError:
             store.rollback()
             # Violation of tx_hash uniqueness?
-            tx_id = store.tx_find_id_and_value(tx)
+            tx_id = store.tx_find_id_and_value(tx, is_coinbase)
             if not tx_id:
                 raise
 
