@@ -1398,7 +1398,10 @@ class Abe:
                AND tid.prevout_id IS NULL""" + ("" if chain_id is None else """
                AND tod.chain_id = ?""") + """
                AND tod.pubkey_hash IN (?""" + (",?" * (len(hashes)-1)) +
-                                   """)""" + ("" if max_rows < 0 else """
+                                   """)
+             ORDER BY tod.block_height,
+                   tod.tx_pos,
+                   tod.txout_pos""" + ("" if max_rows < 0 else """
              LIMIT ?"""),
                                    tuple(bind))
 
