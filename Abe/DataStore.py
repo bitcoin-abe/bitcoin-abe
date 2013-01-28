@@ -2190,7 +2190,7 @@ store._ddl['txout_approx'],
             txin = {'prev_out': prev_out}
             if store.keep_scriptsig:
                 txin['raw_scriptSig'] = store.binout_hex(row[2])
-                txin['sequence'] = store.binout_hex(row[3])
+                txin['sequence'] = None if row[3] is None else int(row[3])
             tx['in'].append(txin)
         tx['vin_sz'] = len(tx['in'])
 
