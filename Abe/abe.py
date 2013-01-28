@@ -24,6 +24,7 @@ import posixpath
 import wsgiref.util
 import time
 import logging
+import json
 
 import version
 import DataStore
@@ -110,6 +111,9 @@ Negative values back from the last block.
 blockNumber,time,target,avgTargetSinceLast,difficulty,hashesToWin,avgIntervalSinceLast,netHashPerSecond
 START DATA
 """
+
+# How many addresses to accept in /unspent/ADDR|ADDR|...
+MAX_UNSPENT_ADDRESSES = 200
 
 def make_store(args):
     store = DataStore.new(args)
@@ -917,7 +921,6 @@ class Abe:
         tx = abe.store.export_tx(tx_hash=tx_hash.lower())
         if tx is None:
             return 'ERROR: Transaction does not exist.'  # BBE compatible
-        import json
         return json.dumps(tx, sort_keys=True, indent=2)
 
     def handle_address(abe, page):
@@ -1343,6 +1346,85 @@ class Abe:
         else:
             addrs = abe.search_address_prefix(arg)
         abe.show_search_results(page, addrs)
+
+    def handle_unspent(abe, page):
+        abe.do_raw(page, abe.do_unspent(page))
+
+    def do_unspent(abe, page):
+        addrs = wsgiref.util.shift_path_info(page['env'])
+        if addrs is None:
+            addrs = []
+        else:
+            addrs = addrs.split("|");
+        if len(addrs) < 1 or len(addrs) > MAX_UNSPENT_ADDRESSES:
+            return 'Number of addresses must be between 1 and ' + \
+                str(MAX_UNSPENT_ADDRESSES)
+
+        if page['chain']:
+            chain_id = page['chain']['id']
+            bind = [chain_id]
+        else:
+            chain_id = None
+            bind = []
+
+        hashes = []
+        good_addrs = []
+        for address in addrs:
+            try:
+                hashes.append(abe.store.binin(
+                        base58.bc_address_to_hash_160(address)))
+                good_addrs.append(address)
+            except:
+                pass
+        addrs = good_addrs
+        bind += hashes
+
+        max_rows = abe.address_history_rows_max
+        if max_rows >= 0:
+            bind += [max_rows + 1]
+
+        rows = abe.store.selectall("""
+            SELECT tod.tx_hash,
+                   tod.txout_pos,
+                   tod.txout_scriptPubKey,
+                   tod.txout_value,
+                   tod.block_height
+              FROM txout_detail tod
+              LEFT JOIN txin_detail tid ON (
+                         tid.chain_id = tod.chain_id
+                     AND tid.prevout_id = tod.txout_id
+                     AND tid.in_longest = 1)
+             WHERE tod.in_longest = 1
+               AND tid.prevout_id IS NULL""" + ("" if chain_id is None else """
+               AND tod.chain_id = ?""") + """
+               AND tod.pubkey_hash IN (?""" + (",?" * (len(hashes)-1)) +
+                                   """)""" + ("" if max_rows < 0 else """
+             LIMIT ?"""),
+                                   tuple(bind))
+
+        if max_rows >= 0 and len(rows) > max_rows:
+            return "ERROR: too many records to display"
+
+        if len(rows) == 0:
+            return 'No free outputs to spend [' + '|'.join(addrs) + ']'
+
+        out = []
+        for row in rows:
+            tx_hash, out_pos, script, value, height = row
+            tx_hash = abe.store.hashout_hex(tx_hash)
+            out_pos = None if out_pos is None else int(out_pos)
+            script = abe.store.binout_hex(script)
+            value = None if value is None else int(value)
+            height = None if height is None else int(height)
+            out.append({
+                    'tx_hash': tx_hash,
+                    'tx_output_n': out_pos,
+                    'script': script,
+                    'value': value,
+                    'value_hex': None if value is None else "%x" % value,
+                    'block_number': height})
+
+        return json.dumps({ 'unspent_outputs': out }, sort_keys=True, indent=2)
 
     def do_raw(abe, page, body):
         page['content_type'] = 'text/plain'
