@@ -1360,6 +1360,9 @@ class Abe:
             return 'Number of addresses must be between 1 and ' + \
                 str(MAX_UNSPENT_ADDRESSES)
 
+        # XXX support multiple implementations while testing.
+        impl = page['params'].get('impl', ['2'])[0]
+
         if page['chain']:
             chain_id = page['chain']['id']
             bind = [chain_id]
@@ -1379,34 +1382,87 @@ class Abe:
         addrs = good_addrs
         bind += hashes
 
+        if len(hashes) == 0:  # Address(es) are invalid.
+            return 'Error getting unspent outputs'  # blockchain.info compatible
+
+        placeholders = "?" + (",?" * (len(hashes)-1))
+
         max_rows = abe.address_history_rows_max
         if max_rows >= 0:
             bind += [max_rows + 1]
 
-        rows = abe.store.selectall("""
-            SELECT tod.tx_hash,
-                   tod.txout_pos,
-                   tod.txout_scriptPubKey,
-                   tod.txout_value,
-                   tod.block_height
-              FROM txout_detail tod
-              LEFT JOIN txin_detail tid ON (
-                         tid.chain_id = tod.chain_id
-                     AND tid.prevout_id = tod.txout_id
-                     AND tid.in_longest = 1)
-             WHERE tod.in_longest = 1
-               AND tid.prevout_id IS NULL""" + ("" if chain_id is None else """
-               AND tod.chain_id = ?""") + """
-               AND tod.pubkey_hash IN (?""" + (",?" * (len(hashes)-1)) +
-                                   """)
-             ORDER BY tod.block_height,
-                   tod.tx_pos,
-                   tod.txout_pos""" + ("" if max_rows < 0 else """
-             LIMIT ?"""),
-                                   tuple(bind))
+        if impl == '1':
+            rows = abe.store.selectall("""
+                SELECT tod.tx_hash,
+                       tod.txout_pos,
+                       tod.txout_scriptPubKey,
+                       tod.txout_value,
+                       tod.block_height
+                  FROM txout_detail tod
+                  LEFT JOIN txin_detail tid ON (
+                             tid.chain_id = tod.chain_id
+                         AND tid.prevout_id = tod.txout_id
+                         AND tid.in_longest = 1)
+                 WHERE tod.in_longest = 1
+                   AND tid.prevout_id IS NULL""" + ("" if chain_id is None else """
+                   AND tod.chain_id = ?""") + """
+                   AND tod.pubkey_hash IN (""" + placeholders + """)
+                 ORDER BY tod.block_height,
+                       tod.tx_pos,
+                       tod.txout_pos""" + ("" if max_rows < 0 else """
+                 LIMIT ?"""),
+                                       tuple(bind))
 
-        if max_rows >= 0 and len(rows) > max_rows:
-            return "ERROR: too many records to display"
+            if max_rows >= 0 and len(rows) > max_rows:
+                return "ERROR: too many records to display"
+
+        else:
+            spent = set()
+            for txout_id, spent_chain_id in abe.store.selectall("""
+                SELECT txin.txout_id, cc.chain_id
+                  FROM chain_candidate cc
+                  JOIN block_tx ON (block_tx.block_id = cc.block_id)
+                  JOIN txin ON (txin.tx_id = block_tx.tx_id)
+                  JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
+                  JOIN pubkey ON (pubkey.pubkey_id = prevout.pubkey_id)
+                 WHERE cc.in_longest = 1""" + ("" if chain_id is None else """
+                   AND cc.chain_id = ?""") + """
+                   AND pubkey.pubkey_hash IN (""" + placeholders + """)""" + (
+                    "" if max_rows < 0 else """
+                 LIMIT ?"""), bind):
+                spent.add((int(txout_id), int(spent_chain_id)))
+
+            abe.log.debug('spent: %s', spent)
+
+            received_rows = abe.store.selectall("""
+                SELECT
+                    txout.txout_id,
+                    cc.chain_id,
+                    tx.tx_hash,
+                    txout.txout_pos,
+                    txout.txout_scriptPubKey,
+                    txout.txout_value,
+                    cc.block_height
+                  FROM chain_candidate cc
+                  JOIN block_tx ON (block_tx.block_id = cc.block_id)
+                  JOIN tx ON (tx.tx_id = block_tx.tx_id)
+                  JOIN txout ON (txout.tx_id = tx.tx_id)
+                  JOIN pubkey ON (pubkey.pubkey_id = txout.pubkey_id)
+                 WHERE cc.in_longest = 1""" + ("" if chain_id is None else """
+                   AND cc.chain_id = ?""") + """
+                   AND pubkey.pubkey_hash IN (""" + placeholders + """)""" + (
+                    "" if max_rows < 0 else """
+                 LIMIT ?"""), bind)
+                
+            if max_rows >= 0 and len(received_rows) > max_rows:
+                return "ERROR: too many records to process"
+
+            rows = []
+            for row in received_rows:
+                key = (int(row[0]), int(row[1]))
+                if key in spent:
+                    continue
+                rows.append(row[2:])
 
         if len(rows) == 0:
             return 'No free outputs to spend [' + '|'.join(addrs) + ']'
