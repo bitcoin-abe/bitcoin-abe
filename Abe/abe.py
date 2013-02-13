@@ -1452,6 +1452,9 @@ class Abe:
                    AND cc.chain_id = ?""") + """
                    AND pubkey.pubkey_hash IN (""" + placeholders + """)""" + (
                     "" if max_rows < 0 else """
+                 ORDER BY cc.block_height,
+                       block_tx.tx_pos,
+                       txout.txout_pos
                  LIMIT ?"""), bind)
                 
             if max_rows >= 0 and len(received_rows) > max_rows:
