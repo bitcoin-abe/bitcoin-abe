@@ -1,3 +1,5 @@
+* /q/totalbc too high in BTC chain.
+
 * UnicodeEncodeError on non-ASCII MySQLdb connect params.
 
 * Bugs affecting bytea hashin?
@@ -71,7 +73,7 @@
   particular, don't imply that an output was "redeemed" when the
   redeeming transaction is not in the chain.
 
-* Write a test suite.  Include reorgs and upgrades.
+* Write a test suite.  Include reorgs, duplicate coinbases, and upgrades.
 
 * Search by firstbits.
 
