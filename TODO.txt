@@ -1,5 +1,3 @@
-* /q/totalbc too high in BTC chain.
-
 * UnicodeEncodeError on non-ASCII MySQLdb connect params.
 
 * Bugs affecting bytea hashin?
