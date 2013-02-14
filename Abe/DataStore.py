@@ -306,7 +306,7 @@ class DataStore(object):
 
         val = store.config.get('binary_type')
 
-        if val in (None, 'str'):
+        if val in (None, 'str', "binary"):
             binin       = identity
             binin_hex   = from_hex
             binout      = identity
@@ -315,6 +315,9 @@ class DataStore(object):
             hashin_hex  = from_hex
             hashout     = rev
             hashout_hex = to_hex
+
+            if val == "binary":
+                transform = store._sql_binary_as_binary(transform)
 
         elif val in ("buffer", "bytearray", "pg-bytea"):
             if val == "bytearray":
@@ -500,6 +503,19 @@ class DataStore(object):
         def ret(stmt):
             # XXX This assumes no string literals match.
             return fn(patt.sub(fixup, stmt).replace("X'", "'"))
+        return ret
+
+    # Convert the standard BIT type to a binary string for databases
+    # and drivers that don't support BIT.
+    def _sql_binary_as_binary(store, fn):
+        patt = re.compile("BIT((?: VARYING)?)\\(([0-9]+)\\)")
+        def fixup(match):
+            # XXX This assumes no string literals match.
+            return (("VARBINARY(" if match.group(1) else "BINARY(") +
+                    str(int(match.group(2)) / 8) + ")")
+        def ret(stmt):
+            # XXX This assumes no string literals match.
+            return fn(patt.sub(fixup, stmt))
         return ret
 
     # Convert the standard BIT type to the PostgreSQL BYTEA type.
@@ -1225,7 +1241,7 @@ store._ddl['txout_approx'],
 
     def configure_binary_type(store):
         for val in (
-            ['str', 'bytearray', 'buffer', 'hex', 'pg-bytea']
+            ['str', 'bytearray', 'buffer', 'hex', 'pg-bytea', 'binary']
             if store.args.binary_type is None else
             [ store.args.binary_type ]):
 
