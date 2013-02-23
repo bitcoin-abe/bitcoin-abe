@@ -35,12 +35,16 @@ Abe depends on Python 2.7 (or 2.6), the pycrypto package, and an SQL
 database supporting ROLLBACK.  Abe runs on PostgreSQL, MySQL's InnoDB
 engine, and SQLite.  Other SQL databases may work with minor changes.
 Abe formerly ran on some ODBC configurations, Oracle, and IBM DB2, but
-I have not tested to be sure it still works.  See the comments in
+we have not tested to be sure it still works.  See the comments in
 abe.conf about dbtype for configuration examples.
 
-You will need a copy of the block file (blk0001.dat in your Bitcoin
-directory).  You may let Abe read the block file while Bitcoin runs,
-assuming Bitcoin only appends to the file (normally true).
+Abe works with files created by the original (Satoshi) Bitcoin client.
+You will need a copy of the block files (blk0001.dat, blk0002.dat,
+etc. in your Bitcoin directory or its blocks/ subdirectory).  You may
+let Abe read the block files while Bitcoin runs, assuming Bitcoin only
+appends to the file.  Prior to Bitcoin v0.8, this assumption seemed
+safe.  Abe may need some fixes to avoid skipping blocks while current
+and future Bitcoin versions run.
 
 License
 -------
@@ -87,26 +91,18 @@ For JSON syntax, see http://www.json.org.
 Slow startup
 ------------
 
-Reading the block file takes much too long, several hours or even
-days.  However, if you use a persistent database, Abe remembers where
-it stopped reading and starts more quickly the second time.
+Reading the block files takes much too long, several days or more for
+the main BTC block chain as of 2013.  However, if you use a persistent
+database, Abe remembers where it stopped reading and starts more
+quickly the second time.
 
 Replacing the Block File
 ------------------------
 
 Abe does not currently handle block file changes gracefully.  If you
 replace your copy of the block chain, you must rebuild Abe's database
-or (quicker) reset the file offset in the database to force a rescan.
-To reset the offset, issue SQL:
-
-    UPDATE datadir SET blkfile_number=1, blkfile_offset=0 WHERE dirname='...';
-
-Replace "..." with the relevant directory name as shown by:
-
-    SELECT dirname FROM datadir;
-
-For example: UPDATE datadir SET blkfile_number=1, blkfile_offset=0
-WHERE dirname='/home/abe/.bitcoin';
+or (quicker) force a rescan.  To force a rescan of all data
+directories, run Abe once with the "--rescan" option.
 
 Web server
 ----------

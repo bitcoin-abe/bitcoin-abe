@@ -138,7 +138,7 @@
 
 * Clean up and document limits on search result size.
 
-* Admin interface to reset blkfile_offset, delete chains, etc.
+* Admin interface to delete chains, etc.
 
 * Add a tool to upload transactions if bitcoind supports it.
 
