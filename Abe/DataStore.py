@@ -2740,18 +2740,21 @@ store._ddl['txout_approx'],
 
     def trim_block(store, block_id):
         """
-        Delete outputs spent in this block and resulting empty transactions.
+        Delete outputs spent in this block and resulting empty transactions
+        and pubkeys.
         Assumes the parent block and all above it have been trimmed.
         """
-        tx_ids = []
-        for (tx_id,) in store.selectall("""
-            SELECT DISTINCT txout.tx_id
+        tx_ids = set()
+        pubkey_ids = set()
+        for tx_id, pubkey_id in store.selectall("""
+            SELECT txout.tx_id, txout.pubkey_id
               FROM block_tx
               JOIN txin ON (block_tx.tx_id = txin.tx_id)
               JOIN txout ON (txin.txout_id = txout.txout_id)
              WHERE block_tx.block_id = ?""",
                                                (block_id,)):
-            tx_ids.append(tx_id)
+            tx_ids.add(tx_id)
+            pubkey_ids.add(pubkey_id)
 
         store.sql("""
             DELETE FROM txout
@@ -2775,12 +2778,23 @@ store._ddl['txout_approx'],
                 store.sql("DELETE FROM block_tx WHERE tx_id = ?", (tx_id,))
                 block_txs += store.cursor.rowcount
                 store.sql("DELETE FROM tx WHERE tx_id = ?", (tx_id,))
-                txs += 1
+                txs += store.cursor.rowcount
 
-        if txouts > 0 or txins > 0 or txs > 0:
+        pubkeys = 0
+        for pubkey_id in pubkey_ids:
+            (count,) = store.selectrow("""
+                SELECT COUNT(1)
+                  FROM txout
+                 WHERE pubkey_id = ?""", (pubkey_id,))
+            if count == 0:
+                store.sql("DELETE FROM pubkey WHERE pubkey_id = ?",
+                          (pubkey_id,))
+                pubkeys += store.cursor.rowcount
+
+        if txouts > 0:
             store.log.info("block %d: trimmed %d tx, %d txin, %d txout,"
-                           " %d block_tx",
-                           block_id, txs, txins, txouts, block_txs)
+                           " %d block_tx, %d pubkey",
+                           block_id, txs, txins, txouts, block_txs, pubkeys)
 
 def new(args):
     return DataStore(args)
