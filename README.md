@@ -1,7 +1,7 @@
 Abe: a free block chain browser for Bitcoin-based currencies.
 https://github.com/jtobey/bitcoin-abe
 
-    Copyright(C) 2011,2012 by John Tobey <John.Tobey@gmail.com>
+    Copyright(C) 2011,2012,2013 by John Tobey <John.Tobey@gmail.com>
     License: GNU Affero General Public License, see the file LICENSE.txt.
     Portions Copyright (c) 2010 Gavin Andresen, see bct-LICENSE.txt.
 
@@ -15,6 +15,12 @@ Block Explorer, http://blockexplorer.com/.
 Abe draws inspiration from Bitcoin Block Explorer (BBE) and seeks some
 level of compatibility with it but uses a completely new
 implementation.
+
+This is an experimental branch of Abe that lacks certain features
+present in the master branch.  The features are Percent Coin-Days
+Destroyed and Chain Age.  Removing these features simplifies the code
+and reduces Abe's storage and processing requirements.
+
 
 Installation
 ------------

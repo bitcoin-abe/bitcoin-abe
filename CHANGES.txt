@@ -1,3 +1,10 @@
+Branch no-statistics
+=========================
+
+* Removed statistical calculations such as coin-days destroyed and
+  associated database structures.
+
+
 New in 0.8 - ????
 =========================
 

@@ -1,4 +1,4 @@
-# Copyright(C) 2011,2012 by John Tobey <John.Tobey@gmail.com>
+# Copyright(C) 2011,2012,2013 by John Tobey <John.Tobey@gmail.com>
 
 # DataStore.py: back end database access for Abe.
 
@@ -32,7 +32,8 @@ import util
 import logging
 import base58
 
-SCHEMA_VERSION = "Abe33"
+SCHEMA_TYPE = "AbeNoStats"
+SCHEMA_VERSION = SCHEMA_TYPE + "1"
 
 CONFIG_DEFAULTS = {
     "dbtype":             None,
@@ -1170,8 +1171,6 @@ store._ddl['txout_approx'],
         store.commit()
 
     def get_lock(store):
-        if store.version_below('Abe26'):
-            return None
         conn = store.connect()
         cur = conn.cursor()
         cur.execute("UPDATE abe_lock SET pid = %d WHERE lock_id = 1"
@@ -1205,8 +1204,8 @@ store._ddl['txout_approx'],
             conn.close()
 
     def version_below(store, vers):
-        sv = store.config['schema_version'].replace('Abe', '')
-        vers = vers.replace('Abe', '')
+        sv = store.config['schema_version'].replace(SCHEMA_TYPE, '')
+        vers = vers.replace(SCHEMA_TYPE, '')
         return float(sv) < float(vers)
 
     def configure(store):
