@@ -823,11 +823,7 @@ class DataStore(object):
     b.block_num_tx,
     b.block_value_in,
     b.block_value_out,
-    b.block_total_satoshis,
-    b.block_total_seconds,
-    b.block_satoshi_seconds,
-    b.block_total_ss,
-    b.block_ss_destroyed
+    b.block_total_satoshis
 FROM chain_candidate cc
 JOIN block b ON (cc.block_id = b.block_id)
 LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
@@ -967,11 +963,7 @@ store._ddl['configvar'],
     block_value_in NUMERIC(30) NULL,
     block_value_out NUMERIC(30),
     block_total_satoshis NUMERIC(26) NULL,
-    block_total_seconds NUMERIC(20) NULL,
-    block_satoshi_seconds NUMERIC(28) NULL,
-    block_total_ss NUMERIC(28) NULL,
     block_num_tx  NUMERIC(10) NOT NULL,
-    block_ss_destroyed NUMERIC(28) NULL,
     FOREIGN KEY (prev_block_id)
         REFERENCES block (block_id),
     FOREIGN KEY (search_block_id)
@@ -1098,16 +1090,6 @@ store._ddl['configvar'],
 )""",
 """CREATE INDEX x_unlinked_txin_outpoint
     ON unlinked_txin (txout_tx_hash, txout_pos)""",
-
-"""CREATE TABLE block_txin (
-    block_id      NUMERIC(14) NOT NULL,
-    txin_id       NUMERIC(26) NOT NULL,
-    out_block_id  NUMERIC(14) NOT NULL,
-    PRIMARY KEY (block_id, txin_id),
-    FOREIGN KEY (block_id) REFERENCES block (block_id),
-    FOREIGN KEY (txin_id) REFERENCES txin (txin_id),
-    FOREIGN KEY (out_block_id) REFERENCES block (block_id)
-)""",
 
 store._ddl['chain_summary'],
 store._ddl['txout_detail'],
@@ -1611,20 +1593,15 @@ store._ddl['txout_approx'],
     def find_prev(store, hash):
         row = store.selectrow("""
             SELECT block_id, block_height, block_chain_work,
-                   block_total_satoshis, block_total_seconds,
-                   block_satoshi_seconds, block_total_ss, block_nTime
+                   block_total_satoshis, block_nTime
               FROM block
              WHERE block_hash=?""", (store.hashin(hash),))
         if row is None:
-            return (None, None, None, None, None, None, None, None)
-        (id, height, chain_work, satoshis, seconds, satoshi_seconds,
-         total_ss, nTime) = row
+            return (None, None, None, None, None)
+        (id, height, chain_work, satoshis, nTime) = row
         return (id, None if height is None else int(height),
                 store.binout_int(chain_work),
                 None if satoshis is None else int(satoshis),
-                None if seconds is None else int(seconds),
-                None if satoshi_seconds is None else int(satoshi_seconds),
-                None if total_ss is None else int(total_ss),
                 int(nTime))
 
     def import_block(store, b, chain_ids=frozenset()):
@@ -1674,9 +1651,8 @@ store._ddl['txout_approx'],
         # Look for the parent block.
         hashPrev = b['hashPrev']
         is_genesis = hashPrev == GENESIS_HASH_PREV
-        (prev_block_id, prev_height, prev_work, prev_satoshis,
-         prev_seconds, prev_ss, prev_total_ss, prev_nTime) = (
-            (None, -1, 0, 0, 0, 0, 0, b['nTime'])
+        (prev_block_id, prev_height, prev_work, prev_satoshis, prev_nTime) = (
+            (None, -1, 0, 0, b['nTime'])
             if is_genesis else
             store.find_prev(hashPrev))
 
@@ -1684,23 +1660,12 @@ store._ddl['txout_approx'],
         b['height'] = None if prev_height is None else prev_height + 1
         b['chain_work'] = util.calculate_work(prev_work, b['nBits'])
 
-        if prev_seconds is None:
-            b['seconds'] = None
-        else:
-            b['seconds'] = prev_seconds + b['nTime'] - prev_nTime
         if prev_satoshis is None or prev_satoshis < 0 or b['value_in'] is None:
             # XXX Abuse this field to save work in adopt_orphans.
             b['satoshis'] = -1 - b['value_destroyed']
         else:
             b['satoshis'] = prev_satoshis + b['value_out'] - b['value_in'] \
                 - b['value_destroyed']
-
-        if prev_satoshis is None or prev_satoshis < 0:
-            ss_created = None
-            b['total_ss'] = None
-        else:
-            ss_created = prev_satoshis * (b['nTime'] - prev_nTime)
-            b['total_ss'] = prev_total_ss + ss_created
 
         if b['height'] is None or b['height'] < 2:
             b['search_block_id'] = None
@@ -1717,10 +1682,9 @@ store._ddl['txout_approx'],
                     block_nTime, block_nBits, block_nNonce, block_height,
                     prev_block_id, block_chain_work, block_value_in,
                     block_value_out, block_total_satoshis,
-                    block_total_seconds, block_total_ss, block_num_tx,
-                    search_block_id
+                    block_num_tx, search_block_id
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )""",
                 (block_id, store.hashin(b['hash']), store.intin(b['version']),
                  store.hashin(b['hashMerkleRoot']), store.intin(b['nTime']),
@@ -1728,8 +1692,7 @@ store._ddl['txout_approx'],
                  b['height'], prev_block_id,
                  store.binin_int(b['chain_work'], WORK_BITS),
                  store.intin(b['value_in']), store.intin(b['value_out']),
-                 store.intin(b['satoshis']), store.intin(b['seconds']),
-                 store.intin(b['total_ss']),
+                 store.intin(b['satoshis']),
                  len(b['transactions']), b['search_block_id']))
 
         except store.module.DatabaseError:
@@ -1741,7 +1704,7 @@ store._ddl['txout_approx'],
                 # If the exception is due to another process having
                 # inserted the same block, it is okay.
                 row = store.selectrow("""
-                    SELECT block_id, block_satoshi_seconds
+                    SELECT block_id
                       FROM block
                      WHERE block_hash = ?""",
                     (store.hashin(b['hash']),))
@@ -1749,7 +1712,6 @@ store._ddl['txout_approx'],
                     store.log.info("Block already inserted; block_id %d unsued",
                                    block_id)
                     b['block_id'] = int(row[0])
-                    b['ss'] = None if row[1] is None else int(row[1])
                     store.offer_block_to_chains(b, chain_ids)
                     return
 
@@ -1766,30 +1728,6 @@ store._ddl['txout_approx'],
                 VALUES (?, ?, ?)""",
                       (block_id, tx['tx_id'], tx_pos))
             store.log.info("block_tx %d %d", block_id, tx['tx_id'])
-
-        if b['height'] is not None:
-            store._populate_block_txin(block_id)
-
-            if all_txins_linked or not store._has_unlinked_txins(block_id):
-                b['ss_destroyed'] = store._get_block_ss_destroyed(
-                    block_id, b['nTime'],
-                    map(lambda tx: tx['tx_id'], b['transactions']))
-                if ss_created is None or prev_ss is None:
-                    b['ss'] = None
-                else:
-                    b['ss'] = prev_ss + ss_created - b['ss_destroyed']
-
-                store.sql("""
-                    UPDATE block
-                       SET block_satoshi_seconds = ?,
-                           block_ss_destroyed = ?
-                     WHERE block_id = ?""",
-                          (store.intin(b['ss']),
-                           store.intin(b['ss_destroyed']),
-                           block_id))
-            else:
-                b['ss_destroyed'] = None
-                b['ss'] = None
 
         # Store the inverse hashPrev relationship or mark the block as
         # an orphan.
@@ -1820,25 +1758,6 @@ store._ddl['txout_approx'],
 
         return block_id
 
-    def _populate_block_txin(store, block_id):
-        # Create rows in block_txin.  In case of duplicate transactions,
-        # choose the one with the lowest block ID.  XXX For consistency,
-        # it should be the lowest height instead of block ID.
-        for row in store.selectall("""
-            SELECT txin.txin_id, MIN(obt.block_id)
-              FROM block_tx bt
-              JOIN txin ON (txin.tx_id = bt.tx_id)
-              JOIN txout ON (txin.txout_id = txout.txout_id)
-              JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
-             WHERE bt.block_id = ?
-             GROUP BY txin.txin_id""", (block_id,)):
-            (txin_id, oblock_id) = row
-            if store.is_descended_from(block_id, int(oblock_id)):
-                store.sql("""
-                    INSERT INTO block_txin (block_id, txin_id, out_block_id)
-                    VALUES (?, ?, ?)""",
-                          (block_id, txin_id, oblock_id))
-
     def _has_unlinked_txins(store, block_id):
         (unlinked_count,) = store.selectrow("""
             SELECT COUNT(1)
@@ -1847,22 +1766,6 @@ store._ddl['txout_approx'],
               JOIN unlinked_txin u ON (txin.txin_id = u.txin_id)
              WHERE bt.block_id = ?""", (block_id,))
         return unlinked_count > 0
-
-    def _get_block_ss_destroyed(store, block_id, nTime, tx_ids):
-        block_ss_destroyed = 0
-        for tx_id in tx_ids:
-            destroyed = int(store.selectrow("""
-                SELECT COALESCE(SUM(txout_approx.txout_approx_value *
-                                    (? - b.block_nTime)), 0)
-                  FROM block_txin bti
-                  JOIN txin ON (bti.txin_id = txin.txin_id)
-                  JOIN txout_approx ON (txin.txout_id = txout_approx.txout_id)
-                  JOIN block_tx obt ON (txout_approx.tx_id = obt.tx_id)
-                  JOIN block b ON (obt.block_id = b.block_id)
-                 WHERE bti.block_id = ? AND txin.tx_id = ?""",
-                                            (nTime, block_id, tx_id))[0])
-            block_ss_destroyed += destroyed
-        return block_ss_destroyed
 
     # Propagate cumulative values to descendant blocks.  Return info
     # about the longest chains containing b.  The returned dictionary
@@ -1928,17 +1831,6 @@ store._ddl['txout_approx'],
                 value_in = int(value_in)
             generated = None if value_in is None else int(value_out - value_in)
 
-            if b['seconds'] is None:
-                seconds = None
-                total_ss = None
-            else:
-                new_seconds = nTime - b['nTime']
-                seconds = b['seconds'] + new_seconds
-                if b['total_ss'] is None or b['satoshis'] is None:
-                    total_ss = None
-                else:
-                    total_ss = b['total_ss'] + new_seconds * b['satoshis']
-
             if satoshis < 0 and b['satoshis'] is not None and \
                     b['satoshis'] >= 0 and generated is not None:
                 satoshis += 1 + b['satoshis'] + generated
@@ -1954,49 +1846,18 @@ store._ddl['txout_approx'],
                    SET block_height = ?,
                        block_chain_work = ?,
                        block_value_in = ?,
-                       block_total_seconds = ?,
                        block_total_satoshis = ?,
-                       block_total_ss = ?,
                        search_block_id = ?
                  WHERE block_id = ?""",
                       (height, store.binin_int(chain_work, WORK_BITS),
-                       store.intin(value_in),
-                       store.intin(seconds), store.intin(satoshis),
-                       store.intin(total_ss), search_block_id,
-                       next_id))
-
-            ss = None
+                       store.intin(value_in), store.intin(satoshis),
+                       search_block_id, next_id))
 
             if height is not None:
                 store.sql("""
                     UPDATE chain_candidate SET block_height = ?
                      WHERE block_id = ?""",
                     (height, next_id))
-
-                store._populate_block_txin(int(next_id))
-
-                if b['ss'] is None or store._has_unlinked_txins(next_id):
-                    pass
-                else:
-                    tx_ids = map(
-                        lambda row: row[0],
-                        store.selectall("""
-                            SELECT tx_id
-                              FROM block_tx
-                             WHERE block_id = ?""", (next_id,)))
-                    destroyed = store._get_block_ss_destroyed(
-                        next_id, nTime, tx_ids)
-                    ss = b['ss'] + b['satoshis'] * (nTime - b['nTime']) \
-                        - destroyed
-
-                    store.sql("""
-                        UPDATE block
-                           SET block_satoshi_seconds = ?,
-                               block_ss_destroyed = ?
-                         WHERE block_id = ?""",
-                              (store.intin(ss),
-                               store.intin(destroyed),
-                               next_id))
 
                 if store.use_firstbits:
                     for (addr_vers,) in store.selectall("""
@@ -2011,10 +1872,7 @@ store._ddl['txout_approx'],
                 "height": height,
                 "chain_work": chain_work,
                 "nTime": nTime,
-                "seconds": seconds,
-                "satoshis": satoshis,
-                "total_ss": total_ss,
-                "ss": ss}
+                "satoshis": satoshis}
             next_ret = store.adopt_orphans(nb, new_work, None, chain_mask)
 
             for chain_id in ret.keys():
@@ -2556,8 +2414,7 @@ store._ddl['txout_approx'],
 
             block_row = store.selectrow("""
                 SELECT block_id, block_height, block_chain_work,
-                       block_nTime, block_total_seconds,
-                       block_total_satoshis, block_satoshi_seconds
+                       block_nTime, block_total_satoshis
                   FROM block
                  WHERE block_hash = ?
             """, (store.hashin(hash),))
@@ -2571,9 +2428,7 @@ store._ddl['txout_approx'],
                         "height":     block_row[1],
                         "chain_work": store.binout_int(block_row[2]),
                         "nTime":      block_row[3],
-                        "seconds":    block_row[4],
-                        "satoshis":   block_row[5],
-                        "ss":         block_row[6]}
+                        "satoshis":   block_row[4]}
                     if store.selectrow("""
                         SELECT 1
                           FROM chain_candidate
