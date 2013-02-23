@@ -47,6 +47,7 @@ CONFIG_DEFAULTS = {
     "ignore_bit8_chains": None,
     "use_firstbits":      False,
     "keep_scriptsig":     True,
+    "trim_depth":         6,    # XXX should default to no trimming
 }
 
 WORK_BITS = 304  # XXX more than necessary.
@@ -180,6 +181,8 @@ class DataStore(object):
             store.commit_bytes = int(store.commit_bytes)
 
         store.use_firstbits = (store.config['use_firstbits'] == "true")
+
+        store.trim_depth = int(args.trim_depth)
 
     def connect(store):
         cargs = store.args.connect_args
@@ -1034,7 +1037,7 @@ store._ddl['configvar'],
 # Presence of transactions in blocks is many-to-many.
 """CREATE TABLE block_tx (
     block_id      NUMERIC(14) NOT NULL,
-    tx_id         NUMERIC(26) NOT NULL,
+    tx_id         NUMERIC(26) NULL,
     tx_pos        NUMERIC(10) NOT NULL,
     PRIMARY KEY (block_id, tx_id),
     UNIQUE (block_id, tx_pos),
@@ -1754,6 +1757,10 @@ store._ddl['txout_approx'],
         # block_height and other cumulative data to the blocks
         # attached above.
         store.offer_block_to_chains(b, chain_ids)
+
+        if b['height'] >= store.trim_depth >= 0:
+            store.trim_block(store.get_block_id_at_height(
+                    b['height'] - store.trim_depth, int(block_id)))
 
         return block_id
 
@@ -2730,6 +2737,50 @@ store._ddl['txout_approx'],
             if len(fb) > len(ret):
                 ret = fb
         return ret
+
+    def trim_block(store, block_id):
+        """
+        Delete outputs spent in this block and resulting empty transactions.
+        Assumes the parent block and all above it have been trimmed.
+        """
+        tx_ids = []
+        for (tx_id,) in store.selectall("""
+            SELECT DISTINCT txout.tx_id
+              FROM block_tx
+              JOIN txin ON (block_tx.tx_id = txin.tx_id)
+              JOIN txout ON (txin.txout_id = txout.txout_id)
+             WHERE block_tx.block_id = ?""",
+                                               (block_id,)):
+            tx_ids.append(tx_id)
+
+        store.sql("""
+            DELETE FROM txout
+             WHERE txout_id IN (
+                   SELECT txin.txout_id
+                     FROM block_tx
+                     JOIN txin ON (block_tx.tx_id = txin.tx_id)
+                    WHERE block_tx.block_id = ?)""",
+                  (block_id,))
+        txouts = store.cursor.rowcount
+
+        txins, block_txs, txs = 0, 0, 0
+        for tx_id in tx_ids:
+            (count,) = store.selectrow("""
+                SELECT COUNT(1)
+                  FROM txout
+                 WHERE tx_id = ?""", (tx_id,))
+            if count == 0:
+                store.sql("DELETE FROM txin WHERE tx_id = ?", (tx_id,))
+                txins += store.cursor.rowcount
+                store.sql("DELETE FROM block_tx WHERE tx_id = ?", (tx_id,))
+                block_txs += store.cursor.rowcount
+                store.sql("DELETE FROM tx WHERE tx_id = ?", (tx_id,))
+                txs += 1
+
+        if txouts > 0 or txins > 0 or txs > 0:
+            store.log.info("block %d: trimmed %d tx, %d txin, %d txout,"
+                           " %d block_tx",
+                           block_id, txs, txins, txouts, block_txs)
 
 def new(args):
     return DataStore(args)

@@ -518,6 +518,8 @@ class Abe:
         txs = {}
         block_out = 0
         block_in = 0
+        # XXX need to store number of txouts in tx so that if any are
+        # missing, we can null out tx['total_out'] and block_out.
         for row in abe.store.selectall("""
             SELECT tx_id, tx_hash, tx_size, txout_value, pubkey_hash
               FROM txout_detail
@@ -545,16 +547,17 @@ class Abe:
                     "value": txout_value,
                     "pubkey_hash": pubkey_hash,
                     })
-        for row in abe.store.selectall("""
+
+        for tx_id, txin_value, pubkey_hash in abe.store.selectall("""
             SELECT tx_id, txin_value, pubkey_hash
               FROM txin_detail
              WHERE block_id = ?
              ORDER BY tx_pos, txin_pos
         """, (block_id,)):
-            tx_id, txin_value, pubkey_hash = (
-                row[0], 0 if row[1] is None else int(row[1]),
-                abe.store.binout(row[2]))
+            txin_value = None if txin_value is None else int(txin_value)
+            pubkey_hash = abe.store.binout(pubkey_hash)
             tx = txs.get(tx_id)
+
             if tx is None:
                 # Strange, inputs but no outputs?
                 tx_ids.append(tx_id)
@@ -570,8 +573,14 @@ class Abe:
                     "size": -1,
                     }
                 tx = txs[tx_id]
-            tx['total_in'] += txin_value
-            block_in += txin_value
+
+            if txin_value:
+                if tx['total_in'] is not None: tx['total_in'] += txin_value
+                if block_in is not None: block_in += txin_value
+            else:
+                tx['total_in'] = None
+                block_in = None
+
             tx['in'].append({
                     "value": txin_value,
                     "pubkey_hash": pubkey_hash,
@@ -585,24 +594,31 @@ class Abe:
             is_coinbase = (tx_id == tx_ids[0])
             if is_coinbase:
                 fees = 0
-            else:
+            elif tx['total_in'] is not None and tx['total_out'] is not None:
                 fees = tx['total_in'] - tx['total_out']
+            else:
+                fees = None
             body += ['<tr><td><a href="../tx/' + tx['hash'] + '">',
                      tx['hash'][:10], '...</a>'
                      '</td><td>', format_satoshis(fees, chain),
                      '</td><td>', tx['size'] / 1000.0,
                      '</td><td>']
             if is_coinbase:
-                gen = block_out - block_in
-                fees = tx['total_out'] - gen
-                body += ['Generation: ', format_satoshis(gen, chain),
-                         ' + ', format_satoshis(fees, chain), ' total fees']
+                if block_out is not None and block_in is not None:
+                    gen = block_out - block_in
+                    fees = tx['total_out'] - gen
+                    body += ['Generation: ', format_satoshis(gen, chain),
+                             ' + ', format_satoshis(fees, chain), ' total fees']
             else:
                 for txin in tx['in']:
-                    body += hash_to_address_link(
-                        address_version, txin['pubkey_hash'], page['dotdot'])
-                    body += [': ', format_satoshis(txin['value'], chain),
-                             '<br />']
+                    if txin['value'] is None:
+                        body += ['Unavailable<br />']
+                    else:
+                        body += hash_to_address_link(
+                            address_version, txin['pubkey_hash'],
+                            page['dotdot'])
+                        body += [': ', format_satoshis(txin['value'], chain),
+                                 '<br />']
             body += ['</td><td>']
             for txout in tx['out']:
                 body += hash_to_address_link(
