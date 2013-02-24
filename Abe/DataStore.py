@@ -726,8 +726,6 @@ class DataStore(object):
                 raise Exception(
                     "use-firstbits and trim_depth are incompatible")
 
-        store.log.info("min trim_depth: %s", depth)
-
         return depth
 
     def get_trim_depth(store, chain_ids):
