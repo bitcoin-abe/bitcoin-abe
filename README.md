@@ -18,8 +18,12 @@ implementation.
 
 This is an experimental branch of Abe that lacks certain features
 present in the master branch.  The features are Percent Coin-Days
-Destroyed and Chain Age.  Removing these features simplifies the code
-and reduces Abe's storage and processing requirements.
+Destroyed, Average Coin Age, and Chain Age.  Removing these features
+simplifies the code and reduces Abe's storage and processing
+requirements.
+
+This branch supports spent-transaction pruning via the
+default-trim-depth option described in comments in abe.conf.
 
 
 Installation
