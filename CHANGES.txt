@@ -1,5 +1,7 @@
 Branch no-statistics
-=========================
+====================
+
+* Support spent-transaction pruning via the default-trim-depth option.
 
 * Removed statistical calculations such as coin-days destroyed and
   associated database structures.
