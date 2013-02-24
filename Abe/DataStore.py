@@ -48,6 +48,7 @@ CONFIG_DEFAULTS = {
     "ignore_bit8_chains": None,
     "use_firstbits":      False,
     "keep_scriptsig":     True,
+    "default_trim_depth": -1,
 }
 
 WORK_BITS = 304  # XXX more than necessary.
@@ -153,6 +154,8 @@ class DataStore(object):
         else:
             store.keep_scriptsig = CONFIG_DEFAULTS['keep_scriptsig']
 
+        store.default_trim_depth = int(args.default_trim_depth)
+
         store.refresh_ddl()
 
         if store.config is None:
@@ -185,6 +188,9 @@ class DataStore(object):
             store.commit_bytes = int(store.commit_bytes)
 
         store.use_firstbits = (store.config['use_firstbits'] == "true")
+
+        store.min_trim_depth = store._check_trim_depth()
+
 
     def connect(store):
         cargs = store.args.connect_args
@@ -634,26 +640,37 @@ class DataStore(object):
                     row = store.selectrow(
                         "SELECT chain_id FROM chain WHERE chain_name = ?",
                         (chain_name,))
+
                     if row is not None:
                         chain_id = row[0]
+
                     elif chain_name is not None:
                         chain_id = store.new_id('chain')
+
                         code3 = dircfg.get('code3')
                         if code3 is None:
                             code3 = '000' if chain_id > 999 else "%03d" % (
                                 chain_id,)
+
                         addr_vers = dircfg.get('address_version')
                         if addr_vers is None:
                             addr_vers = "\0"
                         elif isinstance(addr_vers, unicode):
                             addr_vers = addr_vers.encode('latin_1')
+
+                        trim_depth = dircfg.get('trim_depth')
+                        if trim_depth is None:
+                            trim_depth = store.default_trim_depth
+                        else:
+                            trim_depth = int(trim_depth)
+
                         store.sql("""
                             INSERT INTO chain (
                                 chain_id, chain_name, chain_code3,
-                                chain_address_version
-                            ) VALUES (?, ?, ?, ?)""",
+                                chain_address_version, chain_trim_depth
+                            ) VALUES (?, ?, ?, ?, ?)""",
                                   (chain_id, chain_name, code3,
-                                   store.binin(addr_vers)))
+                                   store.binin(addr_vers), trim_depth))
                         store.commit()
                         store.log.warning("Assigned chain_id %d to %s",
                                           chain_id, chain_name)
@@ -694,6 +711,39 @@ class DataStore(object):
             for row in rows:
                 ids.add(int(row[0]))
         return ids
+
+    def _check_trim_depth(store):
+        (depth,) = store.selectrow("""
+            SELECT MIN(chain_trim_depth)
+              FROM chain
+             WHERE chain_trim_depth >= 0""")
+
+        if store.use_firstbits:
+            if store.default_trim_depth >= 0:
+                raise Exception(
+                    "use-firstbits and default-trim-depth are incompatible")
+            if depth is not None:
+                raise Exception(
+                    "use-firstbits and trim_depth are incompatible")
+
+        store.log.info("min trim_depth: %s", depth)
+
+        return depth
+
+    def get_trim_depth(store, chain_ids):
+        """
+        Return the minimum non-negative chain_trim_depth of the given chains.
+        """
+        # XXX inefficient, but only happens once per block.
+        depth = None
+        for chain_id in chain_ids:
+            (chain_trim_depth,) = store.selectrow(
+                "SELECT chain_trim_depth FROM chain WHERE chain_id = ?",
+                (chain_id,))
+            if chain_trim_depth is not None and 0 <= chain_trim_depth \
+                    and (depth is None or chain_trim_depth < depth):
+                depth = chain_trim_depth
+        return depth
 
     def _new_id_update(store, key):
         """
@@ -987,6 +1037,7 @@ store._ddl['configvar'],
     chain_code3 CHAR(3)     NULL,
     chain_address_version BIT VARYING(800) NOT NULL,
     chain_last_block_id NUMERIC(14) NULL,
+    chain_trim_depth NUMERIC(14) NOT NULL,
     FOREIGN KEY (magic_id)  REFERENCES magic (magic_id),
     FOREIGN KEY (policy_id) REFERENCES policy (policy_id),
     FOREIGN KEY (chain_last_block_id)
@@ -1039,7 +1090,7 @@ store._ddl['configvar'],
 # Presence of transactions in blocks is many-to-many.
 """CREATE TABLE block_tx (
     block_id      NUMERIC(14) NOT NULL,
-    tx_id         NUMERIC(26) NOT NULL,
+    tx_id         NUMERIC(26) NULL,
     tx_pos        NUMERIC(10) NOT NULL,
     PRIMARY KEY (block_id, tx_id),
     UNIQUE (block_id, tx_pos),
@@ -1141,11 +1192,12 @@ store._ddl['txout_approx'],
             store.sql("""
                 INSERT INTO chain (
                     chain_id, magic_id, policy_id, chain_name, chain_code3,
-                    chain_address_version
-                ) VALUES (?, ?, ?, ?, ?, ?)""",
+                    chain_address_version, chain_trim_depth
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
                       (conf["chain_id"], conf["magic_id"], conf["policy_id"],
                        conf["chain"], conf["code3"],
-                       store.binin(conf["address_version"])))
+                       store.binin(conf["address_version"]),
+                       store.default_trim_depth))
 
         store.sql("""
             INSERT INTO pubkey (pubkey_id, pubkey_hash) VALUES (?, ?)""",
@@ -1759,6 +1811,13 @@ store._ddl['txout_approx'],
         # block_height and other cumulative data to the blocks
         # attached above.
         store.offer_block_to_chains(b, chain_ids)
+
+        if store.min_trim_depth is not None and \
+                b['height'] >= store.min_trim_depth >= 0:
+            trim_depth = store.get_trim_depth(chain_ids=chain_ids)
+            if trim_depth is not None and b['height'] >= trim_depth >= 0:
+                store.trim_block(store.get_block_id_at_height(
+                        b['height'] - trim_depth, int(block_id)))
 
         return block_id
 
@@ -2735,6 +2794,64 @@ store._ddl['txout_approx'],
             if len(fb) > len(ret):
                 ret = fb
         return ret
+
+    def trim_block(store, block_id):
+        """
+        Delete outputs spent in this block and resulting empty transactions
+        and pubkeys.
+        Assumes the parent block and all above it have been trimmed.
+        """
+        tx_ids = set()
+        pubkey_ids = set()
+        for tx_id, pubkey_id in store.selectall("""
+            SELECT txout.tx_id, txout.pubkey_id
+              FROM block_tx
+              JOIN txin ON (block_tx.tx_id = txin.tx_id)
+              JOIN txout ON (txin.txout_id = txout.txout_id)
+             WHERE block_tx.block_id = ?""",
+                                               (block_id,)):
+            tx_ids.add(tx_id)
+            pubkey_ids.add(pubkey_id)
+
+        store.sql("""
+            DELETE FROM txout
+             WHERE txout_id IN (
+                   SELECT txin.txout_id
+                     FROM block_tx
+                     JOIN txin ON (block_tx.tx_id = txin.tx_id)
+                    WHERE block_tx.block_id = ?)""",
+                  (block_id,))
+        txouts = store.cursor.rowcount
+
+        txins, block_txs, txs = 0, 0, 0
+        for tx_id in tx_ids:
+            (count,) = store.selectrow("""
+                SELECT COUNT(1)
+                  FROM txout
+                 WHERE tx_id = ?""", (tx_id,))
+            if count == 0:
+                store.sql("DELETE FROM txin WHERE tx_id = ?", (tx_id,))
+                txins += store.cursor.rowcount
+                store.sql("DELETE FROM block_tx WHERE tx_id = ?", (tx_id,))
+                block_txs += store.cursor.rowcount
+                store.sql("DELETE FROM tx WHERE tx_id = ?", (tx_id,))
+                txs += store.cursor.rowcount
+
+        pubkeys = 0
+        for pubkey_id in pubkey_ids:
+            (count,) = store.selectrow("""
+                SELECT COUNT(1)
+                  FROM txout
+                 WHERE pubkey_id = ?""", (pubkey_id,))
+            if count == 0:
+                store.sql("DELETE FROM pubkey WHERE pubkey_id = ?",
+                          (pubkey_id,))
+                pubkeys += store.cursor.rowcount
+
+        if txouts > 0:
+            store.log.info("block %d: trimmed %d tx, %d txin, %d txout,"
+                           " %d block_tx, %d pubkey",
+                           block_id, txs, txins, txouts, block_txs, pubkeys)
 
 def new(args):
     return DataStore(args)
