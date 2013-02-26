@@ -455,6 +455,15 @@ class DataStore(object):
         store.drop_sequence = drop_sequence
 
     def sql(store, stmt, params=()):
+        try:
+            store._sql(stmt, params)
+        except (store.module.OperationalError, store.module.InternalError, store.module.ProgrammingError):
+            # Maybe we got disconnected, or something unexpected is happening. Try a reconnect.
+            store.reconnect()
+            # Try again after reconnection
+            store._sql(stmt, params)
+
+    def _sql(store, stmt, params=()):
         cached = store._sql_cache.get(stmt)
         if cached is None:
             cached = store.sql_transform(stmt)
@@ -467,6 +476,15 @@ class DataStore(object):
             raise
 
     def ddl(store, stmt):
+        try:
+            store._ddl(stmt)
+        except (store.module.OperationalError, store.module.InternalError, store.module.ProgrammingError):
+            # Maybe we got disconnected, or something unexpected is happening. Try a reconnect.
+            store.reconnect()
+            # Try again after reconnection
+            store._ddl(stmt)
+
+    def _ddl(store, stmt):
         if stmt.lstrip().startswith("CREATE TABLE "):
             stmt += store.config['create_table_epilogue']
         stmt = store._sql_fallback_to_lob(store.sql_transform(stmt))
@@ -798,7 +816,11 @@ class DataStore(object):
 
     def rollback(store):
         store.sqllog.info("ROLLBACK")
-        store.conn.rollback()
+        try:
+            store.conn.rollback()
+        except store.module.OperationalError:
+            # Maybe we got disconnected, or something unexpected is happening. Try a reconnect instead.
+            store.reconnect()
 
     def close(store):
         store.sqllog.info("CLOSE")

@@ -224,7 +224,7 @@ class Abe:
             abe.store.rollback()
             raise
 
-        abe.store.rollback()  # Close imlicitly opened transaction.
+        abe.store.rollback()  # Close implicitly opened transaction.
 
         start_response(status, [('Content-type', page['content_type']),
                                 ('Cache-Control', 'max-age=30')])
