@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # Dump the Namecoin name data to standard output.
 
-# Copyright(C) 2011 by John Tobey <John.Tobey@gmail.com>
+# Copyright(C) 2011 by John Tobey <jtobey@john-edwin-tobey.org>
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as

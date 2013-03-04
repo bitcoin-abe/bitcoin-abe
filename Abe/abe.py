@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright(C) 2011,2012 by John Tobey <John.Tobey@gmail.com>
+# Copyright(C) 2011,2012 by John Tobey <jtobey@john-edwin-tobey.org>
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -43,7 +43,7 @@ ABE_URL = 'https://github.com/jtobey/bitcoin-abe'
 
 COPYRIGHT_YEARS = '2011'
 COPYRIGHT = "John Tobey"
-COPYRIGHT_URL = "mailto:John.Tobey@gmail.com"
+COPYRIGHT_URL = "mailto:jtobey@john-edwin-tobey.org"
 
 DONATIONS_BTC = '1PWC7PNHL1SgvZaN7xEtygenKjWobWsCuf'
 DONATIONS_NMC = 'NJ3MSELK1cWnqUa6xhF2wUYAnz3RSrWXcK'
