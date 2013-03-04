@@ -1,3 +1,6 @@
+SQLite is not appropriate for a busy public service, since it does not
+support concurrent access.
+
 On recent versions of SQLite, Abe fails to detect the maximum integer
 size and requires the --int-type=str option for proper functioning.
 
