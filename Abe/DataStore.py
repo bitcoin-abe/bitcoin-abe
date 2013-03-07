@@ -900,8 +900,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
     txout.txout_value,
     txout.txout_scriptPubKey,
     pubkey.pubkey_id,
-    pubkey.pubkey_hash,
-    pubkey.pubkey
+    pubkey.pubkey_hash
   FROM chain_candidate cc
   JOIN block b ON (cc.block_id = b.block_id)
   JOIN block_tx ON (b.block_id = block_tx.block_id)
@@ -931,8 +930,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
     NULL txin_sequence""") + """,
     prevout.txout_value txin_value,
     pubkey.pubkey_id,
-    pubkey.pubkey_hash,
-    pubkey.pubkey
+    pubkey.pubkey_hash
   FROM chain_candidate cc
   JOIN block b ON (cc.block_id = b.block_id)
   JOIN block_tx ON (b.block_id = block_tx.block_id)
@@ -1103,8 +1101,7 @@ store._ddl['configvar'],
 # Bitcoin or Testnet address.
 """CREATE TABLE pubkey (
     pubkey_id     NUMERIC(26) NOT NULL PRIMARY KEY,
-    pubkey_hash   BIT(160)    UNIQUE NOT NULL,
-    pubkey        BIT(520)    NULL
+    pubkey_hash   BIT(160)    UNIQUE NOT NULL
 )""",
 
 # A transaction out-point.
@@ -2047,9 +2044,6 @@ store._ddl['txout_approx'],
                           (txin_id, store.hashin(txin['prevout_hash']),
                            store.intin(txin['prevout_n'])))
 
-        # XXX Could populate PUBKEY.PUBKEY with txin scripts...
-        # or leave that to an offline process.  Nothing in this program
-        # requires them.
         return tx_id
 
     def import_and_commit_tx(store, tx, is_coinbase):
@@ -2311,13 +2305,12 @@ store._ddl['txout_approx'],
         return None
 
     def pubkey_hash_to_id(store, pubkey_hash):
-        return store._pubkey_id(pubkey_hash, None)
+        return store._pubkey_id(pubkey_hash)
 
     def pubkey_to_id(store, pubkey):
-        pubkey_hash = util.pubkey_to_hash(pubkey)
-        return store._pubkey_id(pubkey_hash, pubkey)
+        return store._pubkey_id(util.pubkey_to_hash(pubkey))
 
-    def _pubkey_id(store, pubkey_hash, pubkey):
+    def _pubkey_id(store, pubkey_hash):
         dbhash = store.binin(pubkey_hash)  # binin, not hashin for 160-bit
         row = store.selectrow("""
             SELECT pubkey_id
@@ -2327,9 +2320,9 @@ store._ddl['txout_approx'],
             return row[0]
         pubkey_id = store.new_id("pubkey")
         store.sql("""
-            INSERT INTO pubkey (pubkey_id, pubkey_hash, pubkey)
-            VALUES (?, ?, ?)""",
-                  (pubkey_id, dbhash, store.binin(pubkey)))
+            INSERT INTO pubkey (pubkey_id, pubkey_hash)
+            VALUES (?, ?)""",
+                  (pubkey_id, dbhash))
         return pubkey_id
 
     def catch_up(store):
@@ -2799,42 +2792,71 @@ store._ddl['txout_approx'],
         and pubkeys.
         Assumes the parent block and all above it have been trimmed.
         """
+        txout_ids = set()
         tx_ids = set()
         pubkey_ids = set()
-        for tx_id, pubkey_id in store.selectall("""
-            SELECT txout.tx_id, txout.pubkey_id
+        for txout_id, tx_id, pubkey_id in store.selectall("""
+            SELECT txout.txout_id, txout.tx_id, txout.pubkey_id
               FROM block_tx
               JOIN txin ON (block_tx.tx_id = txin.tx_id)
               JOIN txout ON (txin.txout_id = txout.txout_id)
              WHERE block_tx.block_id = ?""",
-                                               (block_id,)):
+                                           (block_id,)):
+            txout_ids.add(txout_id)
             tx_ids.add(tx_id)
             pubkey_ids.add(pubkey_id)
 
-        store.sql("""
-            DELETE FROM txout
-             WHERE txout_id IN (
-                   SELECT txin.txout_id
-                     FROM block_tx
-                     JOIN txin ON (block_tx.tx_id = txin.tx_id)
-                    WHERE block_tx.block_id = ?)""",
-                  (block_id,))
-        txouts = store.cursor.rowcount
+        txins = store.delete_block_txins(block_id)
 
-        txins, block_txs, txs = 0, 0, 0
+        if not txout_ids:
+            return
+
+        txouts = store.delete_txouts(txout_ids)
+        block_txs, txs = store.trim_txs(tx_ids)
+        pubkeys = store.trim_pubkeys(pubkey_ids)
+
+        store.log.info("block %d: trimmed %d txin, %d tx, %d txout,"
+                       " %d block_tx, %d pubkey",
+                       block_id, txins, txs, txouts, block_txs, pubkeys)
+
+    def delete_block_txins(store, block_id):
+        store.sql("""
+            DELETE FROM txin
+             WHERE tx_id IN (
+                   SELECT tx_id
+                     FROM block_tx
+                    WHERE block_id = ?)""",
+                  (block_id,))
+        return store.cursor.rowcount
+
+    def delete_txouts(store, txout_ids):
+        txouts = 0
+        for txout_id in txout_ids:
+            store.sql("DELETE FROM txout WHERE txout_id = ?", (txout_id,))
+            txouts += store.cursor.rowcount
+        return txouts
+
+    def trim_txs(store, tx_ids):
+        block_txs, txs = 0, 0
         for tx_id in tx_ids:
             (count,) = store.selectrow("""
                 SELECT COUNT(1)
                   FROM txout
                  WHERE tx_id = ?""", (tx_id,))
             if count == 0:
-                store.sql("DELETE FROM txin WHERE tx_id = ?", (tx_id,))
-                txins += store.cursor.rowcount
-                store.sql("DELETE FROM block_tx WHERE tx_id = ?", (tx_id,))
-                block_txs += store.cursor.rowcount
-                store.sql("DELETE FROM tx WHERE tx_id = ?", (tx_id,))
-                txs += store.cursor.rowcount
+                block_txs += store.delete_tx_block_txs(tx_id)
+                txs += store.delete_tx(tx_id)
+        return block_txs, txs
 
+    def delete_tx_block_txs(store, tx_id):
+        store.sql("DELETE FROM block_tx WHERE tx_id = ?", (tx_id,))
+        return store.cursor.rowcount
+
+    def delete_tx(store, tx_id):
+        store.sql("DELETE FROM tx WHERE tx_id = ?", (tx_id,))
+        return store.cursor.rowcount
+
+    def trim_pubkeys(store, pubkey_ids):
         pubkeys = 0
         for pubkey_id in pubkey_ids:
             (count,) = store.selectrow("""
@@ -2842,14 +2864,12 @@ store._ddl['txout_approx'],
                   FROM txout
                  WHERE pubkey_id = ?""", (pubkey_id,))
             if count == 0:
-                store.sql("DELETE FROM pubkey WHERE pubkey_id = ?",
-                          (pubkey_id,))
-                pubkeys += store.cursor.rowcount
+                pubkeys += store.delete_pubkey(pubkey_id)
+        return pubkeys
 
-        if txouts > 0:
-            store.log.info("block %d: trimmed %d tx, %d txin, %d txout,"
-                           " %d block_tx, %d pubkey",
-                           block_id, txs, txins, txouts, block_txs, pubkeys)
+    def delete_pubkey(store, pubkey_id):
+        store.sql("DELETE FROM pubkey WHERE pubkey_id = ?", (pubkey_id,))
+        return store.cursor.rowcount
 
 def new(args):
     return DataStore(args)
