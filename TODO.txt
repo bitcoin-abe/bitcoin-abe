@@ -1,3 +1,5 @@
+* Trimming produces wrong statistics such as negative total fees.
+
 * Race condition in open_blkfile: bitcoind may have written to the last file
   by the time we open the next one.  As per
   https://github.com/jtobey/bitcoin-abe/issues/10 we should:
