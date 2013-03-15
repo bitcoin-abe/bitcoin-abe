@@ -2335,15 +2335,16 @@ store._ddl['txout_approx'],
 
     # Load all blocks starting at the current file and offset.
     def catch_up_dir(store, dircfg):
-        filename = [None]
-
-        def open_blkfile():
+        def open_blkfile(number):
             store._refresh_dircfg(dircfg)
-            ds = BCDataStream.BCDataStream()
+            blkfile = {
+                'stream': BCDataStream.BCDataStream(),
+                'name': store.blkfile_name(dircfg, number),
+                'number': number
+                }
 
-            filename[0] = store.blkfile_name(dircfg)
             try:
-                file = open(filename[0], "rb")
+                file = open(blkfile['name'], "rb")
             except IOError, e:
                 # Early bitcoind used blk0001.dat to blk9999.dat.
                 # Now it uses blocks/blk00000.dat to blocks/blk99999.dat.
@@ -2352,56 +2353,72 @@ store._ddl['txout_approx'],
                 # switch to the new scheme.  Record the switch by adding
                 # 100000 to each file number, so for example, 100123 means
                 # blocks/blk00123.dat but 123 still means blk0123.dat.
-                if dircfg['blkfile_number'] > 9999 or e.errno != errno.ENOENT:
+                if blkfile['number'] > 9999 or e.errno != errno.ENOENT:
                     raise
                 new_number = 100000
-                filename[0] = store.blkfile_name(dircfg, new_number)
-                file = open(filename[0], "rb")
-                dircfg['blkfile_number'] = new_number
+                blkfile['name'] = store.blkfile_name(dircfg, new_number)
+                file = open(blkfile['name'], "rb")
+                blkfile['number'] = new_number
 
             try:
-                ds.map_file(file, 0)
+                blkfile['stream'].map_file(file, 0)
             except:
                 # mmap can fail on an empty file, but empty files are okay.
                 file.seek(0, os.SEEK_END)
                 if file.tell() == 0:
-                    ds.input = ""
-                    ds.read_cursor = 0
+                    blkfile['stream'].input = ""
+                    blkfile['stream'].read_cursor = 0
                 else:
-                    ds.map_file(file, 0)
+                    blkfile['stream'].map_file(file, 0)
             finally:
                 file.close()
-            return ds
+            store.log.info("Opened %s", blkfile['name'])
+            return blkfile
+
+        def try_close_file(ds):
+            try:
+                ds.close_file()
+            except:
+                pass
 
         try:
-            ds = open_blkfile()
+            blkfile = open_blkfile(dircfg['blkfile_number'])
         except IOError, e:
             store.log.warning("Skipping datadir %s: %s", dircfg['dirname'], e)
             return
 
         while True:
+            dircfg['blkfile_number'] = blkfile['number']
+            ds = blkfile['stream']
+            next_blkfile = None
+
             try:
-                store.import_blkdat(dircfg, ds, filename[0])
+                store.import_blkdat(dircfg, ds, blkfile['name'])
             except:
                 store.log.warning("Exception at %d" % ds.read_cursor)
+                try_close_file(ds)
                 raise
-            finally:
+
+            if next_blkfile is None:
+                # Try another file.
                 try:
-                    ds.close_file()
-                except:
-                    pass
+                    next_blkfile = open_blkfile(dircfg['blkfile_number'] + 1)
+                except IOError, e:
+                    if e.errno != errno.ENOENT:
+                        raise
+                    # No more block files.
+                    return
+                finally:
+                    if next_blkfile is None:
+                        try_close_file(ds)
 
-            # Try another file.
-            dircfg['blkfile_number'] += 1
-            try:
-                ds = open_blkfile()
-            except IOError, e:
-                if e.errno != errno.ENOENT:
-                    raise
-                # No more block files.
-                dircfg['blkfile_number'] -= 1
-                return
+                # Load any data written to the last file since we checked.
+                store.import_blkdat(dircfg, ds, blkfile['name'])
 
+                # Continue with the new file.
+                blkfile = next_blkfile
+
+            try_close_file(ds)
             dircfg['blkfile_offset'] = 0
 
     # Load all blocks from the given data stream.
