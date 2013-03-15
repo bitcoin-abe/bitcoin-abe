@@ -12,6 +12,15 @@
   span in blkfile_offset, not the end.  Perhaps bitcoind uses mmap now
   and allocates the space before writing to it.
 
+* Should reject and warn about blocks more than chain_trim_depth lower
+  than the chain's last block.  I saw Block 225445 before a side-chain
+  block of height 225436 during the Bitcoin 0.8 upgrade fiasco on
+  2013-03-12.  With trim_depth 6, this resulted in an attempt to
+  delete a txin referenced by unlinked_txin.  Abe should have rejected
+  and complained about the side blocks once the fork parent had 6
+  confirmations.  Ideally, Abe also should reject unlinked txins in a
+  linked block.
+
 * UnicodeEncodeError on non-ASCII MySQLdb connect params.
 
 * Bugs affecting bytea hashin?
