@@ -7,11 +7,6 @@
     2. Read current blockfile
     3. If next file was there in 1, move on to it, else return.
 
-* Race condition reading blockfile: When skipping nul bytes at the end
-  of the *LAST* block in a file, we should store the start of the nul
-  span in blkfile_offset, not the end.  Perhaps bitcoind uses mmap now
-  and allocates the space before writing to it.
-
 * Should reject and warn about blocks more than chain_trim_depth lower
   than the chain's last block.  I saw Block 225445 before a side-chain
   block of height 225436 during the Bitcoin 0.8 upgrade fiasco on
