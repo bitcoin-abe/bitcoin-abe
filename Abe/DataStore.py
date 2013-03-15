@@ -2523,6 +2523,10 @@ store._ddl['txout_approx'],
                     chain_id = rows[0][0]
             if chain_id is None:
                 if magic[0] == chr(0):
+                    if filenum > 99999:
+                        # With bitcoind 0.8, the last file normally ends
+                        # with a NUL span.
+                        break
                     # Skip NUL bytes at block end.
                     ds.read_cursor = offset
                     while ds.read_cursor < len(ds.input):
