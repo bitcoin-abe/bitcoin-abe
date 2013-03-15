@@ -1,10 +1,3 @@
-* Race condition in open_blkfile: bitcoind may have written to the last file
-  by the time we open the next one.  As per
-  https://github.com/jtobey/bitcoin-abe/issues/10 we should:
-    1. Check the presence of a next file
-    2. Read current blockfile
-    3. If next file was there in 1, move on to it, else return.
-
 * UnicodeEncodeError on non-ASCII MySQLdb connect params.
 
 * Bugs affecting bytea hashin?
