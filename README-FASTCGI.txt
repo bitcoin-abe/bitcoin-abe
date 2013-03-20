@@ -27,7 +27,7 @@ host.  The site will be http://YOUR.ABE.DOMAIN/.  To embed Abe in an
 existing site (e.g., http://YOUR.DOMAIN/abe/) prepend a path (e.g.,
 "/abe") in the Alias directives, place them in your existing
 sites-available file instead of a new VirtualHost, and merge or create
-your sites /robots.txt with adjusted paths from Abe/htdocs/robots.txt.
+your site's /robots.txt with adjusted paths from Abe/htdocs/robots.txt.
 
 Replace HTDOCS/DIRECTORY below with the directory containing abe.css;
 the Apache process must have permission to read it.  The following
@@ -42,7 +42,7 @@ Create file /etc/apache2/sites-available/abe with these contents:
 
     <VirtualHost *>
         ServerName YOUR.ABE.DOMAIN
-        Alias /static/ HTDOCS/DIRECTORY
+        Alias /static/ HTDOCS/DIRECTORY/
         Alias /robots.txt HTDOCS/DIRECTORY/robots.txt
         Alias /favicon.ico HTDOCS/DIRECTORY/favicon.ico
         Alias / /usr/lib/cgi-bin/abe.fcgi/
@@ -60,6 +60,7 @@ Create file /etc/apache2/sites-available/abe with these contents:
 Enable the new configuration:
 
     a2ensite abe
+    service apache2 reload
 
 Replace USER with your Unix user name and create file
 /usr/lib/cgi-bin/abe.fcgi with these contents:
