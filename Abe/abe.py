@@ -147,7 +147,7 @@ class Abe:
         abe.debug = args.debug
         abe.log = logging.getLogger(__name__)
         abe.log.info('Abe initialized.')
-        abe.home = "chains"
+        abe.home = str(abe.template_vars.get("HOMEPAGE", DEFAULT_HOMEPAGE))
         if not args.auto_agpl:
             abe.template_vars['download'] = (
                 abe.template_vars.get('download', ''))
@@ -189,13 +189,11 @@ class Abe:
         if 'QUERY_STRING' in env:
             page['params'] = urlparse.parse_qs(env['QUERY_STRING'])
 
-        if fix_path_info(env):
+        if abe.fix_path_info(env):
             abe.log.debug("fixed path_info")
             return redirect(page)
 
         cmd = wsgiref.util.shift_path_info(env)
-        if cmd == '':
-            cmd = abe.home
         handler = abe.get_handler(cmd)
 
         try:
@@ -1853,6 +1851,22 @@ class Abe:
         return ['<p class="shortlink">Short Link: <a href="',
                 page['dotdot'], link, '">', full, '</a></p>\n']
 
+    def fix_path_info(abe, env):
+        ret = True
+        pi = env['PATH_INFO']
+        pi = posixpath.normpath(pi)
+        if pi[-1] != '/' and env['PATH_INFO'][-1] == '/':
+            pi += '/'
+        if pi == '/':
+            pi += abe.home
+            if not '/' in abe.home:
+                ret = False
+        if pi == env['PATH_INFO']:
+            ret = False
+        else:
+            env['PATH_INFO'] = pi
+        return ret
+
 def find_htdocs():
     return os.path.join(os.path.split(__file__)[0], 'htdocs')
 
@@ -1953,16 +1967,6 @@ def flatten(l):
     if isinstance(l, unicode):
         return l
     return str(l)
-
-def fix_path_info(env):
-    pi = env['PATH_INFO']
-    pi = posixpath.normpath(pi)
-    if pi[-1] != '/' and env['PATH_INFO'][-1] == '/':
-        pi += '/'
-    if pi == env['PATH_INFO']:
-        return False
-    env['PATH_INFO'] = pi
-    return True
 
 def redirect(page):
     uri = wsgiref.util.request_uri(page['env'])
