@@ -597,6 +597,10 @@ class DataStore(object):
         return ret
 
     def _init_datadirs(store):
+        if store.args.datadir == []:
+            store.datadirs = []
+            return
+
         datadirs = {}
         for row in store.selectall("""
             SELECT datadir_id, dirname, blkfile_number, blkfile_offset, chain_id
