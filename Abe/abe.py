@@ -52,6 +52,7 @@ DONATIONS_NMC = 'NJ3MSELK1cWnqUa6xhF2wUYAnz3RSrWXcK'
 # Configurable templates may contain either.  HTML seems better supported
 # under Internet Explorer.
 DEFAULT_CONTENT_TYPE = "text/html; charset=utf-8"
+DEFAULT_HOMEPAGE = "chains";
 DEFAULT_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
@@ -62,7 +63,7 @@ DEFAULT_TEMPLATE = """
     <title>%(title)s</title>
 </head>
 <body>
-    <h1><a href="%(dotdot)schains"><img
+    <h1><a href="%(dotdot)s%(HOMEPAGE)s"><img
      src="%(dotdot)s%(STATIC_PATH)slogo32.png" alt="Abe logo" /></a> %(h1)s
     </h1>
     %(body)s
@@ -2123,6 +2124,7 @@ def main(argv):
             "DONATIONS_BTC": DONATIONS_BTC,
             "DONATIONS_NMC": DONATIONS_NMC,
             "CONTENT_TYPE": DEFAULT_CONTENT_TYPE,
+            "HOMEPAGE": DEFAULT_HOMEPAGE,
             },
         }
     conf.update(DataStore.CONFIG_DEFAULTS)
