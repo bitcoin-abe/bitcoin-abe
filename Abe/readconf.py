@@ -35,7 +35,7 @@ def parse_argv(argv, conf={}, config_name='config', strict=False):
         # Strip leading "--" to form a config variable.
         # --var=val and --var val are the same.  --var+=val is different.
         split = arg[2:].split('=', 1)
-        add = False
+        adding = False
         if len(split) == 1:
             var = split[0]
             if i + 1 < len(argv) and argv[i + 1][:2] != '--':
@@ -47,7 +47,7 @@ def parse_argv(argv, conf={}, config_name='config', strict=False):
             var, val = split
             if var[-1:] == '+':
                 var = var[:-1]
-                add = True
+                adding = True
 
         if val is not True and looks_like_json(val):
             val = parse_json(val)
@@ -57,7 +57,7 @@ def parse_argv(argv, conf={}, config_name='config', strict=False):
             _include(set(), val, arg_dict, config_name, strict)
         elif var not in conf:
             break
-        elif add:
+        elif adding:
             add(arg_dict, var, val)
         else:
             arg_dict[var] = val
