@@ -9,6 +9,8 @@
   confirmations.  Ideally, Abe also should reject unlinked txins in a
   linked block.
 
+* Failure to load Namecoin block 99502 due to long scriptPubKey.
+
 * UnicodeEncodeError on non-ASCII MySQLdb connect params.
 
 * Bugs affecting bytea hashin?

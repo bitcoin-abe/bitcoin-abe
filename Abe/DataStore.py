@@ -90,6 +90,9 @@ SCRIPT_PUBKEY_RE = re.compile("\x41(.{65})\xac\\Z", re.DOTALL)
 # Script that can never be redeemed, used in Namecoin.
 SCRIPT_NETWORK_FEE = '\x6a'
 
+# Size of the script columns.  Namecoin Block 99502 needs a higher value.
+MAX_SCRIPT = 10000
+
 NO_CLOB = 'BUG_NO_CLOB'
 
 # XXX This belongs in another module.
@@ -1114,7 +1117,7 @@ store._ddl['configvar'],
     tx_id         NUMERIC(26) NOT NULL,
     txout_pos     NUMERIC(10) NOT NULL,
     txout_value   NUMERIC(30) NOT NULL,
-    txout_scriptPubKey BIT VARYING(80000),
+    txout_scriptPubKey BIT VARYING(""" + str(8 * MAX_SCRIPT) + """),
     pubkey_id     NUMERIC(26),
     UNIQUE (tx_id, txout_pos),
     FOREIGN KEY (pubkey_id)
@@ -1128,7 +1131,7 @@ store._ddl['configvar'],
     tx_id         NUMERIC(26) NOT NULL,
     txin_pos      NUMERIC(10) NOT NULL,
     txout_id      NUMERIC(26)""" + (""",
-    txin_scriptSig BIT VARYING(80000),
+    txin_scriptSig BIT VARYING(""" + str(8 * MAX_SCRIPT) + """),
     txin_sequence NUMERIC(10)""" if store.keep_scriptsig else "") + """,
     UNIQUE (tx_id, txin_pos),
     FOREIGN KEY (tx_id)
@@ -1464,7 +1467,7 @@ store._ddl['txout_approx'],
         try:
             store.ddl(
                 "CREATE TABLE abe_test_1 (test_id NUMERIC(2) NOT NULL PRIMARY KEY,"
-                " test_bit BIT(256), test_varbit BIT VARYING(80000))")
+                " test_bit BIT(256), test_varbit BIT VARYING(" + str(8 * MAX_SCRIPT) + "))")
             val = str(''.join(map(chr, range(0, 256, 8))))
             store.sql("INSERT INTO abe_test_1 (test_id, test_bit, test_varbit)"
                       " VALUES (?, ?, ?)",
