@@ -2336,9 +2336,96 @@ store._ddl['txout_approx'],
         for dircfg in store.datadirs:
             try:
                 store.catch_up_dir(dircfg)
+                #store.catch_up_rpc(dircfg)
             except Exception, e:
                 store.log.exception("Failed to catch up %s", dircfg)
                 store.rollback()
+
+    def catch_up_rpc(store, dircfg):
+        chain_id = dircfg['chain_id']
+        if chain_id is None:
+            raise Exception("Can not use RPC, no chain_id")
+
+        conffile = dircfg.get("conf",
+                              os.path.join(dircfg['dirname'], "bitcoin.conf"))
+        conf = dict([line.strip().split("=")
+                     if "=" in line
+                     else (line.strip(), True)
+                     for line in open(conffile)
+                     if line != "" and line[0] not in "#\r\n"])
+
+        rpcuser     = conf.get("rpcuser", "")
+        rpcpassword = conf["rpcpassword"]
+        rpcconnect  = conf.get("rpcconnect", "127.0.0.1")
+        rpcport     = conf.get("rpcport",
+                               "18332" if "testnet" in conf else "8332")
+        url = "http://" + rpcuser + ":" + rpcpassword + "@" + rpcconnect \
+            + ":" + rpcport
+
+        def rpc(func, *params):
+            store.log.debug("RPC>> %s %s", func, params)
+            ret = util.jsonrpc(url, func, *params)
+            store.log.debug("RPC<< %s", ret)
+            return ret
+
+        height = int(rpc("getblockcount"))
+        height = 150  # XXX debugging
+        prev_block_id = None
+        hashes = []
+
+        while height >= 0:
+            hash = rpc("getblockhash", height)
+            dbhash = store.hashin_hex(str(hash))
+
+            row = store.selectrow(
+                "SELECT block_id FROM block WHERE block_hash = ?", (dbhash,))
+
+            if row is not None:
+                prev_block_id = int(row[0])
+                break
+
+            hashes.append(hash)
+            height -= 1
+
+        while hashes:
+            hash = hashes.pop()
+            rpc_block = rpc("getblock", hash)
+            assert hash == rpc_block['hash']
+
+            # XXX Could verify the hash in case the RPC service lies.
+            block = {
+                'hash':     hash.decode('hex')[::-1],
+                'version':  int(rpc_block['version']),
+                'hashPrev': rpc_block['previousblockhash'].decode('hex')[::-1],
+                'hashMerkleRoot': rpc_block['merkleroot'].decode('hex')[::-1],
+                'nTime':    int(rpc_block['time']),
+                'nBits':    int(rpc_block['bits'], 16),
+                'nNonce':   int(rpc_block['nonce']),
+                'transactions': [],
+                'prev_block_id': prev_block_id,
+                }
+
+            for rpc_tx_hash in rpc_block['tx']:
+                # XXX Should maintain a cache of txs imported from the mempool
+                # and avoid this work if tx is there.  But beware memory bloat.
+
+                rpc_tx = rpc("getrawtransaction", rpc_tx_hash) \
+                    .decode('hex')
+                tx_hash = util.double_sha256(rpc_tx)
+
+                if tx_hash != rpc_tx_hash.decode('hex')[::-1]:
+                    raise InvalidBlock('transaction hash mismatch')
+
+                ds = BCDataStream.BCDataStream()
+                ds.input = rpc_tx
+                ds.read_cursor = 0
+
+                tx = deserialize.parse_Transaction(ds)
+                tx['hash'] = tx_hash
+                block['transactions'].append(tx)
+
+            store.import_block(block, chain_ids = [chain_id])
+            prev_block_id = block['block_id']
 
     # Load all blocks starting at the current file and offset.
     def catch_up_dir(store, dircfg):
