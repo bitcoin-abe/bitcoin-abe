@@ -108,11 +108,25 @@ def decode_address(addr):
         bytes = ('\0' * (25 - len(bytes))) + bytes
     return bytes[:-24], bytes[-24:-4]
 
-def jsonrpc(url, func, *params):
+class JsonrpcException(Exception):
+    def __init__(ex, error, method, params):
+        Exception.__init__(ex)
+        ex.code = error['code']
+        ex.message = error['message']
+        ex.data = error.get('data')
+        ex.method = method
+        ex.params = params
+class JsonrpcMethodNotFound(JsonrpcException):
+    pass
+
+def jsonrpc(url, method, *params):
     import json, urllib
-    postdata = json.dumps({"method": func, "params": params, "id": "x"})
+    postdata = json.dumps({"jsonrpc": "2.0",
+                           "method": method, "params": params, "id": "x"})
     respdata = urllib.urlopen(url, postdata).read()
     resp = json.loads(respdata)
-    if resp['error'] != None:
-        raise Exception(resp['error'])
+    if resp.get('error') is not None:
+        if resp['error']['code'] == -32601:
+            raise JsonrpcMethodNotFound(resp['error'], method, params)
+        raise JsonrpcException(resp['error'], method, params)
     return resp['result']
