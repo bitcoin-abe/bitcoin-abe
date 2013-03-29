@@ -189,6 +189,7 @@ class DataStore(object):
             store.commit_bytes = 0  # Commit whenever possible.
         else:
             store.commit_bytes = int(store.commit_bytes)
+        store.bytes_since_commit = 0
 
         store.use_firstbits = (store.config['use_firstbits'] == "true")
 
@@ -851,6 +852,7 @@ class DataStore(object):
     def commit(store):
         store.sqllog.info("COMMIT")
         store.conn.commit()
+        store.bytes_since_commit = 0
 
     def rollback(store):
         store.sqllog.info("ROLLBACK")
@@ -2335,24 +2337,41 @@ store._ddl['txout_approx'],
     def catch_up(store):
         for dircfg in store.datadirs:
             try:
-                store.catch_up_dir(dircfg)
-                #store.catch_up_rpc(dircfg)
+                if not store.catch_up_rpc(dircfg):
+                    store.log.debug("catch_up_rpc: abort")
+                    store.catch_up_dir(dircfg)
+
+                if store.bytes_since_commit > 0:
+                    store.commit()
+
             except Exception, e:
                 store.log.exception("Failed to catch up %s", dircfg)
                 store.rollback()
 
     def catch_up_rpc(store, dircfg):
+        """
+        Load new blocks using RPC.  Requires running *coind supporting
+        getblockhash, getblock, and getrawtransaction.  Bitcoind v0.8
+        requires the txindex configuration option.  Requires chain_id
+        in the datadir table.
+        """
+        dirname = dircfg['dirname']
         chain_id = dircfg['chain_id']
-        if chain_id is None:
-            raise Exception("Can not use RPC, no chain_id")
 
-        conffile = dircfg.get("conf",
-                              os.path.join(dircfg['dirname'], "bitcoin.conf"))
-        conf = dict([line.strip().split("=")
-                     if "=" in line
-                     else (line.strip(), True)
-                     for line in open(conffile)
-                     if line != "" and line[0] not in "#\r\n"])
+        if chain_id is None:
+            store.log.debug("no chain_id", dirname)
+            return False
+
+        conffile = dircfg.get("conf", os.path.join(dirname, "bitcoin.conf"))
+        try:
+            conf = dict([line.strip().split("=")
+                         if "=" in line
+                         else (line.strip(), True)
+                         for line in open(conffile)
+                         if line != "" and line[0] not in "#\r\n"])
+        except Exception, e:
+            store.log.debug("failed to load %s: %s", conffile, e)
+            return False
 
         rpcuser     = conf.get("rpcuser", "")
         rpcpassword = conf["rpcpassword"]
@@ -2365,67 +2384,92 @@ store._ddl['txout_approx'],
         def rpc(func, *params):
             store.log.debug("RPC>> %s %s", func, params)
             ret = util.jsonrpc(url, func, *params)
-            store.log.debug("RPC<< %s", ret)
+            store.log.debug("RPC<< %s", re.sub(r'\[[^\]]{100,}\]', '[...]',
+                                               str(ret)))
             return ret
 
-        height = int(rpc("getblockcount"))
-        height = 150  # XXX debugging
+        try:
+            height = int(rpc("getblockcount"))
+        except JsonrpcException, e:
+            raise
+        except Exception, e:
+            store.log.debug("RPC failed: %s", e)
+            return False
+
+        #height = 180  # XXX debugging
         prev_block_id = None
         hashes = []
 
-        while height >= 0:
-            hash = rpc("getblockhash", height)
-            dbhash = store.hashin_hex(str(hash))
+        try:
+            while height >= 0:
+                hash = rpc("getblockhash", height)
+                dbhash = store.hashin_hex(str(hash))
 
-            row = store.selectrow(
-                "SELECT block_id FROM block WHERE block_hash = ?", (dbhash,))
+                row = store.selectrow(
+                    "SELECT block_id FROM block WHERE block_hash = ?",
+                    (dbhash,))
 
-            if row is not None:
-                prev_block_id = int(row[0])
-                break
+                if row is not None:
+                    prev_block_id = int(row[0])
+                    break
 
-            hashes.append(hash)
-            height -= 1
+                hashes.append(hash)
+                height -= 1
 
-        while hashes:
-            hash = hashes.pop()
-            rpc_block = rpc("getblock", hash)
-            assert hash == rpc_block['hash']
+            while hashes:
+                hash = hashes.pop()
+                rpc_block = rpc("getblock", hash)
+                assert hash == rpc_block['hash']
 
-            # XXX Could verify the hash in case the RPC service lies.
-            block = {
-                'hash':     hash.decode('hex')[::-1],
-                'version':  int(rpc_block['version']),
-                'hashPrev': rpc_block['previousblockhash'].decode('hex')[::-1],
-                'hashMerkleRoot': rpc_block['merkleroot'].decode('hex')[::-1],
-                'nTime':    int(rpc_block['time']),
-                'nBits':    int(rpc_block['bits'], 16),
-                'nNonce':   int(rpc_block['nonce']),
-                'transactions': [],
-                'prev_block_id': prev_block_id,
-                }
+                # XXX Could verify the hash in case the RPC service lies.
+                block = {
+                    'hash':     hash.decode('hex')[::-1],
+                    'version':  int(rpc_block['version']),
+                    'hashPrev':
+                        rpc_block['previousblockhash'].decode('hex')[::-1],
+                    'hashMerkleRoot':
+                        rpc_block['merkleroot'].decode('hex')[::-1],
+                    'nTime':    int(rpc_block['time']),
+                    'nBits':    int(rpc_block['bits'], 16),
+                    'nNonce':   int(rpc_block['nonce']),
+                    'transactions': [],
+                    'size':     int(rpc_block['size']),
+                    'prev_block_id': prev_block_id,
+                    }
 
-            for rpc_tx_hash in rpc_block['tx']:
-                # XXX Should maintain a cache of txs imported from the mempool
-                # and avoid this work if tx is there.  But beware memory bloat.
+                for rpc_tx_hash in rpc_block['tx']:
+                    # XXX Should maintain a cache of txs imported from
+                    # the mempool and avoid this work if tx is there.
+                    # But beware of memory bloat.
 
-                rpc_tx = rpc("getrawtransaction", rpc_tx_hash) \
-                    .decode('hex')
-                tx_hash = util.double_sha256(rpc_tx)
+                    rpc_tx = rpc("getrawtransaction", rpc_tx_hash) \
+                        .decode('hex')
+                    tx_hash = util.double_sha256(rpc_tx)
 
-                if tx_hash != rpc_tx_hash.decode('hex')[::-1]:
-                    raise InvalidBlock('transaction hash mismatch')
+                    if tx_hash != rpc_tx_hash.decode('hex')[::-1]:
+                        raise InvalidBlock('transaction hash mismatch')
 
-                ds = BCDataStream.BCDataStream()
-                ds.input = rpc_tx
-                ds.read_cursor = 0
+                    ds = BCDataStream.BCDataStream()
+                    ds.input = rpc_tx
+                    ds.read_cursor = 0
 
-                tx = deserialize.parse_Transaction(ds)
-                tx['hash'] = tx_hash
-                block['transactions'].append(tx)
+                    tx = deserialize.parse_Transaction(ds)
+                    tx['hash'] = tx_hash
+                    block['transactions'].append(tx)
 
-            store.import_block(block, chain_ids = [chain_id])
-            prev_block_id = block['block_id']
+                store.import_block(block, chain_ids = [chain_id])
+                prev_block_id = block['block_id']
+
+                store.bytes_since_commit += block['size']
+                if store.bytes_since_commit >= store.commit_bytes:
+                    store.log.debug("commit")
+                    store.commit()
+
+        except JsonrpcMethodNotFound, e:
+            store.log.debug("bitcoind %s not supported", e.method)
+            return False
+
+        return True
 
     # Load all blocks starting at the current file and offset.
     def catch_up_dir(store, dircfg):
@@ -2519,7 +2563,6 @@ store._ddl['txout_approx'],
     def import_blkdat(store, dircfg, ds, filename="[unknown]"):
         filenum = dircfg['blkfile_number']
         ds.read_cursor = dircfg['blkfile_offset']
-        bytes_done = 0
 
         while filenum == dircfg['blkfile_number']:
             if ds.read_cursor + 8 > len(ds.input):
@@ -2624,17 +2667,15 @@ store._ddl['txout_approx'],
 
             ds.read_cursor = end
 
-            bytes_done += length
-            if bytes_done >= store.commit_bytes:
-                store.log.debug("commit")
+            store.bytes_since_commit += length
+            if store.bytes_since_commit >= store.commit_bytes:
                 store.save_blkfile_offset(dircfg, ds.read_cursor)
+                store.log.debug("commit")
                 store.commit()
                 store._refresh_dircfg(dircfg)
-                bytes_done = 0
 
-        if bytes_done > 0:
+        if store.bytes_since_commit > 0:
             store.save_blkfile_offset(dircfg, ds.read_cursor)
-            store.commit()
 
     def parse_block(store, ds, chain_id=None, magic=None, length=None):
         d = deserialize.parse_BlockHeader(ds)
