@@ -4,14 +4,16 @@
 
 BLOCK_ACCEPTED="ProcessBlock: ACCEPTED"
 
+# XXX Should be an option.  Maximum number of seconds between runs.
+MEMPOOL_INTERVAL=30
+
 usage() {
     cat <<EOF
 Usage: abe_loader --config ABE_CONF --datadir DATADIR
-Wait for new blocks and load them into an Abe database.
+Wait for new transactions and blocks, and load them into an Abe database.
 
-Monitor DATADIR/debug.log for the string "$BLOCK_ACCEPTED" indicating a
-block written to the block file.  When a block arrives, run Abe in batch
-mode with the given configuration, and loop to wait again.
+Monitor DATADIR/debug.log for $MEMPOOL_INTERVAL seconds or until a block arrives.
+Run Abe in batch mode with the given configuration, and loop to wait again.
 EOF
 }
 
@@ -43,5 +45,5 @@ grep --line-buffered -- "$BLOCK_ACCEPTED" |
 while true
 do
     python -m Abe.abe "$@" --no-serve
-    read a
+    read -t "$MEMPOOL_TIMEOUT" a
 done
