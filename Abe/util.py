@@ -49,6 +49,17 @@ def merkle(hashes):
         hashes = out
     return hashes and hashes[0]
 
+def block_hash(block):
+    import BCDataStream
+    ds = BCDataStream.BCDataStream()
+    ds.write_int32(block['version'])
+    ds.write(block['hashPrev'])
+    ds.write(block['hashMerkleRoot'])
+    ds.write_uint32(block['nTime'])
+    ds.write_uint32(block['nBits'])
+    ds.write_uint32(block['nNonce'])
+    return double_sha256(ds.input)
+
 def pubkey_to_hash(pubkey):
     return RIPEMD160.new(SHA256.new(pubkey).digest()).digest()
 
@@ -116,6 +127,9 @@ class JsonrpcException(Exception):
         ex.data = error.get('data')
         ex.method = method
         ex.params = params
+    def __str__(ex):
+        return ex.method + ": " + ex.message + " (code " + str(ex.code) + ")"
+
 class JsonrpcMethodNotFound(JsonrpcException):
     pass
 
