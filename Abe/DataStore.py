@@ -43,6 +43,7 @@ CONFIG_DEFAULTS = {
     "rescan":             None,
     "commit_bytes":       None,
     "log_sql":            None,
+    "log_rpc":            None,
     "datadir":            None,
     "ignore_bit8_chains": None,
     "use_firstbits":      False,
@@ -140,6 +141,9 @@ class DataStore(object):
         store.sqllog = logging.getLogger(__name__ + ".sql")
         if not args.log_sql:
             store.sqllog.setLevel(logging.ERROR)
+        store.rpclog = logging.getLogger(__name__ + ".rpc")
+        if not args.log_rpc:
+            store.rpclog.setLevel(logging.ERROR)
         store.module = __import__(args.dbtype)
         store.conn = store.connect()
         store.cursor = store.conn.cursor()
@@ -2487,10 +2491,12 @@ store._ddl['txout_approx'],
             + ":" + rpcport
 
         def rpc(func, *params):
-            store.log.debug("RPC>> %s %s", func, params)
+            store.rpclog.info("RPC>> %s %s", func, params)
             ret = util.jsonrpc(url, func, *params)
-            store.log.debug("RPC<< %s", re.sub(r'\[[^\]]{100,}\]', '[...]',
-                                               str(ret)))
+
+            if (store.rpclog.isEnabledFor(logging.INFO)):
+                store.rpclog.info("RPC<< %s",
+                                  re.sub(r'\[[^\]]{100,}\]', '[...]', str(ret)))
             return ret
 
         def get_tx(rpc_tx_hash):
