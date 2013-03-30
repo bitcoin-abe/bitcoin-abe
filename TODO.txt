@@ -1,5 +1,8 @@
 * Failure to load Namecoin block 99502 due to long scriptPubKey.
 
+* Test fix of GitHub Issue #13: transition from ~2GB blk0001.dat to
+  ~2GB blk0002.dat on 32-bit systems.
+
 * UnicodeEncodeError on non-ASCII MySQLdb connect params.
 
 * Bugs affecting bytea hashin?

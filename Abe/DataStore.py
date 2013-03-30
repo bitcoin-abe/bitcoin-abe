@@ -2508,6 +2508,14 @@ store._ddl['txout_approx'],
                 try:
                     next_blkfile = open_blkfile(dircfg['blkfile_number'] + 1)
                 except IOError, e:
+                    if e.errno == errno.ENOMEM:
+                        # Assume 32-bit address space exhaustion.
+                        store.log.warning(
+                            "Cannot allocate memory for next blockfile: "
+                            "skipping safety check")
+                        try_close_file(ds)
+                        blkfile = open_blkfile(dircfg['blkfile_number'] + 1)
+                        continue
                     if e.errno != errno.ENOENT:
                         raise
                     # No more block files.
