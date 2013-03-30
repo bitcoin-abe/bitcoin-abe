@@ -2572,6 +2572,7 @@ store._ddl['txout_approx'],
                             "skipping safety check")
                         try_close_file(ds)
                         blkfile = open_blkfile(dircfg['blkfile_number'] + 1)
+                        dircfg['blkfile_offset'] = 0
                         continue
                     raise
                 finally:
@@ -2698,11 +2699,10 @@ store._ddl['txout_approx'],
             store.bytes_since_commit += length
             if store.bytes_since_commit >= store.commit_bytes:
                 store.save_blkfile_offset(dircfg, ds.read_cursor)
-                store.log.debug("commit")
-                store.commit()
+                store.flush()
                 store._refresh_dircfg(dircfg)
 
-        if store.bytes_since_commit > 0:
+        if ds.read_cursor != dircfg['blkfile_offset']:
             store.save_blkfile_offset(dircfg, ds.read_cursor)
 
     def parse_block(store, ds, chain_id=None, magic=None, length=None):
