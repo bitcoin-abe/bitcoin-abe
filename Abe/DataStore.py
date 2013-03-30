@@ -185,6 +185,7 @@ class DataStore(object):
             store.commit_bytes = 0  # Commit whenever possible.
         else:
             store.commit_bytes = int(store.commit_bytes)
+        store.bytes_since_commit = 0
 
         store.use_firstbits = (store.config['use_firstbits'] == "true")
 
@@ -2429,10 +2430,22 @@ store._ddl['txout_approx'],
                   (pubkey_id, dbhash, store.binin(pubkey)))
         return pubkey_id
 
+    def flush(store):
+        if store.bytes_since_commit > 0:
+            store.log.debug("commit")
+            store.commit()
+            store.bytes_since_commit = 0
+
+    def imported_bytes(store, size):
+        store.bytes_since_commit += size
+        if store.bytes_since_commit >= store.commit_bytes:
+            store.flush()
+
     def catch_up(store):
         for dircfg in store.datadirs:
             try:
                 store.catch_up_dir(dircfg)
+                store.flush()
             except Exception, e:
                 store.log.exception("Failed to catch up %s", dircfg)
                 store.rollback()
@@ -2520,6 +2533,7 @@ store._ddl['txout_approx'],
                             "skipping safety check")
                         try_close_file(ds)
                         blkfile = open_blkfile(dircfg['blkfile_number'] + 1)
+                        dircfg['blkfile_offset'] = 0
                         continue
                     raise
                 finally:
@@ -2539,7 +2553,6 @@ store._ddl['txout_approx'],
     def import_blkdat(store, dircfg, ds, filename="[unknown]"):
         filenum = dircfg['blkfile_number']
         ds.read_cursor = dircfg['blkfile_offset']
-        bytes_done = 0
 
         while filenum == dircfg['blkfile_number']:
             if ds.read_cursor + 8 > len(ds.input):
@@ -2647,17 +2660,14 @@ store._ddl['txout_approx'],
 
             ds.read_cursor = end
 
-            bytes_done += length
-            if bytes_done >= store.commit_bytes:
-                store.log.debug("commit")
+            store.bytes_since_commit += length
+            if store.bytes_since_commit >= store.commit_bytes:
                 store.save_blkfile_offset(dircfg, ds.read_cursor)
-                store.commit()
+                store.flush()
                 store._refresh_dircfg(dircfg)
-                bytes_done = 0
 
-        if bytes_done > 0:
+        if ds.read_cursor != dircfg['blkfile_offset']:
             store.save_blkfile_offset(dircfg, ds.read_cursor)
-            store.commit()
 
     def parse_block(store, ds, chain_id=None, magic=None, length=None):
         d = deserialize.parse_BlockHeader(ds)
