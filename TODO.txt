@@ -86,6 +86,9 @@
 
 * Write a test suite.  Include reorgs, duplicate coinbases, and upgrades.
 
+* Option to prevent Abe from using a particular loading method
+  (blockfile scan or RPC).
+
 * Consider making catch_up_rpc work for the initial load without first
   building an array of all block hashes.
 
