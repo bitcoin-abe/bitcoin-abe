@@ -2364,14 +2364,13 @@ store._ddl['txout_approx'],
         requires the txindex configuration option.  Requires chain_id
         in the datadir table.
         """
-        dirname = dircfg['dirname']
         chain_id = dircfg['chain_id']
-
         if chain_id is None:
-            store.log.debug("no chain_id", dirname)
+            store.log.debug("no chain_id")
             return False
 
-        conffile = dircfg.get("conf", os.path.join(dirname, "bitcoin.conf"))
+        conffile = dircfg.get("conf",
+                              os.path.join(dircfg['dirname'], "bitcoin.conf"))
         try:
             conf = dict([line.strip().split("=", 1)
                          if "=" in line
