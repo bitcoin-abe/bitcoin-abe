@@ -807,7 +807,6 @@ class DataStore(object):
     def commit(store):
         store.sqllog.info("COMMIT")
         store.conn.commit()
-        store.bytes_since_commit = 0
 
     def rollback(store):
         store.sqllog.info("ROLLBACK")
@@ -2495,6 +2494,21 @@ store._ddl['txout_approx'],
                                                str(ret)))
             return ret
 
+        def get_tx(rpc_tx_hash):
+            rpc_tx = rpc("getrawtransaction", rpc_tx_hash).decode('hex')
+            tx_hash = util.double_sha256(rpc_tx)
+
+            if tx_hash != rpc_tx_hash.decode('hex')[::-1]:
+                raise InvalidBlock('transaction hash mismatch')
+
+            ds = BCDataStream.BCDataStream()
+            ds.input = rpc_tx
+            ds.read_cursor = 0
+
+            tx = deserialize.parse_Transaction(ds)
+            tx['hash'] = tx_hash
+            return tx
+
         try:
             height = int(rpc("getblockcount"))
         except JsonrpcException, e:
@@ -2503,11 +2517,13 @@ store._ddl['txout_approx'],
             store.log.debug("RPC failed: %s", e)
             return False
 
-        #height = 180  # XXX debugging
+        #height = 190  # XXX debugging
         prev_block_id = None
         hashes = []
 
         try:
+
+            # Find new block hashes.
             while height >= 0:
                 hash = rpc("getblockhash", height)
                 dbhash = store.hashin_hex(str(hash))
@@ -2523,6 +2539,7 @@ store._ddl['txout_approx'],
                 hashes.append(hash)
                 height -= 1
 
+            # Import new blocks.
             while hashes:
                 hash = hashes.pop()
                 rpc_block = rpc("getblock", hash)
@@ -2545,32 +2562,24 @@ store._ddl['txout_approx'],
                     }
 
                 for rpc_tx_hash in rpc_block['tx']:
-                    # XXX Should maintain a cache of txs imported from
-                    # the mempool and avoid this work if tx is there.
-                    # But beware of memory bloat.
-
-                    rpc_tx = rpc("getrawtransaction", rpc_tx_hash) \
-                        .decode('hex')
-                    tx_hash = util.double_sha256(rpc_tx)
-
-                    if tx_hash != rpc_tx_hash.decode('hex')[::-1]:
-                        raise InvalidBlock('transaction hash mismatch')
-
-                    ds = BCDataStream.BCDataStream()
-                    ds.input = rpc_tx
-                    ds.read_cursor = 0
-
-                    tx = deserialize.parse_Transaction(ds)
-                    tx['hash'] = tx_hash
-                    block['transactions'].append(tx)
+                    # XXX Consider maintaining a cache of txs imported
+                    # from the mempool and avoiding this work if tx is
+                    # there.  But beware of memory bloat.
+                    block['transactions'].append(get_tx(rpc_tx_hash))
 
                 store.import_block(block, chain_ids = [chain_id])
                 prev_block_id = block['block_id']
+                store.imported_bytes(block['size'])
 
-                store.bytes_since_commit += block['size']
-                if store.bytes_since_commit >= store.commit_bytes:
-                    store.log.debug("commit")
-                    store.commit()
+            # Import the memory pool.
+            for rpc_tx_hash in rpc("getrawmempool"):
+                tx = get_tx(rpc_tx_hash)
+                tx_id = store.tx_find_id_and_value(tx, False)
+                if tx_id is None:
+                    tx_id = store.import_tx(tx, False)
+                    store.log.info("mempool tx %d", tx_id)
+                    store.imported_bytes(len(tx['tx']))
+                # XXX Could maintain a map of hash to tx_id, but what for?
 
         except JsonrpcMethodNotFound, e:
             store.log.debug("bitcoind %s not supported", e.method)
