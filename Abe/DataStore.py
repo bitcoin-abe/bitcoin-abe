@@ -48,6 +48,7 @@ CONFIG_DEFAULTS = {
     "ignore_bit8_chains": None,
     "use_firstbits":      False,
     "keep_scriptsig":     True,
+    "import_coinbase":    [],
 }
 
 WORK_BITS = 304  # XXX more than necessary.
@@ -103,7 +104,7 @@ class MerkleRootMismatch(InvalidBlock):
         ex.tx_hashes = tx_hashes
     def __str__(ex):
         return 'Block header Merkle root does not match its transactions. ' \
-            'block hash=%s' % (ex.block_hash.encode('hex'),)
+            'block hash=%s' % (ex.block_hash[::-1].encode('hex'),)
 
 class DataStore(object):
 
@@ -192,6 +193,10 @@ class DataStore(object):
         store.bytes_since_commit = 0
 
         store.use_firstbits = (store.config['use_firstbits'] == "true")
+
+        for hex_tx in args.import_coinbase:
+            store.maybe_import_binary_tx(str(hex_tx).decode('hex'))
+
 
     def connect(store):
         cargs = store.args.connect_args
@@ -2076,11 +2081,15 @@ store._ddl['txout_approx'],
     def import_tx(store, tx, is_coinbase):
         tx_id = store.new_id("tx")
         dbhash = store.hashin(tx['hash'])
+
+        if 'size' not in tx:
+            tx['size'] = len(tx['tx'])
+
         store.sql("""
             INSERT INTO tx (tx_id, tx_hash, tx_version, tx_lockTime, tx_size)
             VALUES (?, ?, ?, ?, ?)""",
                   (tx_id, dbhash, store.intin(tx['version']),
-                   store.intin(tx['lockTime']), len(tx['tx'])))
+                   store.intin(tx['lockTime']), tx['size']))
 
         # Import transaction outputs.
         tx['value_out'] = 0
@@ -2168,10 +2177,22 @@ store._ddl['txout_approx'],
 
         return tx_id
 
-    def export_tx(store, tx_id=None, tx_hash=None, decimals=8):
+    def maybe_import_binary_tx(store, binary_tx):
+        tx_hash = util.double_sha256(binary_tx)
+        (count,) = store.selectrow(
+            "SELECT COUNT(1) FROM tx WHERE tx_hash = ?",
+            (store.hashin(tx_hash),))
+        if count == 0:
+            tx = store.parse_tx(binary_tx)
+            tx['hash'] = tx_hash
+            store.import_tx(tx, True)
+            store.imported_bytes(tx['size'])
+
+    def export_tx(store, tx_id=None, tx_hash=None, decimals=8, format="api"):
         """Return a dict as seen by /rawtx or None if not found."""
 
         tx = {}
+        is_bin = format == "binary"
 
         if tx_id is not None:
             row = store.selectrow("""
@@ -2191,17 +2212,18 @@ store._ddl['txout_approx'],
             """, (store.hashin_hex(tx_hash),))
             if row is None:
                 return None
-            tx['hash'] = tx_hash
+            tx['hash'] = tx_hash.decode('hex')[::-1] if is_bin else tx_hash
             tx_id = row[0]
 
         else:
             raise ValueError("export_tx requires either tx_id or tx_hash.")
 
-        tx['ver']       = int(row[1])
-        tx['lock_time'] = int(row[2])
-        tx['size']      = int(row[3])
+        tx['version' if is_bin else 'ver']        = int(row[1])
+        tx['lockTime' if is_bin else 'lock_time'] = int(row[2])
+        tx['size'] = int(row[3])
 
-        tx['in'] = []
+        txins = []
+        tx['txIn' if is_bin else 'in'] = txins
         for row in store.selectall("""
             SELECT
                 COALESCE(tx.tx_hash, uti.txout_tx_hash),
@@ -2215,37 +2237,56 @@ store._ddl['txout_approx'],
             WHERE txin.tx_id = ?
             ORDER BY txin.txin_pos""", (tx_id,)):
             prevout_hash = row[0]
-            prevout_n = row[1]
-            if prevout_hash is None:
-                prev_out = {
-                    'hash': "0" * 64,  # XXX should store this?
-                    'n': 0xffffffff}   # XXX should store this?
+            prevout_n = None if row[1] is None else int(row[1])
+            if is_bin:
+                txin = {
+                    'prevout_hash': store.hashout(prevout_hash),
+                    'prevout_n': prevout_n}
             else:
-                prev_out = {
-                    'hash': store.hashout_hex(prevout_hash),
-                    'n': int(prevout_n)}
-            txin = {'prev_out': prev_out}
+                if prevout_hash is None:
+                    prev_out = {
+                        'hash': "0" * 64,  # XXX should store this?
+                        'n': 0xffffffff}   # XXX should store this?
+                else:
+                    prev_out = {
+                        'hash': store.hashout_hex(prevout_hash),
+                        'n': prevout_n}
+                txin = {'prev_out': prev_out}
             if store.keep_scriptsig:
-                txin['raw_scriptSig'] = store.binout_hex(row[2])
-                txin['sequence'] = None if row[3] is None else int(row[3])
-            tx['in'].append(txin)
-        tx['vin_sz'] = len(tx['in'])
+                scriptSig = row[2]
+                sequence = row[3]
+                if is_bin:
+                    txin['scriptSig'] = store.binout(scriptSig)
+                else:
+                    txin['raw_scriptSig'] = store.binout_hex(scriptSig)
+                txin['sequence'] = None if sequence is None else int(sequence)
+            txins.append(txin)
 
-        tx['out'] = []
+        txouts = []
+        tx['txOut' if is_bin else 'out'] = txouts
         for satoshis, scriptPubKey in store.selectall("""
             SELECT txout_value, txout_scriptPubKey
               FROM txout
              WHERE tx_id = ?
             ORDER BY txout_pos""", (tx_id,)):
 
-            coin = 10 ** decimals
-            satoshis = int(satoshis)
-            integer = satoshis / coin
-            frac = satoshis % coin
-            tx['out'].append({
+            if is_bin:
+                txout = {
+                    'value': int(satoshis),
+                    'scriptPubKey': store.binout(scriptPubKey)}
+            else:
+                coin = 10 ** decimals
+                satoshis = int(satoshis)
+                integer = satoshis / coin
+                frac = satoshis % coin
+                txout = {
                     'value': ("%%d.%%0%dd" % (decimals,)) % (integer, frac),
-                    'raw_scriptPubKey': store.binout_hex(scriptPubKey)})
-        tx['vout_sz'] = len(tx['out'])
+                    'raw_scriptPubKey': store.binout_hex(scriptPubKey)}
+            txouts.append(txout)
+
+        if not is_bin:
+            tx['vin_sz'] = len(txins)
+            tx['vout_sz'] = len(txouts)
 
         return tx
 
@@ -2506,11 +2547,7 @@ store._ddl['txout_approx'],
             if tx_hash != rpc_tx_hash.decode('hex')[::-1]:
                 raise InvalidBlock('transaction hash mismatch')
 
-            ds = BCDataStream.BCDataStream()
-            ds.input = rpc_tx
-            ds.read_cursor = 0
-
-            tx = deserialize.parse_Transaction(ds)
+            tx = store.parse_tx(rpc_tx)
             tx['hash'] = tx_hash
             return tx
 
@@ -2522,13 +2559,15 @@ store._ddl['txout_approx'],
             store.log.debug("RPC failed: %s", e)
             return False
 
-        #height = 190  # XXX debugging
+        #height = 3  # XXX debugging
         prev_block_id = None
         hashes = []
 
         try:
 
-            # Find new block hashes.
+            # Find new block hashes.  XXX Must use a faster algorithm
+            # for bootstrapping so we don't request all block hashes
+            # only to choke on the coinbase transaction.
             while height >= 0:
                 hash = rpc("getblockhash", height)
                 dbhash = store.hashin_hex(str(hash))
@@ -2550,12 +2589,15 @@ store._ddl['txout_approx'],
                 rpc_block = rpc("getblock", hash)
                 assert hash == rpc_block['hash']
 
-                # XXX Could verify the hash in case the RPC service lies.
+                prev_hash = \
+                    rpc_block['previousblockhash'].decode('hex')[::-1] \
+                    if 'previousblockhash' in rpc_block \
+                    else GENESIS_HASH_PREV
+
                 block = {
                     'hash':     hash.decode('hex')[::-1],
                     'version':  int(rpc_block['version']),
-                    'hashPrev':
-                        rpc_block['previousblockhash'].decode('hex')[::-1],
+                    'hashPrev': prev_hash,
                     'hashMerkleRoot':
                         rpc_block['merkleroot'].decode('hex')[::-1],
                     'nTime':    int(rpc_block['time']),
@@ -2566,11 +2608,14 @@ store._ddl['txout_approx'],
                     'prev_block_id': prev_block_id,
                     }
 
+                if util.block_hash(block) != block['hash']:
+                    raise InvalidBlock('block hash mismatch')
+
                 for rpc_tx_hash in rpc_block['tx']:
-                    # XXX Consider maintaining a cache of txs imported
-                    # from the mempool and avoiding this work if tx is
-                    # there.  But beware of memory bloat.
-                    block['transactions'].append(get_tx(rpc_tx_hash))
+                    tx = store.export_tx(tx_hash = str(rpc_tx_hash),
+                                         format = "binary") or \
+                        get_tx(rpc_tx_hash)
+                    block['transactions'].append(tx)
 
                 store.import_block(block, chain_ids = [chain_id])
                 prev_block_id = block['block_id']
@@ -2583,10 +2628,17 @@ store._ddl['txout_approx'],
                 if tx_id is None:
                     tx_id = store.import_tx(tx, False)
                     store.log.info("mempool tx %d", tx_id)
-                    store.imported_bytes(len(tx['tx']))
-                # XXX Could maintain a map of hash to tx_id, but what for?
+                    store.imported_bytes(tx['size'])
 
-        except JsonrpcMethodNotFound, e:
+        except util.JsonrpcException, e:
+            if prev_block_id is None and e.method == "getrawtransaction" \
+                    and e.code == -5:
+                store.log.debug("genesis transaction unavailable via RPC;"
+                                " see import-coinbase in abe.conf")
+                return False
+            raise
+
+        except util.JsonrpcMethodNotFound, e:
             store.log.debug("bitcoind %s not supported", e.method)
             return False
 
@@ -2816,8 +2868,8 @@ store._ddl['txout_approx'],
         if d['version'] & (1 << 8):
             if chain_id in store.no_bit8_chain_ids:
                 store.log.debug(
-                    "Ignored bit8 in version 0x%08x of chain_id %d"
-                    % (d['version'], chain_id))
+                    "Ignored bit8 in version 0x%08x of chain_id %d",
+                    d['version'], chain_id)
             else:
                 d['auxpow'] = deserialize.parse_AuxPow(ds)
         d['transactions'] = []
@@ -2825,6 +2877,12 @@ store._ddl['txout_approx'],
         for i in xrange(nTransactions):
             d['transactions'].append(deserialize.parse_Transaction(ds))
         return d
+
+    def parse_tx(store, bytes):
+        ds = BCDataStream.BCDataStream()
+        ds.input = bytes
+        ds.read_cursor = 0
+        return deserialize.parse_Transaction(ds)
 
     def blkfile_name(store, dircfg, number=None):
         if number is None:
