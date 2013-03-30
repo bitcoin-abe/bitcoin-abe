@@ -2364,7 +2364,7 @@ store._ddl['txout_approx'],
 
         conffile = dircfg.get("conf", os.path.join(dirname, "bitcoin.conf"))
         try:
-            conf = dict([line.strip().split("=")
+            conf = dict([line.strip().split("=", 1)
                          if "=" in line
                          else (line.strip(), True)
                          for line in open(conffile)
