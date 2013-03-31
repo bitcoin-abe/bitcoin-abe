@@ -2420,8 +2420,8 @@ store._ddl['txout_approx'],
 
     def flush(store):
         if store.bytes_since_commit > 0:
-            store.log.debug("commit")
             store.commit()
+            store.log.debug("commit")
             store.bytes_since_commit = 0
 
     def imported_bytes(store, size):
