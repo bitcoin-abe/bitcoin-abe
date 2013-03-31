@@ -144,3 +144,7 @@ def jsonrpc(url, method, *params):
             raise JsonrpcMethodNotFound(resp['error'], method, params)
         raise JsonrpcException(resp['error'], method, params)
     return resp['result']
+
+def is_coinbase_tx(tx):
+    return len(tx['txIn']) == 1 and tx['txIn'][0]['prevout_hash'] == \
+        "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"
