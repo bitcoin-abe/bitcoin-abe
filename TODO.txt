@@ -11,6 +11,8 @@
 
 * Trimming should remove old side chains.
 
+* Block/tx blacklist.
+
 * Failure to load Namecoin block 99502 due to long scriptPubKey.
 
 * UnicodeEncodeError on non-ASCII MySQLdb connect params.
