@@ -45,5 +45,5 @@ grep --line-buffered -- "$BLOCK_ACCEPTED" |
 while true
 do
     python -m Abe.abe "$@" --no-serve
-    read -t "$MEMPOOL_TIMEOUT" a
+    read -t "$MEMPOOL_INTERVAL" a
 done
