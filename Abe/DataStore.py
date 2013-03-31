@@ -2492,8 +2492,32 @@ store._ddl['txout_approx'],
                     return None
                 raise
 
+        (max_height,) = store.selectrow("""
+            SELECT MAX(block_height)
+              FROM chain_candidate
+             WHERE chain_id = ?""", (chain_id,))
+        height = 0 if max_height is None else int(max_height) + 1
+
         def get_tx(rpc_tx_hash):
-            rpc_tx = rpc("getrawtransaction", rpc_tx_hash).decode('hex')
+            try:
+                rpc_tx_hex = rpc("getrawtransaction", rpc_tx_hash)
+
+            except util.JsonrpcException, e:
+                if e.code != -5:  # Transaction not in index.
+                    raise
+                if height != 0:
+                    store.log.debug("RPC service lacks full txindex")
+                    return False
+                import genesis_tx
+                rpc_tx_hex = genesis_tx.get(rpc_tx_hash)
+                if rpc_tx_hex is None:
+                    store.log.debug("genesis transaction unavailable via RPC;"
+                                    " see import-tx in abe.conf")
+                    # XXX Now the default behavior is to switch to blockfile
+                    # scanning until restarted, then resume RPC loading.
+                    return False
+
+            rpc_tx = rpc_tx_hex.decode('hex')
             tx_hash = util.double_sha256(rpc_tx)
 
             if tx_hash != rpc_tx_hash.decode('hex')[::-1]:
@@ -2502,12 +2526,6 @@ store._ddl['txout_approx'],
             tx = store.parse_tx(rpc_tx)
             tx['hash'] = tx_hash
             return tx
-
-        (max_height,) = store.selectrow("""
-            SELECT MAX(block_height)
-              FROM chain_candidate
-             WHERE chain_id = ?""", (chain_id,))
-        height = 0 if max_height is None else int(max_height) + 1
 
         try:
 
@@ -2570,8 +2588,12 @@ store._ddl['txout_approx'],
 
                     for rpc_tx_hash in rpc_block['tx']:
                         tx = store.export_tx(tx_hash = str(rpc_tx_hash),
-                                             format = "binary") or \
-                            get_tx(rpc_tx_hash)
+                                             format = "binary")
+                        if tx is None:
+                            tx = get_tx(rpc_tx_hash)
+                            if tx is None:
+                                return False
+
                         block['transactions'].append(tx)
 
                     store.import_block(block, chain_ids = chain_ids)
@@ -2585,6 +2607,9 @@ store._ddl['txout_approx'],
             # Import the memory pool.
             for rpc_tx_hash in rpc("getrawmempool"):
                 tx = get_tx(rpc_tx_hash)
+                if tx is None:
+                    return False
+
                 # XXX Race condition in low isolation levels.
                 tx_id = store.tx_find_id_and_value(tx, False)
                 if tx_id is None:
@@ -2595,15 +2620,6 @@ store._ddl['txout_approx'],
         except util.JsonrpcMethodNotFound, e:
             store.log.debug("bitcoind %s not supported", e.method)
             return False
-
-        except util.JsonrpcException, e:
-            if height == 0 and e.method == "getrawtransaction" and e.code == -5:
-                store.log.debug("genesis transaction unavailable via RPC;"
-                                " see import-coinbase in abe.conf")
-                # XXX Now the default behavior is to switch to blockfile
-                # scanning until restarted, then resume RPC loading.
-                return False
-            raise
 
         return True
 
