@@ -48,7 +48,7 @@ CONFIG_DEFAULTS = {
     "ignore_bit8_chains": None,
     "use_firstbits":      False,
     "keep_scriptsig":     True,
-    "import_coinbase":    [],
+    "import_tx":          [],
 }
 
 WORK_BITS = 304  # XXX more than necessary.
@@ -194,7 +194,7 @@ class DataStore(object):
 
         store.use_firstbits = (store.config['use_firstbits'] == "true")
 
-        for hex_tx in args.import_coinbase:
+        for hex_tx in args.import_tx:
             store.maybe_import_binary_tx(str(hex_tx).decode('hex'))
 
 
@@ -2185,7 +2185,7 @@ store._ddl['txout_approx'],
         if count == 0:
             tx = store.parse_tx(binary_tx)
             tx['hash'] = tx_hash
-            store.import_tx(tx, True)
+            store.import_tx(tx, util.is_coinbase_tx(tx))
             store.imported_bytes(tx['size'])
 
     def export_tx(store, tx_id=None, tx_hash=None, decimals=8, format="api"):
