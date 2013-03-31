@@ -2273,6 +2273,47 @@ store._ddl['txout_approx'],
                  WHERE chain_id = ?""", (chain_id,))
             store.do_vers_firstbits(addr_vers, b['block_id'])
 
+    def offer_existing_block(store, hash, chain_id):
+        block_row = store.selectrow("""
+            SELECT block_id, block_height, block_chain_work,
+                   block_nTime, block_total_satoshis
+              FROM block
+             WHERE block_hash = ?
+        """, (store.hashin_hex(hash),))
+
+        if not block_row:
+            return False
+
+        if chain_id is None:
+            return True
+
+        # Block header already seen.  Don't import the block,
+        # but try to add it to the chain.
+
+        b = {
+            "block_id":   block_row[0],
+            "height":     block_row[1],
+            "chain_work": store.binout_int(block_row[2]),
+            "nTime":      block_row[3],
+            "satoshis":   block_row[4]}
+
+        if store.selectrow("""
+            SELECT 1
+              FROM chain_candidate
+             WHERE block_id = ?
+               AND chain_id = ?""",
+                        (b['block_id'], chain_id)):
+            store.log.info("block %d already in chain %d",
+                           b['block_id'], chain_id)
+        else:
+            if b['height'] == 0:
+                b['hashPrev'] = GENESIS_HASH_PREV
+            else:
+                b['hashPrev'] = 'dummy'  # Fool adopt_orphans.
+            store.offer_block_to_chains(b, frozenset([chain_id]))
+
+        return True
+
     def find_next_blocks(store, block_id):
         ret = []
         for row in store.selectall(
@@ -2412,6 +2453,7 @@ store._ddl['txout_approx'],
         if chain_id is None:
             store.log.debug("no chain_id")
             return False
+        chain_ids = frozenset([chain_id])
 
         conffile = dircfg.get("conf",
                               os.path.join(dircfg['dirname'], "bitcoin.conf"))
@@ -2442,6 +2484,14 @@ store._ddl['txout_approx'],
                                   re.sub(r'\[[^\]]{100,}\]', '[...]', str(ret)))
             return ret
 
+        def get_blockhash(height):
+            try:
+                return rpc("getblockhash", height)
+            except util.JsonrpcException, e:
+                if e.code == -1:  # Block number out of range.
+                    return None
+                raise
+
         def get_tx(rpc_tx_hash):
             rpc_tx = rpc("getrawtransaction", rpc_tx_hash).decode('hex')
             tx_hash = util.double_sha256(rpc_tx)
@@ -2453,75 +2503,83 @@ store._ddl['txout_approx'],
             tx['hash'] = tx_hash
             return tx
 
-        try:
-            height = int(rpc("getblockcount"))
-        except JsonrpcException, e:
-            raise
-        except Exception, e:
-            store.log.debug("RPC failed: %s", e)
-            return False
-
-        #height = 3  # XXX debugging
-        prev_block_id = None
-        hashes = []
+        (max_height,) = store.selectrow("""
+            SELECT MAX(block_height)
+              FROM chain_candidate
+             WHERE chain_id = ?""", (chain_id,))
+        height = int(max_height or 0)
 
         try:
 
-            # Find new block hashes.  XXX Must use a faster algorithm
-            # for bootstrapping so we don't request all block hashes
-            # only to choke on the coinbase transaction.
-            while height >= 0:
-                hash = rpc("getblockhash", height)
-                dbhash = store.hashin_hex(str(hash))
+            # Get block hash at height, and at the same time, test
+            # bitcoind connectivity.
+            try:
+                hash = get_blockhash(height)
+            except util.JsonrpcException, e:
+                raise
+            except Exception, e:
+                # Connectivity failure.
+                store.log.debug("RPC failed: %s", e)
+                return False
 
-                row = store.selectrow(
-                    "SELECT block_id FROM block WHERE block_hash = ?",
-                    (dbhash,))
+            # Find the first new block.
+            while height > 0:
 
-                if row is not None:
-                    prev_block_id = int(row[0])
+                if hash is not None and (1,) == store.selectrow("""
+                    SELECT 1
+                      FROM chain_candidate cc
+                      JOIN block b ON (cc.block_id = b.block_id)
+                     WHERE b.block_hash = ?
+                       AND b.block_height IS NOT NULL
+                       AND cc.chain_id = ?""", (
+                        store.hashin_hex(str(hash)), chain_id)):
                     break
 
-                hashes.append(hash)
                 height -= 1
+                prev_hash = get_blockhash(height)
+                hash = prev_hash
 
             # Import new blocks.
-            while hashes:
-                hash = hashes.pop()
-                rpc_block = rpc("getblock", hash)
-                assert hash == rpc_block['hash']
+            while hash is not None:
+                if not store.offer_existing_block(hash, chain_id):
+                    rpc_block = rpc("getblock", hash)
+                    assert hash == rpc_block['hash']
 
-                prev_hash = \
-                    rpc_block['previousblockhash'].decode('hex')[::-1] \
-                    if 'previousblockhash' in rpc_block \
-                    else GENESIS_HASH_PREV
+                    prev_hash = \
+                        rpc_block['previousblockhash'].decode('hex')[::-1] \
+                        if 'previousblockhash' in rpc_block \
+                        else GENESIS_HASH_PREV
 
-                block = {
-                    'hash':     hash.decode('hex')[::-1],
-                    'version':  int(rpc_block['version']),
-                    'hashPrev': prev_hash,
-                    'hashMerkleRoot':
-                        rpc_block['merkleroot'].decode('hex')[::-1],
-                    'nTime':    int(rpc_block['time']),
-                    'nBits':    int(rpc_block['bits'], 16),
-                    'nNonce':   int(rpc_block['nonce']),
-                    'transactions': [],
-                    'size':     int(rpc_block['size']),
-                    'prev_block_id': prev_block_id,
-                    }
+                    block = {
+                        'hash':     hash.decode('hex')[::-1],
+                        'version':  int(rpc_block['version']),
+                        'hashPrev': prev_hash,
+                        'hashMerkleRoot':
+                            rpc_block['merkleroot'].decode('hex')[::-1],
+                        'nTime':    int(rpc_block['time']),
+                        'nBits':    int(rpc_block['bits'], 16),
+                        'nNonce':   int(rpc_block['nonce']),
+                        'transactions': [],
+                        'size':     int(rpc_block['size']),
+                        'height':   height,
+                        }
 
-                if util.block_hash(block) != block['hash']:
-                    raise InvalidBlock('block hash mismatch')
+                    if util.block_hash(block) != block['hash']:
+                        raise InvalidBlock('block hash mismatch')
 
-                for rpc_tx_hash in rpc_block['tx']:
-                    tx = store.export_tx(tx_hash = str(rpc_tx_hash),
-                                         format = "binary") or \
-                        get_tx(rpc_tx_hash)
-                    block['transactions'].append(tx)
+                    for rpc_tx_hash in rpc_block['tx']:
+                        tx = store.export_tx(tx_hash = str(rpc_tx_hash),
+                                             format = "binary") or \
+                            get_tx(rpc_tx_hash)
+                        block['transactions'].append(tx)
 
-                store.import_block(block, chain_ids = [chain_id])
-                prev_block_id = block['block_id']
-                store.imported_bytes(block['size'])
+                    store.import_block(block, chain_ids = chain_ids)
+                    store.imported_bytes(block['size'])
+                    hash = rpc_block.get('nextblockhash')
+                else:
+                    hash = get_blockhash(height + 1)
+
+                height += 1
 
             # Import the memory pool.
             for rpc_tx_hash in rpc("getrawmempool"):
@@ -2532,17 +2590,16 @@ store._ddl['txout_approx'],
                     store.log.info("mempool tx %d", tx_id)
                     store.imported_bytes(tx['size'])
 
+        except util.JsonrpcMethodNotFound, e:
+            store.log.debug("bitcoind %s not supported", e.method)
+            return False
+
         except util.JsonrpcException, e:
-            if prev_block_id is None and e.method == "getrawtransaction" \
-                    and e.code == -5:
+            if height == 0 and e.method == "getrawtransaction" and e.code == -5:
                 store.log.debug("genesis transaction unavailable via RPC;"
                                 " see import-coinbase in abe.conf")
                 return False
             raise
-
-        except util.JsonrpcMethodNotFound, e:
-            store.log.debug("bitcoind %s not supported", e.method)
-            return False
 
         return True
 
@@ -2710,39 +2767,7 @@ store._ddl['txout_approx'],
             # CPU-mined chains that use different proof-of-work
             # algorithms.  Time to resurrect policy_id?
 
-            block_row = store.selectrow("""
-                SELECT block_id, block_height, block_chain_work,
-                       block_nTime, block_total_satoshis
-                  FROM block
-                 WHERE block_hash = ?
-            """, (store.hashin(hash),))
-
-            if block_row:
-                # Block header already seen.  Don't import the block,
-                # but try to add it to the chain.
-                if chain_id is not None:
-                    b = {
-                        "block_id":   block_row[0],
-                        "height":     block_row[1],
-                        "chain_work": store.binout_int(block_row[2]),
-                        "nTime":      block_row[3],
-                        "satoshis":   block_row[4]}
-                    if store.selectrow("""
-                        SELECT 1
-                          FROM chain_candidate
-                         WHERE block_id = ?
-                           AND chain_id = ?""",
-                                    (b['block_id'], chain_id)):
-                        store.log.info("block %d already in chain %d",
-                                       b['block_id'], chain_id)
-                        b = None
-                    else:
-                        if b['height'] == 0:
-                            b['hashPrev'] = GENESIS_HASH_PREV
-                        else:
-                            b['hashPrev'] = 'dummy'  # Fool adopt_orphans.
-                        store.offer_block_to_chains(b, frozenset([chain_id]))
-            else:
+            if not store.offer_existing_block(hash, chain_id):
                 b = store.parse_block(ds, chain_id, magic, length)
                 b["hash"] = hash
                 chain_ids = frozenset([] if chain_id is None else [chain_id])
