@@ -2585,6 +2585,7 @@ store._ddl['txout_approx'],
             # Import the memory pool.
             for rpc_tx_hash in rpc("getrawmempool"):
                 tx = get_tx(rpc_tx_hash)
+                # XXX Race condition in low isolation levels.
                 tx_id = store.tx_find_id_and_value(tx, False)
                 if tx_id is None:
                     tx_id = store.import_tx(tx, False)
