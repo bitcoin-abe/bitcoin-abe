@@ -2608,14 +2608,14 @@ store._ddl['txout_approx'],
             SELECT MAX(block_height)
               FROM chain_candidate
              WHERE chain_id = ?""", (chain_id,))
-        height = int(max_height or 0)
+        height = 0 if max_height is None else int(max_height) + 1
 
         try:
 
             # Get block hash at height, and at the same time, test
             # bitcoind connectivity.
             try:
-                hash = get_blockhash(height)
+                next_hash = get_blockhash(height)
             except util.JsonrpcException, e:
                 raise
             except Exception, e:
@@ -2625,6 +2625,7 @@ store._ddl['txout_approx'],
 
             # Find the first new block.
             while height > 0:
+                hash = get_blockhash(height - 1)
 
                 if hash is not None and (1,) == store.selectrow("""
                     SELECT 1
@@ -2636,11 +2637,11 @@ store._ddl['txout_approx'],
                         store.hashin_hex(str(hash)), chain_id)):
                     break
 
+                next_hash = hash
                 height -= 1
-                prev_hash = get_blockhash(height)
-                hash = prev_hash
 
             # Import new blocks.
+            hash = next_hash or get_blockhash(height)
             while hash is not None:
                 if not store.offer_existing_block(hash, chain_id):
                     rpc_block = rpc("getblock", hash)
@@ -2699,6 +2700,8 @@ store._ddl['txout_approx'],
             if height == 0 and e.method == "getrawtransaction" and e.code == -5:
                 store.log.debug("genesis transaction unavailable via RPC;"
                                 " see import-coinbase in abe.conf")
+                # XXX Now the default behavior is to switch to blockfile
+                # scanning until restarted, then resume RPC loading.
                 return False
             raise
 
