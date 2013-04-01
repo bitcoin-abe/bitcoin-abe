@@ -2971,7 +2971,7 @@ store._ddl['txout_approx'],
             store.sql("""
                 INSERT INTO datadir (datadir_id, dirname, blkfile_number,
                     blkfile_offset, chain_id, datadir_loader)
-                VALUES (?, ?, ?, ?, ?)""",
+                VALUES (?, ?, ?, ?, ?, ?)""",
                       (dircfg['id'], dircfg['dirname'],
                        dircfg['blkfile_number'],
                        store.intin(offset), dircfg['chain_id'],
