@@ -344,9 +344,6 @@ class DataStore(object):
             hashout     = rev
             hashout_hex = to_hex
 
-            if val == "binary":
-                transform = store._sql_binary_as_binary(transform)
-
         elif val in ("buffer", "bytearray", "pg-bytea"):
             if val == "bytearray":
                 def to_btype(x):
@@ -520,35 +517,22 @@ class DataStore(object):
             return fn(re.sub("\\?", newname, stmt))
         return ret
 
-    # Convert the standard BIT type to a hex string for databases
-    # and drivers that don't support BIT.
+    # Convert the standard BINARY type to a hex string for databases
+    # and drivers that don't support BINARY.
     def _sql_binary_as_hex(store, fn):
-        patt = re.compile("BIT((?: VARYING)?)\\(([0-9]+)\\)")
+        patt = re.compile("((?:VAR)?)BINARY\\(([0-9]+)\\)")
         def fixup(match):
             # XXX This assumes no string literals match.
-            return (("VARCHAR(" if match.group(1) else "CHAR(") +
-                    str(int(match.group(2)) / 4) + ")")
+            return (match.group(1) + "CHAR(" +
+                    str(int(match.group(2)) * 2) + ")")
         def ret(stmt):
             # XXX This assumes no string literals match.
             return fn(patt.sub(fixup, stmt).replace("X'", "'"))
         return ret
 
-    # Convert the standard BIT type to a binary string for databases
-    # and drivers that don't support BIT.
-    def _sql_binary_as_binary(store, fn):
-        patt = re.compile("BIT((?: VARYING)?)\\(([0-9]+)\\)")
-        def fixup(match):
-            # XXX This assumes no string literals match.
-            return (("VARBINARY(" if match.group(1) else "BINARY(") +
-                    str(int(match.group(2)) / 8) + ")")
-        def ret(stmt):
-            # XXX This assumes no string literals match.
-            return fn(patt.sub(fixup, stmt))
-        return ret
-
-    # Convert the standard BIT type to the PostgreSQL BYTEA type.
+    # Convert the standard BINARY type to the PostgreSQL BYTEA type.
     def _sql_binary_as_bytea(store, fn):
-        type_patt = re.compile("BIT((?: VARYING)?)\\(([0-9]+)\\)")
+        type_patt = re.compile("((?:VAR)?)BINARY\\(([0-9]+)\\)")
         lit_patt = re.compile("X'((?:[0-9a-fA-F][0-9a-fA-F])*)'")
         def fix_type(match):
             # XXX This assumes no string literals match.
@@ -1015,7 +999,7 @@ store._ddl['configvar'],
 # in the original Bitcoin source as `pchMessageStart'.
 """CREATE TABLE magic (
     magic_id    NUMERIC(10) NOT NULL PRIMARY KEY,
-    magic       BIT(32)     UNIQUE NOT NULL,
+    magic       BINARY(4)   UNIQUE NOT NULL,
     magic_name  VARCHAR(100) UNIQUE NOT NULL
 )""",
 
@@ -1029,16 +1013,16 @@ store._ddl['configvar'],
 # A block of the type used by Bitcoin.
 """CREATE TABLE block (
     block_id      NUMERIC(14) NOT NULL PRIMARY KEY,
-    block_hash    BIT(256)    UNIQUE NOT NULL,
+    block_hash    BINARY(32)  UNIQUE NOT NULL,
     block_version NUMERIC(10),
-    block_hashMerkleRoot BIT(256),
+    block_hashMerkleRoot BINARY(32),
     block_nTime   NUMERIC(20),
     block_nBits   NUMERIC(10),
     block_nNonce  NUMERIC(10),
     block_height  NUMERIC(14) NULL,
     prev_block_id NUMERIC(14) NULL,
     search_block_id NUMERIC(14) NULL,
-    block_chain_work BIT(""" + str(WORK_BITS) + """),
+    block_chain_work BINARY(""" + str(WORK_BITS / 8) + """),
     block_value_in NUMERIC(30) NULL,
     block_value_out NUMERIC(30),
     block_total_satoshis NUMERIC(26) NULL,
@@ -1058,7 +1042,7 @@ store._ddl['configvar'],
     policy_id   NUMERIC(10) NULL,
     chain_name  VARCHAR(100) UNIQUE NOT NULL,
     chain_code3 CHAR(3)     NULL,
-    chain_address_version BIT VARYING(800) NOT NULL,
+    chain_address_version VARBINARY(100) NOT NULL,
     chain_last_block_id NUMERIC(14) NULL,
     chain_trim_depth NUMERIC(14) NOT NULL,
     FOREIGN KEY (magic_id)  REFERENCES magic (magic_id),
@@ -1087,7 +1071,7 @@ store._ddl['configvar'],
 # An orphan block must remember its hashPrev.
 """CREATE TABLE orphan_block (
     block_id      NUMERIC(14) NOT NULL PRIMARY KEY,
-    block_hashPrev BIT(256)   NOT NULL,
+    block_hashPrev BINARY(32) NOT NULL,
     FOREIGN KEY (block_id) REFERENCES block (block_id)
 )""",
 """CREATE INDEX x_orphan_block_hashPrev ON orphan_block (block_hashPrev)""",
@@ -1104,7 +1088,7 @@ store._ddl['configvar'],
 # A transaction of the type used by Bitcoin.
 """CREATE TABLE tx (
     tx_id         NUMERIC(26) NOT NULL PRIMARY KEY,
-    tx_hash       BIT(256)    UNIQUE NOT NULL,
+    tx_hash       BINARY(32)  UNIQUE NOT NULL,
     tx_version    NUMERIC(10),
     tx_lockTime   NUMERIC(10),
     tx_size       NUMERIC(10)
@@ -1128,7 +1112,7 @@ store._ddl['configvar'],
 # Bitcoin or Testnet address.
 """CREATE TABLE pubkey (
     pubkey_id     NUMERIC(26) NOT NULL PRIMARY KEY,
-    pubkey_hash   BIT(160)    UNIQUE NOT NULL
+    pubkey_hash   BINARY(20)    UNIQUE NOT NULL
 )""",
 
 # A transaction out-point.
@@ -1137,7 +1121,7 @@ store._ddl['configvar'],
     tx_id         NUMERIC(26) NOT NULL,
     txout_pos     NUMERIC(10) NOT NULL,
     txout_value   NUMERIC(30) NOT NULL,
-    txout_scriptPubKey BIT VARYING(""" + str(8 * MAX_SCRIPT) + """),
+    txout_scriptPubKey VARBINARY(""" + str(MAX_SCRIPT) + """),
     pubkey_id     NUMERIC(26),
     UNIQUE (tx_id, txout_pos),
     FOREIGN KEY (pubkey_id)
@@ -1151,7 +1135,7 @@ store._ddl['configvar'],
     tx_id         NUMERIC(26) NOT NULL,
     txin_pos      NUMERIC(10) NOT NULL,
     txout_id      NUMERIC(26)""" + (""",
-    txin_scriptSig BIT VARYING(""" + str(8 * MAX_SCRIPT) + """),
+    txin_scriptSig VARBINARY(""" + str(MAX_SCRIPT) + """),
     txin_sequence NUMERIC(10)""" if store.keep_scriptsig else "") + """,
     UNIQUE (tx_id, txin_pos),
     FOREIGN KEY (tx_id)
@@ -1163,7 +1147,7 @@ store._ddl['configvar'],
 # a.k.a. PREVOUT_N.
 """CREATE TABLE unlinked_txin (
     txin_id       NUMERIC(26) NOT NULL PRIMARY KEY,
-    txout_tx_hash BIT(256)    NOT NULL,
+    txout_tx_hash BINARY(32)  NOT NULL,
     txout_pos     NUMERIC(10) NOT NULL,
     FOREIGN KEY (txin_id) REFERENCES txin (txin_id)
 )""",
@@ -1231,7 +1215,7 @@ store._ddl['txout_approx'],
                 """CREATE TABLE abe_firstbits (
                     pubkey_id       NUMERIC(26) NOT NULL,
                     block_id        NUMERIC(14) NOT NULL,
-                    address_version BIT VARYING(80) NOT NULL,
+                    address_version VARBINARY(10) NOT NULL,
                     firstbits       VARCHAR(50) NOT NULL,
                     PRIMARY KEY (address_version, pubkey_id, block_id),
                     FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id),
@@ -1301,7 +1285,7 @@ store._ddl['txout_approx'],
 
     def configure_binary_type(store):
         for val in (
-            ['str', 'bytearray', 'buffer', 'hex', 'pg-bytea', 'binary']
+            ['binary', 'bytearray', 'buffer', 'hex', 'pg-bytea']
             if store.args.binary_type is None else
             [ store.args.binary_type ]):
 
@@ -1487,7 +1471,7 @@ store._ddl['txout_approx'],
         try:
             store.ddl(
                 "CREATE TABLE abe_test_1 (test_id NUMERIC(2) NOT NULL PRIMARY KEY,"
-                " test_bit BIT(256), test_varbit BIT VARYING(" + str(8 * MAX_SCRIPT) + "))")
+                " test_bit BINARY(32), test_varbit VARBINARY(" + str(MAX_SCRIPT) + "))")
             val = str(''.join(map(chr, range(0, 256, 8))))
             store.sql("INSERT INTO abe_test_1 (test_id, test_bit, test_varbit)"
                       " VALUES (?, ?, ?)",
