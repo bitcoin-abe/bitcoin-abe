@@ -54,8 +54,12 @@ def run_upgrades(store, upgrades):
 def noop(store):
     pass
 
+def add_datadir_loader(store):
+    store.sql("ALTER TABLE datadir ADD datadir_loader VARCHAR(100) NULL")
+
 upgrades = [
-    ('AbeNoStats1', None)
+    ('AbeNoStats1', add_datadir_loader),
+    ('AbeNoStats2', None),
 ]
 
 def upgrade_schema(store):
