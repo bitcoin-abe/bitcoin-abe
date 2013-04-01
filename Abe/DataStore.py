@@ -16,10 +16,11 @@
 # License along with this program.  If not, see
 # <http://www.gnu.org/licenses/agpl.html>.
 
-# This module combines three functions that might be better split up:
+# This module combines four functions that might be better split up:
 # 1. A feature-detecting, SQL-transforming database abstraction layer
 # 2. Abe's schema
 # 3. Abstraction over the schema for importing blocks, etc.
+# 4. Code to load data by scanning blockfiles or using JSON-RPC.
 
 import os
 import re
@@ -32,7 +33,7 @@ import util
 import logging
 import base58
 
-SCHEMA_VERSION = "Abe33"
+SCHEMA_VERSION = "Abe34"
 
 CONFIG_DEFAULTS = {
     "dbtype":             None,
@@ -49,6 +50,7 @@ CONFIG_DEFAULTS = {
     "use_firstbits":      False,
     "keep_scriptsig":     True,
     "import_tx":          [],
+    "default_loader":     "default",
 }
 
 WORK_BITS = 304  # XXX more than necessary.
@@ -196,6 +198,8 @@ class DataStore(object):
 
         for hex_tx in args.import_tx:
             store.maybe_import_binary_tx(str(hex_tx).decode('hex'))
+
+        store.default_loader = args.default_loader
 
 
     def connect(store):
@@ -616,15 +620,17 @@ class DataStore(object):
 
         datadirs = {}
         for row in store.selectall("""
-            SELECT datadir_id, dirname, blkfile_number, blkfile_offset, chain_id
+            SELECT datadir_id, dirname, blkfile_number, blkfile_offset,
+                   chain_id, datadir_loader
               FROM datadir"""):
-            id, dir, num, offs, chain_id = row
+            id, dir, num, offs, chain_id, loader = row
             datadirs[dir] = {
                 "id": id,
                 "dirname": dir,
                 "blkfile_number": int(num),
                 "blkfile_offset": int(offs),
-                "chain_id": None if chain_id is None else int(chain_id)}
+                "chain_id": None if chain_id is None else int(chain_id),
+                "loader": loader}
 
         # By default, scan every dir we know.  This doesn't happen in
         # practise, because abe.py sets ~/.bitcoin as default datadir.
@@ -678,6 +684,8 @@ class DataStore(object):
                         store.log.warning("Assigned chain_id %d to %s",
                                           chain_id, chain_name)
 
+                loader = dircfg.get('loader')
+
             elif dircfg in datadirs:
                 store.datadirs.append(datadirs[dircfg])
                 continue
@@ -686,6 +694,7 @@ class DataStore(object):
                 # standard chains.
                 dirname = dircfg
                 chain_id = None
+                loader = None
 
             store.datadirs.append({
                 "id": store.new_id("datadir"),
@@ -693,6 +702,7 @@ class DataStore(object):
                 "blkfile_number": 1,
                 "blkfile_offset": 0,
                 "chain_id": chain_id,
+                "loader": loader,
                 })
 
     def _find_no_bit8_chain_ids(store, no_bit8_chains):
@@ -959,7 +969,8 @@ store._ddl['configvar'],
     dirname     VARCHAR(2000) NOT NULL,
     blkfile_number NUMERIC(8) NULL,
     blkfile_offset NUMERIC(20) NULL,
-    chain_id    NUMERIC(10) NULL
+    chain_id    NUMERIC(10) NULL,
+    datadir_loader VARCHAR(100) NULL
 )""",
 
 # MAGIC lists the magic numbers seen in messages and block files, known
@@ -2377,7 +2388,7 @@ store._ddl['txout_approx'],
                    block_total_satoshis, block_satoshi_seconds
               FROM block
              WHERE block_hash = ?
-        """, (store.hashin_hex(hash),))
+        """, (store.hashin(hash),))
 
         if not block_row:
             return False
@@ -2533,9 +2544,17 @@ store._ddl['txout_approx'],
     def catch_up(store):
         for dircfg in store.datadirs:
             try:
-                if not store.catch_up_rpc(dircfg):
-                    store.log.debug("catch_up_rpc: abort")
+                loader = dircfg['loader'] or store.default_loader
+                if loader == "blkfile":
                     store.catch_up_dir(dircfg)
+                elif loader in ("rpc", "rpc,blkfile", "default"):
+                    if not store.catch_up_rpc(dircfg):
+                        if loader == "rpc":
+                            raise Exception("RPC load failed")
+                        store.log.debug("catch_up_rpc: abort")
+                        store.catch_up_dir(dircfg)
+                else:
+                    raise Exception("Unknown datadir loader: %s" % loader)
 
                 store.flush()
 
@@ -2604,19 +2623,20 @@ store._ddl['txout_approx'],
                 rpc_tx_hex = rpc("getrawtransaction", rpc_tx_hash)
 
             except util.JsonrpcException, e:
-                if e.code != -5:  # Transaction not in index.
+                if e.code != -5:  # -5: transaction not in index.
                     raise
                 if height != 0:
                     store.log.debug("RPC service lacks full txindex")
-                    return False
+                    return None
+
+                # The genesis transaction is unavailable.  This is
+                # normal.
                 import genesis_tx
                 rpc_tx_hex = genesis_tx.get(rpc_tx_hash)
                 if rpc_tx_hex is None:
                     store.log.debug("genesis transaction unavailable via RPC;"
                                     " see import-tx in abe.conf")
-                    # XXX Now the default behavior is to switch to blockfile
-                    # scanning until restarted, then resume RPC loading.
-                    return False
+                    return None
 
             rpc_tx = rpc_tx_hex.decode('hex')
             tx_hash = util.double_sha256(rpc_tx)
@@ -2659,11 +2679,15 @@ store._ddl['txout_approx'],
                 height -= 1
 
             # Import new blocks.
-            hash = next_hash or get_blockhash(height)
-            while hash is not None:
-                if not store.offer_existing_block(hash, chain_id):
-                    rpc_block = rpc("getblock", hash)
-                    assert hash == rpc_block['hash']
+            rpc_hash = next_hash or get_blockhash(height)
+            while rpc_hash is not None:
+                hash = rpc_hash.decode('hex')[::-1]
+
+                if store.offer_existing_block(hash, chain_id):
+                    rpc_hash = get_blockhash(height + 1)
+                else:
+                    rpc_block = rpc("getblock", rpc_hash)
+                    assert rpc_hash == rpc_block['hash']
 
                     prev_hash = \
                         rpc_block['previousblockhash'].decode('hex')[::-1] \
@@ -2671,7 +2695,7 @@ store._ddl['txout_approx'],
                         else GENESIS_HASH_PREV
 
                     block = {
-                        'hash':     hash.decode('hex')[::-1],
+                        'hash':     hash,
                         'version':  int(rpc_block['version']),
                         'hashPrev': prev_hash,
                         'hashMerkleRoot':
@@ -2684,7 +2708,7 @@ store._ddl['txout_approx'],
                         'height':   height,
                         }
 
-                    if util.block_hash(block) != block['hash']:
+                    if util.block_hash(block) != hash:
                         raise InvalidBlock('block hash mismatch')
 
                     for rpc_tx_hash in rpc_block['tx']:
@@ -2699,9 +2723,7 @@ store._ddl['txout_approx'],
 
                     store.import_block(block, chain_ids = chain_ids)
                     store.imported_bytes(block['size'])
-                    hash = rpc_block.get('nextblockhash')
-                else:
-                    hash = get_blockhash(height + 1)
+                    rpc_hash = rpc_block.get('nextblockhash')
 
                 height += 1
 
@@ -2948,11 +2970,12 @@ store._ddl['txout_approx'],
         if store.cursor.rowcount == 0:
             store.sql("""
                 INSERT INTO datadir (datadir_id, dirname, blkfile_number,
-                    blkfile_offset, chain_id)
+                    blkfile_offset, chain_id, datadir_loader)
                 VALUES (?, ?, ?, ?, ?)""",
                       (dircfg['id'], dircfg['dirname'],
                        dircfg['blkfile_number'],
-                       store.intin(offset), dircfg['chain_id']))
+                       store.intin(offset), dircfg['chain_id'],
+                       dircfg['loader']))
         dircfg['blkfile_offset'] = offset
 
     def _refresh_dircfg(store, dircfg):

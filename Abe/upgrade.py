@@ -860,6 +860,9 @@ def widen_blkfile_number(store):
                 datadir_id, dirname, blkfile_number, blkfile_offset, chain_id
             ) VALUES (?, ?, ?, ?, ?)""", row)
 
+def add_datadir_loader(store):
+    store.sql("ALTER TABLE datadir ADD datadir_loader VARCHAR(100) NULL")
+
 upgrades = [
     ('6',    add_block_value_in),
     ('6.1',  add_block_value_out),
@@ -940,7 +943,8 @@ upgrades = [
     ('Abe32',   save_datadir),           # Fast
     ('Abe32.1', widen_blkfile_number),   # Fast
     ('Abe32.2', drop_tmp_datadir),       # Fast
-    ('Abe33', None)
+    ('Abe33',   add_datadir_loader),     # Fast
+    ('Abe34', None)
 ]
 
 def upgrade_schema(store):
