@@ -25,12 +25,12 @@
 import os
 import re
 import errno
+import logging
 
 # bitcointools -- modified deserialize.py to return raw transaction
 import BCDataStream
 import deserialize
 import util
-import logging
 import base58
 
 SCHEMA_TYPE = "AbeNoStats"
@@ -39,8 +39,8 @@ SCHEMA_VERSION = SCHEMA_TYPE + "2"
 CONFIG_DEFAULTS = {
     "dbtype":             None,
     "connect_args":       None,
-    "binary_type":        None,
-    "int_type":           None,
+    "binary_type":        None,  # moving to SqlAbstraction.py
+    "int_type":           None,  # moving to SqlAbstraction.py
     "upgrade":            None,
     "rescan":             None,
     "commit_bytes":       None,
