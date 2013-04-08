@@ -108,6 +108,7 @@ Statistical values are approximate and differ slightly from http://blockexplorer
 /chain/CHAIN/q/nethash[/INTERVAL[/START[/STOP]]]
 Default INTERVAL=144, START=0, STOP=infinity.
 Negative values back from the last block.
+Append ?format=json to URL for headerless, JSON output.
 
 blockNumber,time,target,avgTargetSinceLast,difficulty,hashesToWin,avgIntervalSinceLast,netHashPerSecond
 START DATA
@@ -1622,6 +1623,7 @@ class Abe:
             return 'Shows statistics every INTERVAL blocks.\n' \
                 'Negative values count back from the last block.\n' \
                 '/chain/CHAIN/q/nethash[/INTERVAL[/START[/STOP]]]\n'
+        fmt = page['params'].get('format', ["csv"])[0]
         interval = path_info_int(page, 144)
         start = path_info_int(page, 0)
         stop = path_info_int(page, None)
@@ -1673,7 +1675,12 @@ class Abe:
                                    (interval, start, chain['id'])
                                    if stop is None else
                                    (interval, start, chain['id'], stop_ix))
-        ret = NETHASH_HEADER
+        if fmt == "csv":
+            ret = NETHASH_HEADER
+        elif fmt == "json":
+            ret = []
+        else:
+            return "ERROR: unknown format: " + fmt
 
         for row in rows:
             height, nTime, chain_work, nBits = row
@@ -1695,13 +1702,22 @@ class Abe:
                     nethash = 'Infinity'
                 else:
                     nethash = "%.0f" % (interval_work / interval_seconds,)
-                ret += "%d,%d,%d,%d,%.3f,%d,%.0f,%s\n" % (
-                    height, nTime, target, avg_target, difficulty, work,
-                    interval_seconds / interval, nethash)
+
+                if fmt == "csv":
+                    ret += "%d,%d,%d,%d,%.3f,%d,%.0f,%s\n" % (
+                        height, nTime, target, avg_target, difficulty, work,
+                        interval_seconds / interval, nethash)
+                elif fmt == "json":
+                    ret.append([
+                            height, int(nTime), target, avg_target,
+                            difficulty, work, chain_work])
 
             prev_nTime, prev_chain_work = nTime, chain_work
 
-        return ret
+        if fmt == "csv":
+            return ret
+        elif fmt == "json":
+            return json.dumps(ret)
 
     def q_totalbc(abe, page, chain):
         """shows the amount of currency ever mined."""
