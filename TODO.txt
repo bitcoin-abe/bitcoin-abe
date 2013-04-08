@@ -1,3 +1,8 @@
+* MerkleRootMismatch reported when a non-final blocks/blk*.dat ends in
+  a NUL span.
+
+* datadir "loader" option seems not to override default-loader.
+
 * Trimming produces wrong statistics such as negative total fees.
 
 * Should reject and warn about blocks more than chain_trim_depth lower
