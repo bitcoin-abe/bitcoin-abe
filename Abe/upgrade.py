@@ -57,9 +57,20 @@ def noop(store):
 def add_datadir_loader(store):
     store.sql("ALTER TABLE datadir ADD datadir_loader VARCHAR(100) NULL")
 
+def abstract_sql(store):
+    for name in (
+        'binary_type', 'max_varchar', 'ddl_implicit_commit',
+        'create_table_epilogue', 'sequence_type', 'limit_style',
+        'int_type', 'clob_type'):
+        store.sql("""
+            UPDATE configvar
+               SET configvar_name = ?
+             WHERE configvar_name = ?""", ('sql.' + name, name))
+
 upgrades = [
     ('AbeNoStats1', add_datadir_loader),
-    ('AbeNoStats2', None),
+    ('AbeNoStats2', abstract_sql),
+    ('AbeNoStats3', None),
 ]
 
 def upgrade_schema(store):

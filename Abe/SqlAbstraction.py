@@ -19,11 +19,6 @@
 import re
 import logging
 
-CONFIG_DEFAULTS = {
-    "binary_type":        None,
-    "int_type":           None,
-}
-
 NO_CLOB = 'BUG_NO_CLOB'
 STMT_RE = re.compile(r"([^']+)((?:'[^']*')?)")
 
@@ -36,14 +31,19 @@ class SqlAbstraction(object):
     """
 
     # XXX Consider moving conn and cursor into sql during configure.
-    # XXX Abstract out the "abe_" prefix on database object names.
 
-    def __init__(sql, module, config=None):
-        sql.module = module
-        sql.config = config or {}
-        sql.log = logging.getLogger(__name__)
-        sql._set_flavour()
+    def __init__(sql, args):
+        sql.module = args.module
+        sql.connect_args = args.connect_args
+        sql.prefix = args.prefix
+        sql.config = args.config
+
+        sql.log    = logging.getLogger(__name__)
         sql.sqllog = logging.getLogger(__name__ + ".sql")
+        if not args.log_sql:
+            sql.sqllog.setLevel(logging.WARNING)
+
+        sql._set_flavour()
 
     def _set_flavour(sql):
         def identity(x):
@@ -229,6 +229,50 @@ class SqlAbstraction(object):
         sql.create_sequence = create_sequence
         sql.drop_sequence = drop_sequence
 
+    def connect(sql):
+        cargs = sql.connect_args
+
+        if cargs is None:
+            conn = sql.module.connect()
+        else:
+            try:
+                conn = sql._connect(cargs)
+            except UnicodeError:
+                # Perhaps this driver needs its strings encoded.
+                # Python's default is ASCII.  Let's try UTF-8, which
+                # should be the default anyway.
+                #import locale
+                #enc = locale.getlocale()[1] or locale.getdefaultlocale()[1]
+                enc = 'UTF-8'
+                def to_utf8(obj):
+                    if isinstance(obj, dict):
+                        for k in obj.keys():
+                            obj[k] = to_utf8(obj[k])
+                    if isinstance(obj, list):
+                        return map(to_utf8, obj)
+                    if isinstance(obj, unicode):
+                        return obj.encode(enc)
+                    return obj
+                conn = sql._connect(to_utf8(cargs))
+                sql.log.info("Connection required conversion to UTF-8")
+
+        return conn
+
+    def _connect(sql, cargs):
+        if isinstance(cargs, dict):
+            if ""  in cargs:
+                cargs = cargs.copy()
+                nkwargs = cargs[""]
+                del(cargs[""])
+                if isinstance(nkwargs, list):
+                    return sql.module.connect(*nkwargs, **cargs)
+                return sql.module.connect(nkwargs, **cargs)
+            else:
+                return sql.module.connect(**cargs)
+        if isinstance(cargs, list):
+            return sql.module.connect(*cargs)
+        return sql.module.connect(cargs)
+
     # Run transform_chunk on each chunk between string literals.
     def _transform_stmt(sql, stmt):
         def transform_chunk(match):
@@ -402,19 +446,21 @@ class SqlAbstraction(object):
         while True:
             row = sql.selectrow(
                 cursor,
-                "SELECT nextid FROM abe_sequences WHERE sequence_key = ?",
+                "SELECT nextid FROM %ssequences WHERE sequence_key = ?" % (
+                    sql.prefix),
                 (key,))
             if row is None:
                 raise Exception("Sequence %s does not exist" % key)
 
             ret = row[0]
             sql.sql(cursor,
-                    "UPDATE abe_sequences SET nextid = nextid + 1"
-                    " WHERE sequence_key = ? AND nextid = ?",
+                    "UPDATE %ssequences SET nextid = nextid + 1"
+                    " WHERE sequence_key = ? AND nextid = ?" % sql.prefix,
                     (key, ret))
             if cursor.rowcount == 1:
                 return ret
-            sql.log.info('Contention on abe_sequences %s:%d', key, ret)
+            sql.log.info('Contention on %ssequences %s:%d' % sql.prefix,
+                         key, ret)
 
     def _get_sequence_initial_value(sql, cursor, key):
         (ret,) = sql.selectrow(cursor, "SELECT MAX(" + key + "_id) FROM " + key)
@@ -426,26 +472,27 @@ class SqlAbstraction(object):
         ret = sql._get_sequence_initial_value(cursor, key)
         try:
             sql.sql(cursor,
-                    "INSERT INTO abe_sequences (sequence_key, nextid)"
-                    " VALUES (?, ?)", (key, ret))
+                    "INSERT INTO %ssequences (sequence_key, nextid)"
+                    " VALUES (?, ?)" % sql.prefix, (key, ret))
         except sql.module.DatabaseError, e:
             sql.rollback(conn)
             try:
-                sql.ddl(conn, cursor, """CREATE TABLE abe_sequences (
+                sql.ddl(conn, cursor, """CREATE TABLE %ssequences (
                     sequence_key VARCHAR(100) NOT NULL PRIMARY KEY,
                     nextid NUMERIC(30)
-                )""")
+                )""" % sql.prefix)
             except:
                 sql.rollback(conn)
                 raise e
             sql.sql(cursor,
-                    "INSERT INTO abe_sequences (sequence_key, nextid)"
-                    " VALUES (?, ?)", (key, ret))
+                    "INSERT INTO %ssequences (sequence_key, nextid)"
+                    " VALUES (?, ?)" % sql.prefix, (key, ret))
 
     def _drop_sequence_update(sql, conn, cursor, key):
         sql.commit(conn)
         sql.sql(cursor,
-                "DELETE FROM abe_sequences WHERE sequence_key = ?", (key,))
+                "DELETE FROM %ssequences WHERE sequence_key = ?" % sql.prefix,
+                (key,))
         sql.commit(conn)
 
     def _new_id_oracle(sql, cursor, key):
@@ -471,20 +518,22 @@ class SqlAbstraction(object):
     def _create_sequence_db2(sql, conn, cursor, key):
         sql.commit(conn)
         try:
-            rows = sql.selectall(cursor, "SELECT 1 FROM abe_dual")
+            rows = sql.selectall(cursor, "SELECT 1 FROM %sdual" % sql.prefix)
             if len(rows) != 1:
-                sql.sql(cursor, "INSERT INTO abe_dual(x) VALUES ('X')")
+                sql.sql(cursor, "INSERT INTO %sdual(x) VALUES ('X')"
+                        % sql.prefix)
         except sql.module.DatabaseError, e:
             sql.rollback(conn)
-            sql.drop_table_if_exists(conn, cursor, 'abe_dual')
-            sql.ddl(conn, cursor, "CREATE TABLE abe_dual (x CHAR(1))")
-            sql.sql(cursor, "INSERT INTO abe_dual(x) VALUES ('X')")
-            sql.log.info("Created silly table abe_dual")
+            sql.drop_table_if_exists(conn, cursor, '%sdual' % sql.prefix)
+            sql.ddl(conn, cursor, "CREATE TABLE %sdual (x CHAR(1))"
+                    % sql.prefix)
+            sql.sql(cursor, "INSERT INTO %sdual(x) VALUES ('X')" % sql.prefix)
+            sql.log.info("Created silly table %sdual" % sql.prefix)
         sql._create_sequence(conn, cursor, key)
 
     def _new_id_db2(sql, cursor, key):
         (ret,) = sql.selectrow(cursor, "SELECT NEXTVAL FOR " + key + "_seq"
-                               " FROM abe_dual")
+                               " FROM %sdual" % sql.prefix)
         return ret
 
     def _create_sequence_mysql(sql, conn, cursor, key):
@@ -609,15 +658,16 @@ class SqlAbstraction(object):
 
     def _test_ddl(sql, conn, cursor):
         """Test whether DDL performs implicit commit."""
-        sql.drop_table_if_exists(conn, cursor, "abe_test_1")
+        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
         try:
             sql.ddl(
                 conn, cursor,
-                "CREATE TABLE abe_test_1 ("
-                " abe_test_1_id NUMERIC(12) NOT NULL PRIMARY KEY,"
-                " foo VARCHAR(10))")
+                "CREATE TABLE %stest_1 ("
+                " %stest_1_id NUMERIC(12) NOT NULL PRIMARY KEY,"
+                " foo VARCHAR(10))" % (sql.prefix, sql.prefix))
             sql.rollback(conn)
-            sql.selectall(cursor, "SELECT MAX(abe_test_1_id) FROM abe_test_1")
+            sql.selectall(cursor, "SELECT MAX(%stest_1_id) FROM %stest_1"
+                          % (sql.prefix, sql.prefix))
             return True
         except sql.module.DatabaseError, e:
             sql.rollback(conn)
@@ -626,7 +676,7 @@ class SqlAbstraction(object):
             sql.rollback(conn)
             return False
         finally:
-            sql.drop_table_if_exists(conn, cursor, "abe_test_1")
+            sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
 
     def configure_create_table_epilogue(sql, conn, cursor):
         for val in ['', ' ENGINE=InnoDB']:
@@ -639,17 +689,17 @@ class SqlAbstraction(object):
 
     def _test_transaction(sql, conn, cursor):
         """Test whether CREATE TABLE needs ENGINE=InnoDB for rollback."""
-        sql.drop_table_if_exists(conn, cursor, "abe_test_1")
+        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
         try:
             sql.ddl(
                 conn, cursor,
-                "CREATE TABLE abe_test_1 (a NUMERIC(12))")
-            sql.sql(cursor, "INSERT INTO abe_test_1 (a) VALUES (4)")
+                "CREATE TABLE %stest_1 (a NUMERIC(12))" % sql.prefix)
+            sql.sql(cursor, "INSERT INTO %stest_1 (a) VALUES (4)" % sql.prefix)
             sql.commit(conn)
-            sql.sql(cursor, "INSERT INTO abe_test_1 (a) VALUES (5)")
+            sql.sql(cursor, "INSERT INTO %stest_1 (a) VALUES (5)" % sql.prefix)
             sql.rollback(conn)
             data = [int(row[0]) for row in sql.selectall(
-                    cursor, "SELECT a FROM abe_test_1")]
+                    cursor, "SELECT a FROM %stest_1" % sql.prefix)]
             return data == [4]
         except sql.module.DatabaseError, e:
             sql.rollback(conn)
@@ -658,7 +708,7 @@ class SqlAbstraction(object):
             sql.rollback(conn)
             return False
         finally:
-            sql.drop_table_if_exists(conn, cursor, "abe_test_1")
+            sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
 
     def configure_max_varchar(sql, conn, cursor):
         """Find the maximum VARCHAR width, up to 0xffffffff"""
@@ -666,16 +716,19 @@ class SqlAbstraction(object):
         hi = 1 << 32
         mid = hi - 1
         sql.config['max_varchar'] = str(mid)
-        sql.drop_table_if_exists(conn, cursor, "abe_test_1")
+        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
         while True:
-            sql.drop_table_if_exists(conn, cursor, "abe_test_1")
+            sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
             try:
                 sql.ddl(conn, cursor,
-                        """CREATE TABLE abe_test_1
-                           (a VARCHAR(%d), b VARCHAR(%d))""" % (mid, mid))
+                        """CREATE TABLE %stest_1
+                           (a VARCHAR(%d), b VARCHAR(%d))"""
+                        % (sql.prefix, mid, mid))
                 sql.sql(cursor,
-                        "INSERT INTO abe_test_1 (a, b) VALUES ('x', 'y')")
-                row = sql.selectrow(cursor, "SELECT a, b FROM abe_test_1")
+                        "INSERT INTO %stest_1 (a, b) VALUES ('x', 'y')"
+                        % sql.prefix)
+                row = sql.selectrow(cursor, "SELECT a, b FROM %stest_1"
+                                    % sql.prefix)
                 if [x for x in row] == ['x', 'y']:
                     lo = mid
                 else:
@@ -691,7 +744,7 @@ class SqlAbstraction(object):
                 sql.log.info("max_varchar=%s", sql.config['max_varchar'])
                 break
             mid = (lo + hi) / 2
-        sql.drop_table_if_exists(conn, cursor, "abe_test_1")
+        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
 
     def configure_max_precision(sql, conn, cursor):
         sql.config['max_precision'] = None  # XXX
@@ -699,13 +752,15 @@ class SqlAbstraction(object):
     def configure_clob_type(sql, conn, cursor):
         """Find the name of the CLOB type, if any."""
         long_str = 'x' * 10000
-        sql.drop_table_if_exists(conn, cursor, "abe_test_1")
+        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
         for val in ['CLOB', 'LONGTEXT', 'TEXT', 'LONG']:
             try:
-                sql.ddl(conn, cursor, "CREATE TABLE abe_test_1 (a %s)" % (val,))
-                sql.sql(cursor, "INSERT INTO abe_test_1 (a) VALUES (?)",
-                        (sql.binin(long_str),))
-                out = sql.selectrow(cursor, "SELECT a FROM abe_test_1")[0]
+                sql.ddl(conn, cursor, "CREATE TABLE %stest_1 (a %s)"
+                        % (sql.prefix, val))
+                sql.sql(cursor, "INSERT INTO %stest_1 (a) VALUES (?)",
+                        (sql.prefix, sql.binin(long_str)))
+                out = sql.selectrow(cursor, "SELECT a FROM %stest_1"
+                                    % sql.prefix)[0]
                 if sql.binout(out) == long_str:
                     sql.config['clob_type'] = val
                     sql.log.info("clob_type=%s", val)
@@ -722,26 +777,27 @@ class SqlAbstraction(object):
                     #store.reconnect()
                     raise
             finally:
-                sql.drop_table_if_exists(conn, cursor, "abe_test_1")
+                sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
         sql.log.info("No native type found for CLOB.")
         sql.config['clob_type'] = NO_CLOB
 
     def _test_binary_type(sql, conn, cursor):
-        sql.drop_table_if_exists(conn, cursor, "abe_test_1")
+        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
         try:
             # XXX The 10000 should be configurable: max_desired_binary?
             sql.ddl(conn, cursor, """
-                CREATE TABLE abe_test_1 (
+                CREATE TABLE %stest_1 (
                     test_id NUMERIC(2) NOT NULL PRIMARY KEY,
                     test_bit BINARY(32),
-                    test_varbit VARBINARY(10000))""")
+                    test_varbit VARBINARY(10000))""" % sql.prefix)
             val = str(''.join(map(chr, range(0, 256, 8))))
             sql.sql(cursor,
-                    "INSERT INTO abe_test_1 (test_id, test_bit, test_varbit)"
-                    " VALUES (?, ?, ?)",
+                    "INSERT INTO %stest_1 (test_id, test_bit, test_varbit)"
+                    " VALUES (?, ?, ?)" % sql.prefix,
                     (1, sql.revin(val), sql.binin(val)))
             (bit, vbit) = sql.selectrow(
-                cursor, "SELECT test_bit, test_varbit FROM abe_test_1")
+                cursor,
+                "SELECT test_bit, test_varbit FROM %stest_1" % sql.prefix)
             if sql.revout(bit) != val:
                 return False
             if sql.binout(vbit) != val:
@@ -754,32 +810,33 @@ class SqlAbstraction(object):
             sql.rollback(conn)
             return False
         finally:
-            sql.drop_table_if_exists(conn, cursor, "abe_test_1")
+            sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
 
     def _test_int_type(sql, conn, cursor):
-        sql.drop_view_if_exists(conn, cursor, "abe_test_v1")
-        sql.drop_table_if_exists(conn, cursor, "abe_test_1")
+        sql.drop_view_if_exists(conn, cursor, "%stest_v1" % sql.prefix)
+        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
         try:
             sql.ddl(conn, cursor, """
-                CREATE TABLE abe_test_1 (
+                CREATE TABLE %stest_1 (
                     test_id NUMERIC(2) NOT NULL PRIMARY KEY,
-                    txout_value NUMERIC(30), i2 NUMERIC(20))""")
+                    txout_value NUMERIC(30), i2 NUMERIC(20))""" % sql.prefix)
             # XXX No longer needed?
             sql.ddl(conn, cursor, """
-                CREATE VIEW abe_test_v1 AS
+                CREATE VIEW %stest_v1 AS
                 SELECT test_id,
                        CAST(txout_value AS DECIMAL(50)) txout_approx_value,
                        txout_value i1,
                        i2
-                  FROM abe_test_1""")
+                  FROM %stest_1""" % (sql.prefix, sql.prefix))
             v1 = 2099999999999999
             v2 = 1234567890
-            sql.sql(cursor, "INSERT INTO abe_test_1 (test_id, txout_value, i2)"
-                    " VALUES (?, ?, ?)",
+            sql.sql(cursor, "INSERT INTO %stest_1 (test_id, txout_value, i2)"
+                    " VALUES (?, ?, ?)" % sql.prefix,
                     (1, sql.intin(v1), v2))
             sql.commit(conn)
             prod, o1 = sql.selectrow(
-                cursor, "SELECT txout_approx_value * i2, i1 FROM abe_test_v1")
+                cursor, "SELECT txout_approx_value * i2, i1 FROM %stest_v1"
+                % sql.prefix)
             prod = int(prod)
             o1 = int(o1)
             if prod < v1 * v2 * 1.0001 and prod > v1 * v2 * 0.9999 and o1 == v1:
@@ -792,22 +849,22 @@ class SqlAbstraction(object):
             sql.rollback(conn)
             return False
         finally:
-            sql.drop_view_if_exists(conn, cursor, "abe_test_v1")
-            sql.drop_table_if_exists(conn, cursor, "abe_test_1")
+            sql.drop_view_if_exists(conn, cursor, "%stest_v1" % sql.prefix)
+            sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
 
     def _test_sequence_type(sql, conn, cursor):
-        sql.drop_table_if_exists(conn, cursor, "abe_test_1")
-        sql.drop_sequence_if_exists(conn, cursor, "abe_test_1")
+        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+        sql.drop_sequence_if_exists(conn, cursor, "%stest_1" % sql.prefix)
 
         try:
             sql.ddl(conn, cursor, """
-                CREATE TABLE abe_test_1 (
-                    abe_test_1_id NUMERIC(12) NOT NULL PRIMARY KEY,
+                CREATE TABLE %stest_1 (
+                    %stest_1_id NUMERIC(12) NOT NULL PRIMARY KEY,
                     foo VARCHAR(10)
-                )""")
-            sql.create_sequence(conn, cursor, 'abe_test_1')
-            id1 = sql.new_id(cursor, 'abe_test_1')
-            id2 = sql.new_id(cursor, 'abe_test_1')
+                )""" % (sql.prefix, sql.prefix))
+            sql.create_sequence(conn, cursor, '%stest_1' % sql.prefix)
+            id1 = sql.new_id(cursor, '%stest_1' % sql.prefix)
+            id2 = sql.new_id(cursor, '%stest_1' % sql.prefix)
             if int(id1) != int(id2):
                 return True
             return False
@@ -818,9 +875,9 @@ class SqlAbstraction(object):
             sql.rollback(conn)
             return False
         finally:
-            sql.drop_table_if_exists(conn, cursor, "abe_test_1")
+            sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
             try:
-                sql.drop_sequence(conn, cursor, "abe_test_1")
+                sql.drop_sequence(conn, cursor, "%stest_1" % sql.prefix)
             except sql.module.DatabaseError:
                 sql.rollback(conn)
 
@@ -834,19 +891,20 @@ class SqlAbstraction(object):
         raise Exception("Can not emulate LIMIT.")
 
     def _test_limit_style(sql, conn, cursor):
-        sql.drop_table_if_exists(conn, cursor, "abe_test_1")
+        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
         try:
             sql.ddl(conn, cursor, """
-                CREATE TABLE abe_test_1 (
-                    abe_test_1_id NUMERIC(12) NOT NULL PRIMARY KEY
-                )""")
+                CREATE TABLE %stest_1 (
+                    %stest_1_id NUMERIC(12) NOT NULL PRIMARY KEY
+                )""" % (sql.prefix, sql.prefix))
             for id in (2, 4, 6, 8):
                 sql.sql(cursor,
-                        "INSERT INTO abe_test_1 (abe_test_1_id) VALUES (?)",
+                        "INSERT INTO %stest_1 (%stest_1_id) VALUES (?)"
+                        % (sql.prefix, sql.prefix),
                         (id,))
             rows = sql.selectall(cursor, """
-                SELECT abe_test_1_id FROM abe_test_1 ORDER BY abe_test_1_id
-                 LIMIT 3""")
+                SELECT %stest_1_id FROM %stest_1 ORDER BY %stest_1_id
+                 LIMIT 3""" % (sql.prefix, sql.prefix, sql.prefix))
             return [int(row[0]) for row in rows] == [2, 4, 6]
         except sql.module.DatabaseError, e:
             sql.rollback(conn)
@@ -855,17 +913,4 @@ class SqlAbstraction(object):
             sql.rollback(conn)
             return False
         finally:
-            sql.drop_table_if_exists(conn, cursor, "abe_test_1")
-
-# XXX testing
-if __name__ == '__main__':
-    import sys, psycopg2, sqlite3
-    logging.basicConfig(
-        stream=sys.stdout,
-        level=logging.DEBUG,
-        format="%(message)s")
-    #sql = SqlAbstraction(psycopg2, {'binary_type': 'pg-bytea'})
-    #conn = psycopg2.connect(database="abe")
-    sql = SqlAbstraction(sqlite3, {})
-    conn = sqlite3.connect('tmp.sqlite')
-    print sql.configure(conn, conn.cursor())
+            sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
