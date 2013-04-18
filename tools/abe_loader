@@ -44,6 +44,6 @@ tail -F "$DATADIR"/debug.log |
 grep --line-buffered -- "$BLOCK_ACCEPTED" |
 while true
 do
-    python -m Abe.abe "$@" --no-serve
+    python -m Abe.abe "$@" --no-serve < /dev/null
     read -t "$MEMPOOL_INTERVAL" a
 done
