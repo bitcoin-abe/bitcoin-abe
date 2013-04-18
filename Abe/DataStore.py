@@ -272,12 +272,17 @@ class DataStore(object):
         store.init_binfuncs()
 
     def init_binfuncs(store):
-        for func in ('binin', 'binin_hex', 'binin_int',
-                     'binout', 'binout_hex', 'binout_int', 'intin'):
-            setattr(store, func, getattr(store._sql, func))
-
-        for func in ('in', 'in_hex', 'out', 'out_hex'):
-            setattr(store, 'hash' + func, getattr(store._sql, 'rev' + func))
+        store.binin       = store._sql.binin
+        store.binin_hex   = store._sql.binin_hex
+        store.binin_int   = store._sql.binin_int
+        store.binout      = store._sql.binout
+        store.binout_hex  = store._sql.binout_hex
+        store.binout_int  = store._sql.binout_int
+        store.intin       = store._sql.intin
+        store.hashin      = store._sql.revin
+        store.hashin_hex  = store._sql.revin_hex
+        store.hashout     = store._sql.revout
+        store.hashout_hex = store._sql.revout_hex
 
     def _read_config(store):
         # Read table CONFIGVAR if it exists.
