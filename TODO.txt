@@ -167,9 +167,6 @@
 * Consider denormalization for performance: prevout_hash in txin,
   pubkey_hash in txout, etc.
 
-* Support PostgreSQL BYTEA and similar binary types for improved space
-  use and memory footprint.
-
 * Implement the coin-days destroyed feature as an optional add-on.
 
 * Slight variation in CoinDD et al. among sites indicates a bug.
@@ -221,8 +218,6 @@
 * Present Namecoin name operations as an optional add-on.
 
 * Extract info from MultiCoin config files.
-
-* Import transactions from the pool.
 
 * Perhaps add coin tracking features: allow the administrator to
   specify "interesting" (e.g., suspected fraudulent) transactions and
