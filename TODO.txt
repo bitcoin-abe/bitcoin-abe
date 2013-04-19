@@ -1,3 +1,14 @@
+* Failure to calculate amount outstanding:
+    abe=> select block_id, block_height, prev_block_id, block_total_satoshis from block where block_id between 230675 and 230679;
+     block_id | block_height | prev_block_id | block_total_satoshis 
+    ----------+--------------+---------------+----------------------
+       230675 |       230559 |        230674 |     1101391328558131
+       230677 |       230560 |        230675 |             -9607265
+       230679 |       230561 |        230677 |                   -1
+    (3 rows)
+  Note the dropped identifiers after block_id 230675 and again after
+  230677.
+
 * MerkleRootMismatch reported when a non-final blocks/blk*.dat ends in
   a NUL span.  Ignore the span.
 
@@ -94,6 +105,8 @@
   redeeming transaction is not in the chain.
 
 * Write a test suite.  Include reorgs, duplicate coinbases, and upgrades.
+
+* JSON/JSONP support in /q functions.
 
 * Search by firstbits.
 
