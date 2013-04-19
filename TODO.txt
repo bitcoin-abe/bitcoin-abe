@@ -7,7 +7,23 @@
        230679 |       230561 |        230677 |                   -1
     (3 rows)
   Note the dropped identifiers after block_id 230675 and again after
-  230677.
+  230677.  It appears related to a failure to link txins:
+    abe=> select block_id from unlinked_txin join tx on (tx_hash = txout_tx_hash) join block_tx using (tx_id) join txout using (tx_id) where txout.txout_pos = unlinked_txin.txout_pos order by block_id;
+     block_id 
+    ----------
+       230677
+       230974
+       231160
+       231190
+       231284
+       231345
+       231586
+       231586
+       231669
+    (9 rows)
+  It may relate to the loose transaction isolation level: One process
+  selects for deletion from unlinked_txin, then another inserts before
+  the first process commits.
 
 * MerkleRootMismatch reported when a non-final blocks/blk*.dat ends in
   a NUL span.  Ignore the span.
