@@ -854,7 +854,7 @@ class DataStore(object):
             store.conn.rollback()
             store.in_transaction = False
         except store.module.OperationalError, e:
-            store.log.warning("Reconnecing after rollback error: %s", e)
+            store.log.warning("Reconnecting after rollback error: %s", e)
             store.reconnect()
 
     def close(store):
