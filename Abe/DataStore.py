@@ -148,8 +148,8 @@ class DataStore(object):
         if not args.log_rpc:
             store.rpclog.setLevel(logging.ERROR)
         store.module = __import__(args.dbtype)
-        store.conn = store.connect()
-        store.cursor = store.conn.cursor()
+        store.auto_reconnect = False
+        store.init_conn()
         store._blocks = {}
 
         # Read the CONFIG and CONFIGVAR tables if present.
@@ -179,6 +179,7 @@ class DataStore(object):
                 % (store.config['schema_version'], SCHEMA_VERSION))
 
         store._set_sql_flavour()
+        store.auto_reconnect = True
 
         if args.rescan:
             store.sql("UPDATE datadir SET blkfile_number=1, blkfile_offset=0")
@@ -201,6 +202,11 @@ class DataStore(object):
 
         store.default_loader = args.default_loader
 
+
+    def init_conn(store):
+        store.conn = store.connect()
+        store.cursor = store.conn.cursor()
+        store.in_transaction = False
 
     def connect(store):
         cargs = store.args.connect_args
@@ -256,8 +262,7 @@ class DataStore(object):
             store.conn.close()
         except:
             pass
-        store.conn = store.connect()
-        store.cursor = store.conn.cursor()
+        store.init_conn()
 
     def _read_config(store):
         # Read table CONFIGVAR if it exists.
@@ -471,6 +476,17 @@ class DataStore(object):
         store.create_sequence = create_sequence
         store.drop_sequence = drop_sequence
 
+    def _execute(store, stmt, params):
+        try:
+            store.cursor.execute(stmt, params)
+        except (store.module.OperationalError, store.module.InternalError,
+                store.module.ProgrammingError) as e:
+            if store.in_transaction or not store.auto_reconnect:
+                raise
+            store.log.warning("Replacing possible stale cursor: %s", e)
+            store.reconnect()
+            store.cursor.execute(stmt, params)
+
     def sql(store, stmt, params=()):
         cached = store._sql_cache.get(stmt)
         if cached is None:
@@ -478,10 +494,12 @@ class DataStore(object):
             store._sql_cache[stmt] = cached
         store.sqllog.info("EXEC: %s %s", cached, params)
         try:
-            store.cursor.execute(cached, params)
+            store._execute(cached, params)
         except Exception, e:
             store.sqllog.info("EXCEPTION: %s", e)
             raise
+        finally:
+            store.in_transaction = True
 
     def ddl(store, stmt):
         if stmt.lstrip().startswith("CREATE TABLE "):
@@ -495,6 +513,8 @@ class DataStore(object):
             raise
         if store.config['ddl_implicit_commit'] == 'false':
             store.commit()
+        else:
+            store.in_transaction = False
 
     # Convert standard placeholders to Python "format" style.
     def _qmark_to_format(store, fn):
@@ -826,10 +846,16 @@ class DataStore(object):
     def commit(store):
         store.sqllog.info("COMMIT")
         store.conn.commit()
+        store.in_transaction = False
 
     def rollback(store):
         store.sqllog.info("ROLLBACK")
-        store.conn.rollback()
+        try:
+            store.conn.rollback()
+            store.in_transaction = False
+        except store.module.OperationalError, e:
+            store.log.warning("Reconnecing after rollback error: %s", e)
+            store.reconnect()
 
     def close(store):
         store.sqllog.info("CLOSE")
