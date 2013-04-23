@@ -1974,8 +1974,8 @@ store._ddl['txout_approx'],
         def try_close_file(ds):
             try:
                 ds.close_file()
-            except:
-                pass
+            except Exception, e:
+                store.log.info("BCDataStream: close_file: %s", e)
 
         try:
             blkfile = open_blkfile(dircfg['blkfile_number'])
