@@ -354,7 +354,7 @@ class SqlAbstraction(object):
     # Convert high-precision NUMERIC and DECIMAL types to DOUBLE PRECISION
     # to avoid integer overflow with SQLite.
     def _fallback_to_approximate(sql, fn):
-        if sql.config.get('max_precision') is None:
+        if sql.config.get('max_precision', "") == "":
             return fn
 
         max_precision = int(sql.config['max_precision'])
