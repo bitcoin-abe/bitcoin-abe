@@ -2040,6 +2040,23 @@ store._ddl['txout_approx'],
             offset = ds.read_cursor
             magic = ds.read_bytes(4)
 
+            # Assume no real magic number starts with a NUL.
+            if magic[0] == "\0":
+                if filenum > 99999 and magic == "\0\0\0\0":
+                    # As of Bitcoin 0.8, files often end with a NUL span.
+                    break
+                # Skip NUL bytes at block end.
+                ds.read_cursor = offset
+                while ds.read_cursor < len(ds.input):
+                    size = min(len(ds.input) - ds.read_cursor, 1000)
+                    data = ds.read_bytes(size).lstrip("\0")
+                    if (data != ""):
+                        ds.read_cursor -= len(data)
+                        break
+                store.log.info("Skipped %d NUL bytes at block end",
+                               ds.read_cursor - offset)
+                continue
+
             # Assume blocks obey the respective policy if they get here.
             chain_id = dircfg['chain_id']
             if chain_id is None:
@@ -2052,23 +2069,6 @@ store._ddl['txout_approx'],
                 if len(rows) == 1:
                     chain_id = rows[0][0]
             if chain_id is None:
-                if magic[0] == chr(0):
-                    if filenum > 99999:
-                        # With bitcoind 0.8, the last file normally ends
-                        # with a NUL span.
-                        break
-                    # Skip NUL bytes at block end.
-                    ds.read_cursor = offset
-                    while ds.read_cursor < len(ds.input):
-                        size = min(len(ds.input) - ds.read_cursor, 1000)
-                        data = ds.read_bytes(size).lstrip("\0")
-                        if (data != ""):
-                            ds.read_cursor -= len(data)
-                            break
-                    store.log.info("Skipped %d NUL bytes at block end",
-                                   ds.read_cursor - offset)
-                    continue
-
                 store.log.error(
                     "Chain not found for magic number %s in block file %s at"
                     " offset %d.  If file contents have changed, consider"
