@@ -53,7 +53,7 @@ class SqlAbstraction(object):
         selectall = sql._selectall
 
         if sql.module.paramstyle in ('format', 'pyformat'):
-            transform = sql._qmark_to_format(transform)
+            transform_stmt = sql._qmark_to_format(transform_stmt)
         elif sql.module.paramstyle == 'named':
             transform_stmt = sql._qmark_to_named(transform_stmt)
         elif sql.module.paramstyle != 'qmark':
@@ -281,8 +281,8 @@ class SqlAbstraction(object):
 
     # Convert standard placeholders to Python "format" style.
     def _qmark_to_format(sql, fn):
-        def ret(chunk):
-            return fn(chunk.replace('%', '%%').replace("?", "%s"))
+        def ret(stmt):
+            return fn(stmt.replace('%', '%%').replace("?", "%s"))
         return ret
 
     # Convert standard placeholders to Python "named" style.
