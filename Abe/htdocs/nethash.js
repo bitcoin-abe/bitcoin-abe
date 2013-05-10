@@ -87,7 +87,6 @@ var Abe = (function() {
 
         rows[0].work = 0;  // clobber bogus value
 
-        console.log(rows.length + " rows");
         for (i = 1, work = 0; i < rows.length; i++) {
             work += rows[i].work;
 
@@ -131,7 +130,6 @@ var Abe = (function() {
         function extend_line(line) {
             line.rate /= Math.exp(interval / line.window);
             line.rate += worked / line.window;
-            console.log("window:" + line.window + " rate:" + line.rate + " i:" + i);
             if (line.rate > 0)
                 line.elt.points.appendItem(make_point(drawn,
                                                       Math.log(line.rate)));
