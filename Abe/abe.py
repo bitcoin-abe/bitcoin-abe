@@ -23,6 +23,8 @@ from cgi import escape
 import posixpath
 import wsgiref.util
 import time
+import calendar
+import math
 import logging
 import json
 
@@ -47,6 +49,9 @@ COPYRIGHT_URL = "mailto:jtobey@john-edwin-tobey.org"
 
 DONATIONS_BTC = '1PWC7PNHL1SgvZaN7xEtygenKjWobWsCuf'
 DONATIONS_NMC = 'NJ3MSELK1cWnqUa6xhF2wUYAnz3RSrWXcK'
+
+TIME1970 = time.strptime('1970-01-01','%Y-%m-%d')
+EPOCH1970 = calendar.timegm(TIME1970)
 
 # Abe-generated content should all be valid HTML and XHTML fragments.
 # Configurable templates may contain either.  HTML seems better supported
@@ -112,6 +117,24 @@ Append ?format=json to URL for headerless, JSON output.
 
 blockNumber,time,target,avgTargetSinceLast,difficulty,hashesToWin,avgIntervalSinceLast,netHashPerSecond
 START DATA
+"""
+
+NETHASH_SVG_TEMPLATE = """\
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:xlink="http://www.w3.org/1999/xlink"
+     xmlns:abe="http://abe.bit/abe"
+     viewBox="0 0 1 1"
+     preserveAspectRatio="none"
+     onload="Abe.draw(this)">
+
+  <script type="application/ecmascript"
+          xlink:href="%(dotdot)s%(STATIC_PATH)snethash.js"/>
+
+<g id="chart">
+%(body)s
+</g>
+</svg>
 """
 
 # How many addresses to accept in /unspent/ADDR|ADDR|...
@@ -206,6 +229,10 @@ class Abe:
             # cron job.
             abe.store.catch_up()
 
+            tvars = abe.template_vars.copy()
+            tvars['dotdot'] = page['dotdot']
+            page['template_vars'] = tvars
+
             handler(page)
         except PageNotFound:
             status = '404 Not Found'
@@ -229,8 +256,6 @@ class Abe:
         start_response(status, [('Content-type', page['content_type']),
                                 ('Cache-Control', 'max-age=30')])
 
-        tvars = abe.template_vars.copy()
-        tvars['dotdot'] = page['dotdot']
         tvars['title'] = flatten(page['title'])
         tvars['h1'] = flatten(page.get('h1') or page['title'])
         tvars['body'] = flatten(page['body'])
@@ -254,7 +279,7 @@ class Abe:
             '<table>\n',
             '<tr><th>Currency</th><th>Code</th><th>Block</th><th>Time</th>',
             '<th>Coins Created</th></tr>\n']
-        now = time.time()
+        now = time.time() - EPOCH1970
 
         rows = abe.store.selectall("""
             SELECT c.chain_name, b.block_height, b.block_nTime, b.block_hash,
@@ -839,9 +864,9 @@ class Abe:
         body += ['</table>\n']
 
     def handle_rawtx(abe, page):
-        abe.do_raw(page, abe.do_rawtx(page))
+        abe.do_raw(page, abe.do_rawtx)
 
-    def do_rawtx(abe, page):
+    def do_rawtx(abe, page, chain):
         tx_hash = wsgiref.util.shift_path_info(page['env'])
         if tx_hash in (None, '') or page['env']['PATH_INFO'] != '' \
                 or not is_hash_prefix(tx_hash):
@@ -1277,9 +1302,9 @@ class Abe:
         abe.show_search_results(page, addrs)
 
     def handle_unspent(abe, page):
-        abe.do_raw(page, abe.do_unspent(page))
+        abe.do_raw(page, abe.do_unspent)
 
-    def do_unspent(abe, page):
+    def do_unspent(abe, page, chain):
         addrs = wsgiref.util.shift_path_info(page['env'])
         if addrs is None:
             addrs = []
@@ -1289,8 +1314,8 @@ class Abe:
             return 'Number of addresses must be between 1 and ' + \
                 str(MAX_UNSPENT_ADDRESSES)
 
-        if page['chain']:
-            chain_id = page['chain']['id']
+        if chain:
+            chain_id = chain['id']
             bind = [chain_id]
         else:
             chain_id = None
@@ -1388,10 +1413,10 @@ class Abe:
 
         return json.dumps({ 'unspent_outputs': out }, sort_keys=True, indent=2)
 
-    def do_raw(abe, page, body):
+    def do_raw(abe, page, func):
         page['content_type'] = 'text/plain'
         page['template'] = '%(body)s'
-        page['body'] = body
+        page['body'] = func(page, page['chain'])
 
     def handle_q(abe, page):
         cmd = wsgiref.util.shift_path_info(page['env'])
@@ -1402,7 +1427,7 @@ class Abe:
         if func is None:
             raise PageNotFound()
 
-        abe.do_raw(page, func(page, page['chain']))
+        abe.do_raw(page, func)
 
     def q(abe, page):
         page['body'] = ['<p>Supported APIs:</p>\n<ul>\n']
@@ -1549,7 +1574,9 @@ class Abe:
             return 'Shows statistics every INTERVAL blocks.\n' \
                 'Negative values count back from the last block.\n' \
                 '/chain/CHAIN/q/nethash[/INTERVAL[/START[/STOP]]]\n'
-        fmt = page['params'].get('format', ["csv"])[0]
+
+        jsonp = page['params'].get('jsonp', [None])[0]
+        fmt = page['params'].get('format', ["jsonp" if jsonp else "csv"])[0]
         interval = path_info_int(page, 144)
         start = path_info_int(page, 0)
         stop = path_info_int(page, None)
@@ -1603,10 +1630,18 @@ class Abe:
                                    (interval, start, chain['id'], stop_ix))
         if fmt == "csv":
             ret = NETHASH_HEADER
-        elif fmt == "json":
+
+        elif fmt in ("json", "jsonp"):
             ret = []
+
+        elif fmt == "svg":
+            page['template'] = NETHASH_SVG_TEMPLATE
+            ret = ""
+
         else:
             return "ERROR: unknown format: " + fmt
+
+        prev_nTime, prev_chain_work = 0, -1
 
         for row in rows:
             height, nTime, chain_work, nBits = row
@@ -1617,10 +1652,11 @@ class Abe:
             work             = util.target_to_work(target)
             chain_work       = abe.store.binout_int(chain_work) - work
 
-            if row is not rows[0]:
+            if row is not rows[0] or fmt == "svg":
                 height           = int(height)
                 interval_work    = chain_work - prev_chain_work
-                avg_target       = util.work_to_target(interval_work / interval)
+                avg_target       = util.work_to_target(
+                    interval_work / float(interval))
                 #if avg_target == target - 1:
                 #    avg_target = target
                 interval_seconds = nTime - prev_nTime
@@ -1633,17 +1669,32 @@ class Abe:
                     ret += "%d,%d,%d,%d,%.3f,%d,%.0f,%s\n" % (
                         height, nTime, target, avg_target, difficulty, work,
                         interval_seconds / interval, nethash)
-                elif fmt == "json":
+
+                elif fmt in ("json", "jsonp"):
                     ret.append([
                             height, int(nTime), target, avg_target,
                             difficulty, work, chain_work])
+
+                elif fmt == "svg":
+                    ret += '<abe:nethash t="%d" d="%.3f"' \
+                        ' w="%d"/>\n' % (nTime, difficulty, interval_work)
 
             prev_nTime, prev_chain_work = nTime, chain_work
 
         if fmt == "csv":
             return ret
+
         elif fmt == "json":
+            page['content_type'] = 'application/json'
             return json.dumps(ret)
+
+        elif fmt == "jsonp":
+            page['content_type'] = 'application/javascript'
+            return (jsonp or "jsonp") + "(" + json.dumps(ret) + ")"
+
+        elif fmt == "svg":
+            page['content_type'] = 'image/svg+xml'
+            return ret
 
     def q_totalbc(abe, page, chain):
         """shows the amount of currency ever mined."""
