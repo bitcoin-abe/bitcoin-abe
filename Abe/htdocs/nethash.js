@@ -107,6 +107,8 @@ var Abe = (function() {
             elt.points.initialize(make_point(0, Math.log(first)));
             line.window = parse_window(elt.getAttributeNS(ABE_NS, "window"));
             line.rate = first;
+            line.oldShare = 1 / Math.exp(interval / line.window);
+            line.newShare = 1 - line.oldShare;
             return line;
         }
 
@@ -119,8 +121,8 @@ var Abe = (function() {
         drawn = 0;
 
         function extend_line(line) {
-            line.rate /= Math.exp(interval / line.window);
-            line.rate += worked / line.window;
+            line.rate *= line.oldShare;
+            line.rate += line.newShare * worked / interval;
             if (line.rate > 0)
                 line.elt.points.appendItem(make_point(drawn,
                                                       Math.log(line.rate)));
