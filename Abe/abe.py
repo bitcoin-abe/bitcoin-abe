@@ -124,7 +124,7 @@ NETHASH_SVG_TEMPLATE = """\
 <svg xmlns="http://www.w3.org/2000/svg"
      xmlns:xlink="http://www.w3.org/1999/xlink"
      xmlns:abe="http://abe.bit/abe"
-     viewBox="0 0 1 100"
+     viewBox="0 0 300 200"
      preserveAspectRatio="none"
      onload="Abe.draw(this)">
 
@@ -136,6 +136,7 @@ NETHASH_SVG_TEMPLATE = """\
           xlink:href="%(dotdot)s%(STATIC_PATH)snethash.js"/>
 
   <g id="chart">
+    <polyline abe:block-time="%(block_time)s" style="stroke: black;"/>
     <polyline abe:window="1d" style="stroke: red;"/>
     <polyline abe:window="3d" style="stroke: orange;"/>
     <polyline abe:window="7d" style="stroke: yellow;"/>
@@ -1647,6 +1648,7 @@ class Abe:
 
         elif fmt == "svg":
             page['template'] = NETHASH_SVG_TEMPLATE
+            page['template_vars']['block_time'] = 600;  # XXX BTC-specific
             ret = ""
 
         else:
@@ -1687,8 +1689,8 @@ class Abe:
                             difficulty, work, chain_work])
 
                 elif fmt == "svg":
-                    ret += '<abe:nethash t="%d" d="%.3f"' \
-                        ' w="%d"/>\n' % (nTime, difficulty, interval_work)
+                    ret += '<abe:nethash t="%d" d="%d"' \
+                        ' w="%d"/>\n' % (nTime, work, interval_work)
 
             prev_nTime, prev_chain_work = nTime, chain_work
 

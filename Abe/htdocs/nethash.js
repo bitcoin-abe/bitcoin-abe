@@ -23,7 +23,8 @@ var Abe = (function() {
 
     function draw(svg, interval) {
         var i, elts, node, windows, chart, lines, rows, work, first;
-        var elapsed, worked, drawn, height, matrix;
+        var elapsed, worked, drawn, width, height, intervals, matrix;
+        var difficulty_rate;
         var hi = -Infinity, lo = Infinity;
 
         if (interval === undefined) {
@@ -62,20 +63,6 @@ var Abe = (function() {
 
         rows[0].work = 0;  // clobber bogus value
 
-        for (i = 1, work = 0; i < rows.length; i++) {
-            work += rows[i].work;
-
-            if (rows[i].nTime > rows[0].nTime) {
-                first = work / (rows[i].nTime - rows[0].nTime);
-                break;
-            }
-        }
-
-        if (first === undefined) {
-            alert("Can not make chart: block times do not increase!");
-            return;
-        }
-
         function make_point(x, value) {
             var point = svg.createSVGPoint();
             point.x = x
@@ -86,8 +73,9 @@ var Abe = (function() {
         }
 
         function parse_window(s) {
-            var m = /^(\d*(?:\.\d+)?)(d|days?)$/i.exec(s);
-            var n;
+            var m, n;
+
+            m = /^(\d*(?:\.\d+)?)(d|days?)$/i.exec(s);
 
             if (m) {
                 n = Number(m[1]);
@@ -102,30 +90,84 @@ var Abe = (function() {
             throw "Can not parse interval: " + s;
         }
 
+        function scale_rate(rate) {
+            return Math.log(rate);
+        }
+
         function make_line(elt) {
-            var line = { elt: elt };
-            elt.points.initialize(make_point(0, Math.log(first)));
-            line.window = parse_window(elt.getAttributeNS(ABE_NS, "window"));
-            line.rate = first;
-            line.oldShare = 1 / Math.exp(interval / line.window);
-            line.newShare = 1 - line.oldShare;
+            var line = { elt: elt }, window;
+
+            window = elt.getAttributeNS(ABE_NS, "window");
+
+            if (window == null) {
+                line.block_time = Number(
+                    elt.getAttributeNS(ABE_NS, "block-time"));
+
+                if (line.block_time <= 0) {
+                    throw "Invalid block_time for difficulty line: " +
+                        line.block_time;
+                }
+
+                difficulty_rate = rows[0].difficulty / line.block_time;
+                line.rate = difficulty_rate;
+            }
+            else {
+                line.oldShare = 1 / Math.exp(interval / parse_window(window));
+                line.newShare = 1 - line.oldShare;
+            }
+
             return line;
         }
 
         chart = svg.getElementById("chart");
         lines = Array.prototype.map.call(chart.getElementsByTagName("polyline"),
                                          make_line)
+        first = difficulty_rate;
+
+        if (first === undefined) {
+            for (i = 0, work = 0; i < rows.length; i++) {
+                work += rows[i].work;
+
+                if (rows[i].nTime > rows[0].nTime) {
+                    first = work / (rows[i].nTime - rows[0].nTime);
+                    break;
+                }
+            }
+
+            if (first === undefined) {
+                alert("Can not make chart: block times do not increase!");
+                return;
+            }
+        }
+
+        function init_line(line) {
+            line.rate = first;
+            line.elt.points.initialize(make_point(0, scale_rate(line.rate)));
+        }
+        lines.forEach(init_line);
+
         rows.sort(function(a, b) { return a.nTime - b.nTime; });
+        intervals = Math.ceil((rows[rows.length-1].nTime - rows[0].nTime) /
+                              interval);
+        // XXX Should use the chart element's dimensions, not <svg>.
+        width = svg.viewBox.baseVal.width;
+        height = svg.viewBox.baseVal.height;
         elapsed = 0;
         worked = 0;
         drawn = 0;
 
         function extend_line(line) {
-            line.rate *= line.oldShare;
-            line.rate += line.newShare * worked / interval;
-            if (line.rate > 0)
-                line.elt.points.appendItem(make_point(drawn,
-                                                      Math.log(line.rate)));
+            if (line.block_time) {
+                line.rate = rows[i].difficulty / line.block_time;
+            }
+            else {
+                line.rate *= line.oldShare;
+                line.rate += line.newShare * worked / interval;
+            }
+            if (line.rate > 0) {
+                line.elt.points.appendItem(make_point(drawn * width / intervals,
+                                                      scale_rate(line.rate)));
+            }
         }
 
         function tick(seconds, work) {
@@ -147,10 +189,8 @@ var Abe = (function() {
         }
 
         matrix = svg.createSVGMatrix();
-        matrix.a = 1 / drawn;
 
         if (lo !== hi) {
-            height = svg.viewBox.baseVal.height;
             matrix.d = height / 1.1 / (lo - hi);
             matrix.f = height / 1.05 - lo * matrix.d;
             //matrix.f = 1 + lo / (hi - lo);
