@@ -14,6 +14,8 @@ New in 0.8 - ????
 
 * Added /unspent/ADDR|ADDR|... similar to blockchain.info/unspent?address=...
 
+* Allow configuration to import unconfirmed transactions via RPC to bitcoind.
+
 
 New in 0.7.2 - 2012-12-06
 =========================
