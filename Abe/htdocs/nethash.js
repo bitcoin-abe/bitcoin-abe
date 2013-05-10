@@ -21,35 +21,10 @@ var Abe = (function() {
     var SVG_NS = "http://www.w3.org/2000/svg";
     var ABE_NS = "http://abe.bit/abe";
 
-    function draw(svg, lines, interval) {
-        var i, elts, node, windows, chart, context, rows, work, first;
+    function draw(svg, interval) {
+        var i, elts, node, windows, chart, lines, rows, work, first;
         var elapsed, worked, drawn, height, matrix;
         var hi = -Infinity, lo = Infinity;
-
-        if (lines === undefined) {
-            lines = [
-                {
-                    window: 24*60*60,  // 1 day
-                    color: "red"
-                },
-                {
-                    window: 3*24*60*60,  // 3 days
-                    color: "orange"
-                },
-                {
-                    window: 7*24*60*60,  // 7 days
-                    color: "yellow"
-                },
-                {
-                    window: 14*24*60*60,  // 14 days
-                    color: "green"
-                },
-                {
-                    window: 30*24*60*60,  // 30 days
-                    color: "blue"
-                }
-            ];
-        }
 
         if (interval === undefined) {
             interval = 24*60*60;   // 1 day
@@ -110,18 +85,34 @@ var Abe = (function() {
             return point;
         }
 
-        function make_line(line) {
-            var elt = svg.ownerDocument.createElementNS(SVG_NS, "polyline");
-            elt.setAttributeNS(null, "style", "stroke: " + line.color + ";");
-            elt.setAttributeNS(null, "fill-opacity", "0");
+        function parse_window(s) {
+            var m = /^(\d*(?:\.\d+)?)(d|days?)$/i.exec(s);
+            var n;
+
+            if (m) {
+                n = Number(m[1]);
+                if (n > 0) {
+                    switch (m[2].toLowerCase()) {
+                    case "d": case "day": case "days": return n * 24*60*60;
+                    default: break;
+                    }
+                }
+            }
+
+            throw "Can not parse interval: " + s;
+        }
+
+        function make_line(elt) {
+            var line = { elt: elt };
             elt.points.initialize(make_point(0, Math.log(first)));
-            chart.appendChild(elt);
-            line.elt = elt;
+            line.window = parse_window(elt.getAttributeNS(ABE_NS, "window"));
             line.rate = first;
+            return line;
         }
 
         chart = svg.getElementById("chart");
-        lines.forEach(make_line);
+        lines = Array.prototype.map.call(chart.getElementsByTagName("polyline"),
+                                         make_line)
         rows.sort(function(a, b) { return a.nTime - b.nTime; });
         elapsed = 0;
         worked = 0;
