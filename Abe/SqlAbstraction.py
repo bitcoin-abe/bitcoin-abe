@@ -747,7 +747,7 @@ class SqlAbstraction(object):
         sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
 
     def configure_max_precision(sql, conn, cursor):
-        sql.config['max_precision'] = None  # XXX
+        sql.config['max_precision'] = ""  # XXX
 
     def configure_clob_type(sql, conn, cursor):
         """Find the name of the CLOB type, if any."""
