@@ -124,7 +124,7 @@ NETHASH_SVG_TEMPLATE = """\
 <svg xmlns="http://www.w3.org/2000/svg"
      xmlns:xlink="http://www.w3.org/1999/xlink"
      xmlns:abe="http://abe.bit/abe"
-     viewBox="0 0 1 1"
+     viewBox="0 0 1 100"
      preserveAspectRatio="none"
      onload="Abe.draw(this)">
 

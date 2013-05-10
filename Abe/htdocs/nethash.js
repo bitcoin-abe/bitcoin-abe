@@ -23,7 +23,7 @@ var Abe = (function() {
 
     function draw(svg, lines, interval) {
         var i, elts, node, windows, chart, context, rows, work, first;
-        var elapsed, worked, drawn, matrix;
+        var elapsed, worked, drawn, height, matrix;
         var hi = -Infinity, lo = Infinity;
 
         if (lines === undefined) {
@@ -157,8 +157,10 @@ var Abe = (function() {
         matrix.a = 1 / drawn;
 
         if (lo !== hi) {
-            matrix.d = 1 / (lo - hi);
-            matrix.f = 1 + lo / (hi - lo);
+            height = svg.viewBox.baseVal.height;
+            matrix.d = height / 1.1 / (lo - hi);
+            matrix.f = height / 1.05 - lo * matrix.d;
+            //matrix.f = 1 + lo / (hi - lo);
         }
 
         chart.transform.baseVal.initialize(
