@@ -197,7 +197,7 @@
   nextretarget        estimate
   avgtxsize           avgtxvalue          avgblocksize
   interval            eta                 avgtxnumber
-  addressbalance      addressfirstseen    mytransactions
+                      addressfirstseen    mytransactions
   reorglog
 
 * BTC-specific /q functions:

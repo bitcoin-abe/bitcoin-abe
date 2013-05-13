@@ -1441,6 +1441,19 @@ class Abe:
 
         abe.do_raw(page, func)
 
+        if page['content_type'] == 'text/plain':
+            jsonp = page['params'].get('jsonp', [None])[0]
+            fmt = page['params'].get('format', ["jsonp" if jsonp else "csv"])[0]
+
+            if fmt in ("json", "jsonp"):
+                page['body'] = json.dumps([page['body']])
+
+                if fmt == "jsonp":
+                    page['body'] = (jsonp or "jsonp") + "(" + page['body'] + ")"
+                    page['content_type'] = 'application/javascript'
+                else:
+                    page['content_type'] = 'application/json'
+
     def q(abe, page):
         page['body'] = ['<p>Supported APIs:</p>\n<ul>\n']
         for name in dir(abe):
@@ -1467,7 +1480,7 @@ class Abe:
         return abe.get_max_block_height(chain)
 
     def q_getdifficulty(abe, page, chain):
-        """shows the current difficulty."""
+        """shows the last solved block's difficulty."""
         if chain is None:
             return 'Shows the difficulty of the last block in CHAIN.\n' \
                 '/chain/CHAIN/q/getdifficulty\n'
@@ -1741,7 +1754,7 @@ class Abe:
         return format_satoshis(row[0], chain) if row else 0
 
     def q_getreceivedbyaddress(abe, page, chain):
-        """getreceivedbyaddress"""
+        """shows the amount ever received by a given address."""
         addr = wsgiref.util.shift_path_info(page['env'])
         if chain is None or addr is None:
             return 'returns amount of money received by given address (not balance, sends are not subtracted)\n' \
@@ -1751,25 +1764,10 @@ class Abe:
             return 'ERROR: address invalid'
 
         version, hash = util.decode_address(addr)
-        sql = """
-            SELECT COALESCE(SUM(txout.txout_value), 0)
-              FROM pubkey
-              JOIN txout ON txout.pubkey_id=pubkey.pubkey_id
-              JOIN block_tx ON block_tx.tx_id=txout.tx_id
-              JOIN block b ON b.block_id=block_tx.block_id
-              JOIN chain_candidate cc ON cc.block_id=b.block_id
-              WHERE
-                  pubkey.pubkey_hash = ? AND
-                  cc.chain_id = ? AND
-                  cc.in_longest = 1"""
-        row = abe.store.selectrow(
-            sql, (abe.store.binin(hash), chain['id']))
-        ret = format_satoshis(row[0], chain);
-
-        return ret
+        return format_satoshis(abe.store.get_received(chain['id'], hash), chain)
 
     def q_getsentbyaddress(abe, page, chain):
-        """getsentbyaddress"""
+        """shows the amount ever sent from a given address."""
         addr = wsgiref.util.shift_path_info(page['env'])
         if chain is None or addr is None:
             return 'returns amount of money sent from given address\n' \
@@ -1779,23 +1777,23 @@ class Abe:
             return 'ERROR: address invalid'
 
         version, hash = util.decode_address(addr)
-        sql = """
-            SELECT COALESCE(SUM(txout.txout_value), 0)
-              FROM pubkey
-              JOIN txout ON txout.pubkey_id=pubkey.pubkey_id
-              JOIN txin ON txin.txout_id=txout.txout_id
-              JOIN block_tx ON block_tx.tx_id=txout.tx_id
-              JOIN block b ON b.block_id=block_tx.block_id
-              JOIN chain_candidate cc ON cc.block_id=b.block_id
-              WHERE
-                  pubkey.pubkey_hash = ? AND
-                  cc.chain_id = ? AND
-                  cc.in_longest = 1"""
-        row = abe.store.selectrow(
-            sql, (abe.store.binin(hash), chain['id']))
-        ret = format_satoshis(row[0], chain);
+        return format_satoshis(abe.store.get_sent(chain['id'], hash), chain)
 
-        return ret
+    def q_addressbalance(abe, page, chain):
+        """amount ever received minus amount ever sent by a given address."""
+        addr = wsgiref.util.shift_path_info(page['env'])
+        if chain is None or addr is None:
+            return 'returns amount of money at the given address\n' \
+                '/chain/CHAIN/q/addressbalance/ADDRESS\n'
+
+        if not util.possible_address(addr):
+            return 'ERROR: address invalid'
+
+        version, hash = util.decode_address(addr)
+        total = abe.store.get_balance(chain['id'], hash)
+
+        return ("ERROR: please try again" if total is None else
+                format_satoshis(total, chain))
 
     def q_fb(abe, page, chain):
         """returns an address's firstbits."""
