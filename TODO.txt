@@ -5,7 +5,7 @@
 
 * Block/tx blacklist.
 
-* Failure to load Namecoin block 99502 due to long scriptPubKey.
+* Consider allowing unlimited script length.
 
 * UnicodeEncodeError on non-ASCII MySQLdb connect params.
 
