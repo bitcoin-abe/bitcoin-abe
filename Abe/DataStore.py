@@ -95,8 +95,8 @@ SCRIPT_PUBKEY_RE = re.compile("\x41(.{65})\xac\\Z", re.DOTALL)
 # Script that can never be redeemed, used in Namecoin.
 SCRIPT_NETWORK_FEE = '\x6a'
 
-# Size of the script columns.  Namecoin Block 99502 needs a higher value.
-MAX_SCRIPT = 10000
+# Size of the script columns.
+MAX_SCRIPT = 1000000
 
 NO_CLOB = 'BUG_NO_CLOB'
 
