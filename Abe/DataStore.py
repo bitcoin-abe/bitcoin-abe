@@ -3039,9 +3039,9 @@ store._ddl['txout_approx'],
     def get_received_and_last_block_id(store, chain_id, pubkey_hash,
                                        block_height = None):
         sql = """
-            SELECT COALESCE(value, 0), c.chain_last_block_id
+            SELECT COALESCE(value_sum, 0), c.chain_last_block_id
               FROM chain c LEFT JOIN (
-              SELECT cc.chain_id, SUM(txout.txout_value) value
+              SELECT cc.chain_id, SUM(txout.txout_value) value_sum
               FROM pubkey
               JOIN txout              ON (txout.pubkey_id = pubkey.pubkey_id)
               JOIN block_tx           ON (block_tx.tx_id = txout.tx_id)
@@ -3070,9 +3070,9 @@ store._ddl['txout_approx'],
     def get_sent_and_last_block_id(store, chain_id, pubkey_hash,
                                    block_height = None):
         sql = """
-            SELECT COALESCE(value, 0), c.chain_last_block_id
+            SELECT COALESCE(value_sum, 0), c.chain_last_block_id
               FROM chain c LEFT JOIN (
-              SELECT cc.chain_id, SUM(txout.txout_value) value
+              SELECT cc.chain_id, SUM(txout.txout_value) value_sum
               FROM pubkey
               JOIN txout              ON (txout.pubkey_id = pubkey.pubkey_id)
               JOIN txin               ON (txin.txout_id = txout.txout_id)
