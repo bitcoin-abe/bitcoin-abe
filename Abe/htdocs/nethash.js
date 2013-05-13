@@ -22,10 +22,9 @@ var Abe = (function() {
     var ABE_NS = "http://abe.bit/abe";
 
     function draw(svg, interval) {
-        var i, elts, node, windows, chart, lines, rows, work, first;
+        var ctx, i, elts, node, windows, chart, lines, rows, work, first;
         var elapsed, worked, drawn, width, height, intervals, matrix;
         var difficulty_rate;
-        var hi = -Infinity, lo = Infinity;
 
         if (interval === undefined) {
             interval = 24*60*60;   // 1 day
@@ -64,11 +63,11 @@ var Abe = (function() {
         rows[0].work = 0;  // clobber bogus value
 
         function make_point(x, value) {
-            var point = svg.createSVGPoint();
+            var y = this.scale_rate(value), point = this.svg.createSVGPoint();
             point.x = x
-            point.y = value;
-            if (value < lo) lo = value;
-            if (value > hi) hi = value;
+            point.y = y;
+            if (y < this.lo) this.lo = y;
+            if (y > this.hi) this.hi = y;
             return point;
         }
 
@@ -140,21 +139,42 @@ var Abe = (function() {
             }
         }
 
+        ctx = {
+            svg: svg,
+            lines: lines,
+            rows: rows,
+            make_point: make_point,
+            hi: -Infinity,
+            lo: Infinity,
+
+            // XXX Should use the chart element's dimensions, not <svg>.
+            width: svg.viewBox.baseVal.width,
+            height: svg.viewBox.baseVal.height,
+            elapsed: 0,
+            worked: 0,
+            drawn: 0
+        };
+
         function init_line(line) {
             line.rate = first;
-            line.elt.points.initialize(make_point(0, scale_rate(line.rate)));
+            line.elt.points.initialize(make_point(0, line.rate));
         }
         lines.forEach(init_line);
 
         rows.sort(function(a, b) { return a.nTime - b.nTime; });
-        intervals = Math.ceil((rows[rows.length-1].nTime - rows[0].nTime) /
-                              interval);
-        // XXX Should use the chart element's dimensions, not <svg>.
-        width = svg.viewBox.baseVal.width;
-        height = svg.viewBox.baseVal.height;
-        elapsed = 0;
-        worked = 0;
-        drawn = 0;
+        ctx.intervals = Math.ceil((rows[rows.length-1].nTime - rows[0].nTime) /
+                                  interval);
+
+        drawSome(ctx);
+    }
+
+    function drawSome(ctx) {
+        var t = this;
+        var i, elts, node, windows, chart, lines, rows, work, first;
+        var elapsed, worked, drawn, width, height, intervals, matrix;
+        var difficulty_rate;
+
+
 
         function extend_line(line) {
             if (line.block_time) {
@@ -166,7 +186,7 @@ var Abe = (function() {
             }
             if (line.rate > 0) {
                 line.elt.points.appendItem(make_point(drawn * width / intervals,
-                                                      scale_rate(line.rate)));
+                                                      line.rate));
             }
         }
 
