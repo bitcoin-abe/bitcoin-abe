@@ -19,7 +19,7 @@ Log into MySQL as root (e.g.: mysql -u root) and issue the following,
 replacing "PASSWORD" with a password you choose:
 
     create database abe;
-    CREATE USER abe IDENTIFIED BY 'PASSWORD';
+    CREATE USER 'abe'@'localhost' IDENTIFIED BY 'PASSWORD';
     grant all on abe.* to abe;
 
 Create file abe-my.conf with the following contents, replacing
