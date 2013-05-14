@@ -129,15 +129,17 @@ NETHASH_SVG_TEMPLATE = """\
      onload="Abe.draw(this)">
 
   <style>
-    #chart polyline { stroke-width: 0.1%%; fill-opacity: 0; }
+    #chart polyline {
+        stroke-width: 0.1%%;
+        fill-opacity: 0;
+        stroke-opacity: 0.5;
   </style>
 
   <script type="application/ecmascript"
           xlink:href="%(dotdot)s%(STATIC_PATH)snethash.js"/>
 
   <g id="chart">
-    <polyline abe:block-time="%(block_time)s" style="stroke: black;"/>
-    <polyline abe:window="1d" style="stroke: red;"/>
+    <polyline abe:block-time="%(block_time)s" style="stroke: black; stroke-opacity: 1;"/>
     <polyline abe:window="3d" style="stroke: orange;"/>
     <polyline abe:window="7d" style="stroke: yellow;"/>
     <polyline abe:window="14d" style="stroke: green;"/>
