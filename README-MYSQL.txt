@@ -4,10 +4,11 @@ Abe setup for MySQL: 8 easy steps.
 your home directory, along with some other necessary files.
 
 2. Install Python 2.7 and pycrypto.  The Debian/Ubuntu packages are
-python2.7 and python-crypto.
+python2.7 and python-crypto. Also get python-MySQLDB. On Debian/Ubuntu: 
+sudo apt-get install python-mysqldb
 
 3. Install MySQL 5.x server and MySQL-Python.  On Debian/Ubuntu:
-apt-get install mysql-client mysql-server
+sudo apt-get install mysql-client mysql-server
 
 4. Configure the MySQL instance with InnoDB engine support.  If you
 installed with Debian/Ubuntu then InnoDB is enabled by default.  
