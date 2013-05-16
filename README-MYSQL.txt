@@ -3,8 +3,9 @@ Abe setup for MySQL: 8 easy steps.
 1. Run the Bitcoin client once.  It'll create a .bitcoin directory in
 your home directory, along with some other necessary files.
 
-2. Install Python 2.7 and pycrypto.  The Debian/Ubuntu packages are
-python2.7 and python-crypto. Also get python-MySQLDB. On Debian/Ubuntu: 
+2. Install Python 2.7 and pycrypto and python-mysqldb.  The Debian/Ubuntu packages 
+are python2.7, python-crypto, and python-mysqldb. You can use PIP 
+(python package manager) to get pycrypto; mysqldb requires (Debian/Ubuntu)
 sudo apt-get install python-mysqldb
 
 3. Install MySQL 5.x server and MySQL-Python.  On Debian/Ubuntu:
