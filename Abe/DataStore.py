@@ -202,6 +202,9 @@ class DataStore(object):
 
         store.default_loader = args.default_loader
 
+        if store.in_transaction:
+            store.commit()
+
 
     def init_conn(store):
         store.conn = store.connect()
@@ -483,8 +486,15 @@ class DataStore(object):
                 store.module.ProgrammingError) as e:
             if store.in_transaction or not store.auto_reconnect:
                 raise
+
             store.log.warning("Replacing possible stale cursor: %s", e)
-            store.reconnect()
+
+            try:
+                store.reconnect()
+            except:
+                store.log.exception("Failed to reconnect")
+                raise e
+
             store.cursor.execute(stmt, params)
 
     def sql(store, stmt, params=()):
@@ -1376,13 +1386,15 @@ store._ddl['txout_approx'],
 
     def _test_ddl(store):
         """Test whether DDL performs implicit commit."""
+
         store.drop_table_if_exists("abe_test_1")
+        store.ddl(
+            "CREATE TABLE abe_test_1 ("
+            " abe_test_1_id NUMERIC(12) NOT NULL PRIMARY KEY,"
+            " foo VARCHAR(10))")
+        store.rollback()
+
         try:
-            store.ddl(
-                "CREATE TABLE abe_test_1 ("
-                " abe_test_1_id NUMERIC(12) NOT NULL PRIMARY KEY,"
-                " foo VARCHAR(10))")
-            store.rollback()
             store.selectall("SELECT MAX(abe_test_1_id) FROM abe_test_1")
             return True
         except store.module.DatabaseError, e:
