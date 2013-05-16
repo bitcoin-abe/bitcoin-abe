@@ -92,8 +92,8 @@ SCRIPT_PUBKEY_RE = re.compile("\x41(.{65})\xac\\Z", re.DOTALL)
 # Script that can never be redeemed, used in Namecoin.
 SCRIPT_NETWORK_FEE = '\x6a'
 
-# Size of the script columns.  Namecoin Block 99502 needs a higher value.
-MAX_SCRIPT = 10000
+# Size of the script columns.
+MAX_SCRIPT = 1000000
 
 NO_CLOB = 'BUG_NO_CLOB'
 
@@ -1671,6 +1671,9 @@ store._ddl['txout_approx'],
         return block['height'] >= height and \
             store.get_block_id_at_height(height, block_id) == ancestor_id
 
+    def get_block_height(store, block_id):
+        return store._load_block(int(block_id))['height']
+
     def find_prev(store, hash):
         row = store.selectrow("""
             SELECT block_id, block_height, block_chain_work,
@@ -3032,6 +3035,102 @@ store._ddl['txout_approx'],
               JOIN chain c ON (b.block_id = c.chain_last_block_id)
              WHERE c.chain_id = ?""", (chain_id,))
         return util.calculate_target(int(rows[0][0])) if rows else None
+
+    def get_received_and_last_block_id(store, chain_id, pubkey_hash,
+                                       block_height = None):
+        sql = """
+            SELECT COALESCE(value_sum, 0), c.chain_last_block_id
+              FROM chain c LEFT JOIN (
+              SELECT cc.chain_id, SUM(txout.txout_value) value_sum
+              FROM pubkey
+              JOIN txout              ON (txout.pubkey_id = pubkey.pubkey_id)
+              JOIN block_tx           ON (block_tx.tx_id = txout.tx_id)
+              JOIN block b            ON (b.block_id = block_tx.block_id)
+              JOIN chain_candidate cc ON (cc.block_id = b.block_id)
+              WHERE
+                  pubkey.pubkey_hash = ? AND
+                  cc.chain_id = ? AND
+                  cc.in_longest = 1""" + (
+                  "" if block_height is None else """ AND
+                  cc.block_height <= ?""") + """
+              GROUP BY cc.chain_id
+              ) a ON (c.chain_id = a.chain_id)
+              WHERE c.chain_id = ?"""
+        dbhash = store.binin(pubkey_hash)
+
+        return store.selectrow(sql,
+                               (dbhash, chain_id, chain_id)
+                               if block_height is None else
+                               (dbhash, chain_id, block_height, chain_id))
+
+    def get_received(store, chain_id, pubkey_hash, block_height = None):
+        return store.get_received_and_last_block_id(
+            chain_id, pubkey_hash, block_height)[0]
+
+    def get_sent_and_last_block_id(store, chain_id, pubkey_hash,
+                                   block_height = None):
+        sql = """
+            SELECT COALESCE(value_sum, 0), c.chain_last_block_id
+              FROM chain c LEFT JOIN (
+              SELECT cc.chain_id, SUM(txout.txout_value) value_sum
+              FROM pubkey
+              JOIN txout              ON (txout.pubkey_id = pubkey.pubkey_id)
+              JOIN txin               ON (txin.txout_id = txout.txout_id)
+              JOIN block_tx           ON (block_tx.tx_id = txin.tx_id)
+              JOIN block b            ON (b.block_id = block_tx.block_id)
+              JOIN chain_candidate cc ON (cc.block_id = b.block_id)
+              WHERE
+                  pubkey.pubkey_hash = ? AND
+                  cc.chain_id = ? AND
+                  cc.in_longest = 1""" + (
+                  "" if block_height is None else """ AND
+                  cc.block_height <= ?""") + """
+              GROUP BY cc.chain_id
+              ) a ON (c.chain_id = a.chain_id)
+              WHERE c.chain_id = ?"""
+        dbhash = store.binin(pubkey_hash)
+
+        return store.selectrow(sql,
+                               (dbhash, chain_id, chain_id)
+                               if block_height is None else
+                               (dbhash, chain_id, block_height, chain_id))
+
+    def get_sent(store, chain_id, pubkey_hash, block_height = None):
+        return store.get_sent_and_last_block_id(
+            chain_id, pubkey_hash, block_height)[0]
+
+    def get_balance(store, chain_id, pubkey_hash):
+        sent, last_block_id = store.get_sent_and_last_block_id(
+            chain_id, pubkey_hash)
+        received, last_block_id_2 = store.get_received_and_last_block_id(
+            chain_id, pubkey_hash)
+
+        # Deal with the race condition.
+        for i in xrange(2):
+            if last_block_id == last_block_id_2:
+                break
+
+            store.log.debug("Requerying balance: %d != %d",
+                          last_block_id, last_block_id_2)
+
+            received, last_block_id_2 = store.get_received(
+                chain_id, pubkey_hash, store.get_block_height(last_block_id))
+
+            if last_block_id == last_block_id_2:
+                break
+
+            store.log.info("Balance query affected by reorg? %d != %d",
+                           last_block_id, last_block_id_2)
+
+            sent, last_block_id = store.get_sent(
+                chain_id, pubkey_hash, store.get_block_height(last_block_id_2))
+
+        if last_block_id != last_block_id_2:
+            store.log.warning("Balance query failed due to loader activity.")
+            return None
+
+        return received - sent
+
 
     def firstbits_full(store, version, hash):
         """
