@@ -38,10 +38,8 @@ def double_sha256(s):
 
 # Based on CBlock::BuildMerkleTree().
 def merkle(hashes):
-    while True:
+    while len(hashes) > 1:
         size = len(hashes)
-        if size <= 1:
-            break
         out = []
         for i in xrange(0, size, 2):
             i2 = min(i + 1, size - 1)
