@@ -44,7 +44,6 @@ def parse_TxIn(vds):
   d['scriptSig'] = vds.read_bytes(vds.read_compact_size())
   d['sequence'] = vds.read_uint32()
   return d
-  
 def deserialize_TxIn(d, transaction_index=None, owner_keys=None):
   if d['prevout_hash'] == "\x00"*32:
     result = "TxIn: COIN GENERATED"
