@@ -65,20 +65,20 @@ class BCDataStream(object):
     return ''
 
   def read_boolean(self): return self.read_bytes(1)[0] != chr(0)
-  def read_int16(self): return self._read_num('<h')
-  def read_uint16(self): return self._read_num('<H')
-  def read_int32(self): return self._read_num('<i')
-  def read_uint32(self): return self._read_num('<I')
-  def read_int64(self): return self._read_num('<q')
-  def read_uint64(self): return self._read_num('<Q')
+  def read_int16  (self): return self._read_num('<h')
+  def read_uint16 (self): return self._read_num('<H')
+  def read_int32  (self): return self._read_num('<i')
+  def read_uint32 (self): return self._read_num('<I')
+  def read_int64  (self): return self._read_num('<q')
+  def read_uint64 (self): return self._read_num('<Q')
 
   def write_boolean(self, val): return self.write(chr(1) if val else chr(0))
-  def write_int16(self, val): return self._write_num('<h', val)
-  def write_uint16(self, val): return self._write_num('<H', val)
-  def write_int32(self, val): return self._write_num('<i', val)
-  def write_uint32(self, val): return self._write_num('<I', val)
-  def write_int64(self, val): return self._write_num('<q', val)
-  def write_uint64(self, val): return self._write_num('<Q', val)
+  def write_int16  (self, val): return self._write_num('<h', val)
+  def write_uint16 (self, val): return self._write_num('<H', val)
+  def write_int32  (self, val): return self._write_num('<i', val)
+  def write_uint32 (self, val): return self._write_num('<I', val)
+  def write_int64  (self, val): return self._write_num('<q', val)
+  def write_uint64 (self, val): return self._write_num('<Q', val)
 
   def read_compact_size(self):
     size = ord(self.input[self.read_cursor])
