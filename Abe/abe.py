@@ -504,7 +504,7 @@ class Abe:
             else:
                 avg_age = '%5g' % (ss / satoshis / 86400.0)
 
-            if seconds <= 0:
+            if total_ss <= 0:
                 percent_destroyed = '&nbsp;'
             else:
                 percent_destroyed = '%5g' % (
