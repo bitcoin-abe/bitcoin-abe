@@ -2926,15 +2926,22 @@ store._ddl['txout_approx'],
                                        (store.binin(magic),))
                 if len(rows) == 1:
                     chain_id = rows[0][0]
+
             if chain_id is None:
-                store.log.error(
+                # Scan for occurrence of this file's initial magic number.
+                not_magic = magic
+                magic = ds.input[0:4]
+                store.log.warning(
                     "Chain not found for magic number %s in block file %s at"
-                    " offset %d.  If file contents have changed, consider"
-                    " forcing a rescan: UPDATE datadir SET blkfile_number=1,"
-                    " blkfile_offset=0 WHERE dirname='%s'",
-                    repr(magic), filename, offset, dircfg['dirname'])
+                    " offset %d.  Scanning for initial magic number %s",
+                    not_magic.encode('hex'), filename, offset,
+                    magic.encode('hex'))
                 ds.read_cursor = offset
-                break
+                offset = ds.input.find(magic, offset)
+                if offset == -1:
+                    break
+                ds.read_cursor = offset
+                continue
 
             length = ds.read_int32()
             if ds.read_cursor + length > len(ds.input):
