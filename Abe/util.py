@@ -11,6 +11,12 @@ try:
 except:
     import ripemd_via_hashlib as RIPEMD160
 
+# XXX testing for CopperLark, which uses SHA3-256.
+import sys
+import hashlib
+if sys.version_info < (3, 4):
+    import sha3
+
 # This function comes from bitcointools, bct-LICENSE.txt.
 def determine_db_dir():
     import os
@@ -33,8 +39,19 @@ def short_hex(bytes):
         return t
     return t[0:4]+"..."+t[-4:]
 
+def sha256(s):
+    return SHA256.new(s).digest()
+
+def sha3_256(s):
+    h = hashlib.new('sha3_256')
+    h.update(s)
+    return h.digest()
+
 def double_sha256(s):
-    return SHA256.new(SHA256.new(s).digest()).digest()
+    return sha256(sha256(s))
+
+def double_sha3_256(s):
+    return sha3_256(sha3_256(s))
 
 # Based on CBlock::BuildMerkleTree().
 def merkle(hashes):
@@ -59,7 +76,7 @@ def block_hash(block):
     return double_sha256(ds.input)
 
 def pubkey_to_hash(pubkey):
-    return RIPEMD160.new(SHA256.new(pubkey).digest()).digest()
+    return RIPEMD160.new(sha256(pubkey)).digest()
 
 def calculate_target(nBits):
     return (nBits & 0xffffff) << (8 * ((nBits >> 24) - 3))
