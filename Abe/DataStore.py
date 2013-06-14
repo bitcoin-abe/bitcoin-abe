@@ -2785,6 +2785,10 @@ store._ddl['txout_approx'],
             store.log.debug("bitcoind %s not supported", e.method)
             return False
 
+        except InvalidBlock, e:
+            store.log.debug("RPC data not understood: %s", e)
+            return False
+
         return True
 
     # Load all blocks starting at the current file and offset.
