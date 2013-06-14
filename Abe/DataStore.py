@@ -2928,18 +2928,31 @@ store._ddl['txout_approx'],
                     chain_id = rows[0][0]
 
             if chain_id is None:
-                # Scan for occurrence of this file's initial magic number.
-                not_magic = magic
-                magic = ds.input[0:4]
                 store.log.warning(
                     "Chain not found for magic number %s in block file %s at"
-                    " offset %d.  Scanning for initial magic number %s",
-                    not_magic.encode('hex'), filename, offset,
+                    " offset %d.", magic.encode('hex'), filename, offset)
+
+                not_magic = magic
+                # Read this file's initial magic number.
+                magic = ds.input[0:4]
+
+                if magic == not_magic:
+                    break
+
+                store.log.info(
+                    "Scanning for initial magic number %s.",
                     magic.encode('hex'))
+
                 ds.read_cursor = offset
                 offset = ds.input.find(magic, offset)
                 if offset == -1:
+                    store.log.info("Magic number scan unsuccessful.")
                     break
+
+                store.log.info(
+                    "Skipped %d bytes in block file %s at offset %d.",
+                    offset - ds.read_cursor, filename, ds.read_cursor)
+
                 ds.read_cursor = offset
                 continue
 
