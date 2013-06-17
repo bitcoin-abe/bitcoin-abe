@@ -339,9 +339,12 @@ class Abe:
                         percent_destroyed = '&nbsp;'
                     else:
                         more = since_block * satoshis
-                        percent_destroyed = '%5g' % (
-                            100.0 - (100.0 * (ss + more) / (total_ss + more)))
-                        percent_destroyed += '%'
+                        denominator = total_ss + more
+                        if denominator <= 0:
+                            percent_destroyed = '&nbsp;'
+                        else:
+                            percent_destroyed = '%5g%%' % (
+                                100.0 - (100.0 * (ss + more) / denominator))
 
                     body += [
                         '<td>', format_time(started)[:10], '</td>',
