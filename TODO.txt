@@ -52,9 +52,6 @@
   tx_hash=9969603dca74d14d29d1d5f56b94c7872551607f8c2d6837ab9715c60721b50e,
   Bitcoin 154012, 8:04678afd04678afd DROP SHA256 32:894e...e95c EQUAL,
   redeemed with 7:04678afd0467.
-  tx_hash=0e842d4d66bc1c30a88f17eefa1e3436c6524aca39e9ad358edf380daf7a49ab,
-  Bitcoin 163368, 33:024d...d5f7 CHECKSIG, 32-byte pubkey, redeemed
-  with 73:3046...8d01.
   tx_hash=b8fd633e7713a43d5ac87266adc78444669b987a56b3a65fb92d58c2c4b0e84d,
   Bitcoin 163685, raw 142a9bc5447d664c1d0141392a842d23dba45c4f13b175.
   tx_hash=60a20bd93aa49ab4b28d514ec10b06e1829ce6818ec06cd3aabd013ebcdc4bb1,
