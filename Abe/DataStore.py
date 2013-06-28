@@ -1955,7 +1955,7 @@ store._ddl['txout_approx'],
     # dictionary.
     def adopt_orphans(store, b, orphan_work, chain_ids, chain_mask):
         block_id = b['block_id']
-        height = None if b['height'] is None else b['height'] + 1
+        height = None if b['height'] is None else int(b['height'] + 1)
 
         # If adding block b, b will not yet be in chain_candidate, so
         # we rely on the chain_ids argument.  If called recursively,
