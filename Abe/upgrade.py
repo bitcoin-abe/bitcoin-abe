@@ -863,6 +863,28 @@ def widen_blkfile_number(store):
 def add_datadir_loader(store):
     store.sql("ALTER TABLE datadir ADD datadir_loader VARCHAR(100) NULL")
 
+def populate_pubkeys(store):
+    store.log.info("Finding short public key addresses.")
+    count = 0
+    while True:
+        rows = store.selectall("""
+            SELECT txout_id, txout_scriptPubKey
+              FROM txout
+             WHERE pubkey_id IS NULL
+               AND txout_scriptPubKey BETWEEN ? AND ?
+             LIMIT 3000""",
+                               (store.binin("\x21"), store.binin("\x22")))
+        if not rows:
+            break
+        for txout_id, db_script in rows:
+            script = store.binout(db_script)
+            pubkey_id = store.script_to_pubkey_id(script)
+            if pubkey_id > 0:
+                store.sql("UPDATE txout SET pubkey_id = ? WHERE txout_id = ?",
+                          (pubkey_id, txout_id))
+                count += 1
+        store.log.info("Found %d", count)
+
 upgrades = [
     ('6',    add_block_value_in),
     ('6.1',  add_block_value_out),
@@ -944,7 +966,8 @@ upgrades = [
     ('Abe32.1', widen_blkfile_number),   # Fast
     ('Abe32.2', drop_tmp_datadir),       # Fast
     ('Abe33',   add_datadir_loader),     # Fast
-    ('Abe34', None)
+    ('Abe34',   populate_pubkeys),       # Minutes?
+    ('Abe35', None)
 ]
 
 def upgrade_schema(store):

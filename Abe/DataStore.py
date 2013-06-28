@@ -33,7 +33,7 @@ import util
 import logging
 import base58
 
-SCHEMA_VERSION = "Abe34"
+SCHEMA_VERSION = "Abe35"
 
 CONFIG_DEFAULTS = {
     "dbtype":             None,
@@ -87,9 +87,8 @@ PUBKEY_ID_NETWORK_FEE = NULL_PUBKEY_ID
 SCRIPT_ADDRESS_RE = re.compile("\x76\xa9\x14(.{20})\x88\xac\x61?\\Z", re.DOTALL)
 
 # Regex to match a pubkey ("IP address transaction") in txout_scriptPubKey.
-SCRIPT_PUBKEY_RE = re.compile("\x41(.{65})\xac\\Z", re.DOTALL)
-#SCRIPT_PUBKEY_RE = re.compile(
-#    ".((?<=\x41)(?:.{65})|(?<=\x21)(?:.{33}))\xac\\Z", re.DOTALL)
+SCRIPT_PUBKEY_RE = re.compile(
+    ".((?<=\x41)(?:.{65})|(?<=\x21)(?:.{33}))\xac\\Z", re.DOTALL)
 
 # Script that can never be redeemed, used in Namecoin.
 SCRIPT_NETWORK_FEE = '\x6a'
