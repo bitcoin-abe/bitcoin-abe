@@ -67,10 +67,33 @@ def abstract_sql(store):
                SET configvar_name = ?
              WHERE configvar_name = ?""", ('sql.' + name, name))
 
+def populate_pubkeys(store):
+    store.log.info("Finding short public key addresses.")
+    count = 0
+    while True:
+        rows = store.selectall("""
+            SELECT txout_id, txout_scriptPubKey
+              FROM txout
+             WHERE pubkey_id IS NULL
+               AND txout_scriptPubKey BETWEEN ? AND ?
+             LIMIT 3000""",
+                               (store.binin("\x21"), store.binin("\x22")))
+        if not rows:
+            break
+        for txout_id, db_script in rows:
+            script = store.binout(db_script)
+            pubkey_id = store.script_to_pubkey_id(script)
+            if pubkey_id > 0:
+                store.sql("UPDATE txout SET pubkey_id = ? WHERE txout_id = ?",
+                          (pubkey_id, txout_id))
+                count += 1
+        store.log.info("Found %d", count)
+
 upgrades = [
     ('AbeNoStats1', add_datadir_loader),
     ('AbeNoStats2', abstract_sql),
-    ('AbeNoStats3', None),
+    ('AbeNoStats3', populate_pubkeys),
+    ('AbeNoStats4', None),
 ]
 
 def upgrade_schema(store):
