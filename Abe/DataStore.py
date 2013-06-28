@@ -88,6 +88,8 @@ SCRIPT_ADDRESS_RE = re.compile("\x76\xa9\x14(.{20})\x88\xac\x61?\\Z", re.DOTALL)
 
 # Regex to match a pubkey ("IP address transaction") in txout_scriptPubKey.
 SCRIPT_PUBKEY_RE = re.compile("\x41(.{65})\xac\\Z", re.DOTALL)
+#SCRIPT_PUBKEY_RE = re.compile(
+#    ".((?<=\x41)(?:.{65})|(?<=\x21)(?:.{33}))\xac\\Z", re.DOTALL)
 
 # Script that can never be redeemed, used in Namecoin.
 SCRIPT_NETWORK_FEE = '\x6a'
@@ -2426,7 +2428,8 @@ store._ddl['txout_approx'],
         block_row = store.selectrow("""
             SELECT block_id, block_height, block_chain_work,
                    block_nTime, block_total_seconds,
-                   block_total_satoshis, block_satoshi_seconds
+                   block_total_satoshis, block_satoshi_seconds,
+                   block_total_ss
               FROM block
              WHERE block_hash = ?
         """, (store.hashin(hash),))
@@ -2447,7 +2450,8 @@ store._ddl['txout_approx'],
             "nTime":      block_row[3],
             "seconds":    block_row[4],
             "satoshis":   block_row[5],
-            "ss":         block_row[6]}
+            "ss":         block_row[6],
+            "total_ss":   block_row[7]}
 
         if store.selectrow("""
             SELECT 1
