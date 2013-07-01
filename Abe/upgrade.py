@@ -866,17 +866,21 @@ def add_datadir_loader(store):
 def populate_pubkeys(store):
     store.log.info("Finding short public key addresses.")
     count = 0
+    last = 0
     while True:
         rows = store.selectall("""
             SELECT txout_id, txout_scriptPubKey
               FROM txout
              WHERE pubkey_id IS NULL
+               AND txout_id > ?
                AND txout_scriptPubKey BETWEEN ? AND ?
+             ORDER BY txout_id
              LIMIT 3000""",
-                               (store.binin("\x21"), store.binin("\x22")))
+                               (last, store.binin("\x21"), store.binin("\x22")))
         if not rows:
             break
         for txout_id, db_script in rows:
+            last = txout_id
             script = store.binout(db_script)
             pubkey_id = store.script_to_pubkey_id(script)
             if pubkey_id > 0:
