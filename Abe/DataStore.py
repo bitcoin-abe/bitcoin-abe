@@ -1546,7 +1546,12 @@ store._ddl['txout_approx'],
             prod = int(prod)
             o1 = int(o1)
             if prod < v1 * v2 * 1.0001 and prod > v1 * v2 * 0.9999 and o1 == v1:
-                return True
+                v3 = 9226543405000000000L
+                store.sql("""INSERT INTO abe_test_1 (test_id, txout_value)
+                           VALUES (2, ?)""", (store.intin(v3),))
+                (v3o,) = store.selectrow("SELECT txout_value FROM abe_test_1"
+                                         " WHERE test_id = 2")
+                return abs(float(int(v3o)) / v3 - 1.0) < 0.0001
             return False
         except store.module.DatabaseError, e:
             store.rollback()
