@@ -2942,6 +2942,7 @@ store._ddl['txout_approx'],
             if magic[0] == "\0":
                 if filenum > 99999 and magic == "\0\0\0\0":
                     # As of Bitcoin 0.8, files often end with a NUL span.
+                    ds.read_cursor = offset
                     break
                 # Skip NUL bytes at block end.
                 ds.read_cursor = offset
@@ -2977,6 +2978,7 @@ store._ddl['txout_approx'],
                 magic = ds.input[0:4]
 
                 if magic == not_magic:
+                    ds.read_cursor = offset
                     break
 
                 store.log.info(
