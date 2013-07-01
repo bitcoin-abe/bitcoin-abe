@@ -1954,6 +1954,38 @@ store._ddl['txout_approx'],
     # cumulative statistics that are known for b and returns an empty
     # dictionary.
     def adopt_orphans(store, b, orphan_work, chain_ids, chain_mask):
+
+        # XXX As originally written, this function occasionally hit
+        # Python's recursion limit.  I am rewriting it iteratively
+        # with minimal changes, hence the odd style.  Guido is
+        # particularly unhelpful here, rejecting even labeled loops.
+
+        ret = [None]
+        def receive(x):
+            ret[0] = x
+        def doit():
+            store._adopt_orphans_1(stack)
+        stack = [receive, chain_mask, chain_ids, orphan_work, b, doit]
+        while stack:
+            stack.pop()()
+        return ret[0]
+
+    def _adopt_orphans_1(store, stack):
+        def doit():
+            store._adopt_orphans_1(stack)
+        def continuation(x):
+            store._adopt_orphans_2(stack, x)
+        def didit():
+            ret = stack.pop()
+            stack.pop()(ret)
+
+        b = stack.pop()
+        orphan_work = stack.pop()
+        chain_ids = stack.pop()
+        chain_mask = stack.pop()
+        ret = {}
+        stack += [ ret, didit ]
+
         block_id = b['block_id']
         height = None if b['height'] is None else int(b['height'] + 1)
 
@@ -1966,7 +1998,6 @@ store._ddl['txout_approx'],
                     store.find_chains_containing_block(block_id))
             chain_ids = chain_mask
 
-        ret = {}
         for chain_id in chain_ids:
             ret[chain_id] = (b, orphan_work)
 
@@ -2094,14 +2125,16 @@ store._ddl['txout_approx'],
                 "satoshis": satoshis,
                 "total_ss": total_ss,
                 "ss": ss}
-            next_ret = store.adopt_orphans(nb, new_work, None, chain_mask)
 
+            stack += [ret, continuation,
+                      chain_mask, None, new_work, nb, doit]
+
+    def _adopt_orphans_2(store, stack, next_ret):
+            ret = stack.pop()
             for chain_id in ret.keys():
                 pair = next_ret[chain_id]
                 if pair and pair[1] > ret[chain_id][1]:
                     ret[chain_id] = pair
-
-        return ret
 
     def tx_find_id_and_value(store, tx, is_coinbase):
         row = store.selectrow("""

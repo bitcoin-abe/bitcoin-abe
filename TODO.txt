@@ -116,9 +116,6 @@
 * Consider showing amount of time ago along with or instead of
   absolute times.
 
-* Perhaps rewrite adopt_orphans iteratively to avoid Python's
-  recursion limit.
-
 * Separate HTML from data access.
 
 * Consider denormalization for performance: prevout_hash in txin,
