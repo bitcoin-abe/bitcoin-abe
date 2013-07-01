@@ -2130,11 +2130,11 @@ store._ddl['txout_approx'],
                       chain_mask, None, new_work, nb, doit]
 
     def _adopt_orphans_2(store, stack, next_ret):
-            ret = stack.pop()
-            for chain_id in ret.keys():
-                pair = next_ret[chain_id]
-                if pair and pair[1] > ret[chain_id][1]:
-                    ret[chain_id] = pair
+        ret = stack.pop()
+        for chain_id in ret.keys():
+            pair = next_ret[chain_id]
+            if pair and pair[1] > ret[chain_id][1]:
+                ret[chain_id] = pair
 
     def tx_find_id_and_value(store, tx, is_coinbase):
         row = store.selectrow("""
