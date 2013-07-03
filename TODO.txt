@@ -32,6 +32,10 @@
 
 * Trimming produces wrong statistics such as negative total fees.
 
+* Reimplement trimming based on something like checkpoints that may be
+  configured manually via abe.conf or RPC as well as automatically via
+  trim_depth.
+
 * Should reject and warn about blocks more than chain_trim_depth lower
   than the chain's last block.  I saw Block 225445 before a side-chain
   block of height 225436 during the Bitcoin 0.8 upgrade fiasco on
