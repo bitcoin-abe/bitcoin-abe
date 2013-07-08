@@ -863,6 +863,19 @@ def widen_blkfile_number(store):
 def add_datadir_loader(store):
     store.sql("ALTER TABLE datadir ADD datadir_loader VARCHAR(100) NULL")
 
+def abstract_sql(store):
+    for name in (
+        'binary_type', 'max_varchar', 'ddl_implicit_commit',
+        'create_table_epilogue', 'sequence_type', 'limit_style',
+        'int_type', 'clob_type'):
+        store.sql("""
+            UPDATE configvar
+               SET configvar_name = ?
+             WHERE configvar_name = ?""", ('sql.' + name, name))
+        store.config['sql.' + name] = store.config[name]
+        del store.config[name]
+    store.init_sql()
+
 def populate_pubkeys(store):
     store.log.info("Finding short public key addresses.")
     count = 0
@@ -970,8 +983,9 @@ upgrades = [
     ('Abe32.1', widen_blkfile_number),   # Fast
     ('Abe32.2', drop_tmp_datadir),       # Fast
     ('Abe33',   add_datadir_loader),     # Fast
-    ('Abe34',   populate_pubkeys),       # Minutes?
-    ('Abe35', None)
+    ('Abe34',   populate_pubkeys),       # Minutes
+    ('Abe35',   abstract_sql),           # Fast
+    ('Abe36', None)
 ]
 
 def upgrade_schema(store):
