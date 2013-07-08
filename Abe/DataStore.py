@@ -161,8 +161,8 @@ class DataStore(object):
         sql_args.config = {}
         store.init_sql(sql_args)
 
-        store.conn = store.connect()
-        store.cursor = store.conn.cursor()
+        store.auto_reconnect = False
+        store.init_conn()
 
         store._blocks = {}
 
@@ -198,6 +198,7 @@ class DataStore(object):
                     "Database schema version (%s) does not match software"
                     " (%s).  Please run with --upgrade to convert database."
                     % (store.config['schema_version'], SCHEMA_VERSION))
+        store.auto_reconnect = True
 
         if args.rescan:
             store.sql("UPDATE datadir SET blkfile_number=1, blkfile_offset=0")
@@ -222,6 +223,15 @@ class DataStore(object):
 
         store.default_loader = args.default_loader
 
+        if store.in_transaction:
+            store.commit()
+
+
+    def init_conn(store):
+        store.conn = store.connect()
+        store.cursor = store.conn.cursor()
+        store.in_transaction = False
+
     def connect(store):
         return store._sql.connect()
 
@@ -235,8 +245,7 @@ class DataStore(object):
             store.conn.close()
         except:
             pass
-        store.conn = store.connect()
-        store.cursor = store.conn.cursor()
+        store.init_conn()
 
     def close(store):
         store._sql.close(store.conn)
@@ -1151,8 +1160,40 @@ store._ddl['txout_approx'],
     # cumulative statistics that are known for b and returns an empty
     # dictionary.
     def adopt_orphans(store, b, orphan_work, chain_ids, chain_mask):
+
+        # XXX As originally written, this function occasionally hit
+        # Python's recursion limit.  I am rewriting it iteratively
+        # with minimal changes, hence the odd style.  Guido is
+        # particularly unhelpful here, rejecting even labeled loops.
+
+        ret = [None]
+        def receive(x):
+            ret[0] = x
+        def doit():
+            store._adopt_orphans_1(stack)
+        stack = [receive, chain_mask, chain_ids, orphan_work, b, doit]
+        while stack:
+            stack.pop()()
+        return ret[0]
+
+    def _adopt_orphans_1(store, stack):
+        def doit():
+            store._adopt_orphans_1(stack)
+        def continuation(x):
+            store._adopt_orphans_2(stack, x)
+        def didit():
+            ret = stack.pop()
+            stack.pop()(ret)
+
+        b = stack.pop()
+        orphan_work = stack.pop()
+        chain_ids = stack.pop()
+        chain_mask = stack.pop()
+        ret = {}
+        stack += [ ret, didit ]
+
         block_id = b['block_id']
-        height = None if b['height'] is None else b['height'] + 1
+        height = None if b['height'] is None else int(b['height'] + 1)
 
         # If adding block b, b will not yet be in chain_candidate, so
         # we rely on the chain_ids argument.  If called recursively,
@@ -1163,7 +1204,6 @@ store._ddl['txout_approx'],
                     store.find_chains_containing_block(block_id))
             chain_ids = chain_mask
 
-        ret = {}
         for chain_id in chain_ids:
             ret[chain_id] = (b, orphan_work)
 
@@ -1246,14 +1286,16 @@ store._ddl['txout_approx'],
                 "chain_work": chain_work,
                 "nTime": nTime,
                 "satoshis": satoshis}
-            next_ret = store.adopt_orphans(nb, new_work, None, chain_mask)
 
-            for chain_id in ret.keys():
-                pair = next_ret[chain_id]
-                if pair and pair[1] > ret[chain_id][1]:
-                    ret[chain_id] = pair
+            stack += [ret, continuation,
+                      chain_mask, None, new_work, nb, doit]
 
-        return ret
+    def _adopt_orphans_2(store, stack, next_ret):
+        ret = stack.pop()
+        for chain_id in ret.keys():
+            pair = next_ret[chain_id]
+            if pair and pair[1] > ret[chain_id][1]:
+                ret[chain_id] = pair
 
     def tx_find_id_and_value(store, tx, is_coinbase):
         row = store.selectrow("""
@@ -1931,6 +1973,10 @@ store._ddl['txout_approx'],
             store.log.debug("bitcoind %s not supported", e.method)
             return False
 
+        except InvalidBlock, e:
+            store.log.debug("RPC data not understood: %s", e)
+            return False
+
         return True
 
     # Load all blocks starting at the current file and offset.
@@ -2048,6 +2094,7 @@ store._ddl['txout_approx'],
             if magic[0] == "\0":
                 if filenum > 99999 and magic == "\0\0\0\0":
                     # As of Bitcoin 0.8, files often end with a NUL span.
+                    ds.read_cursor = offset
                     break
                 # Skip NUL bytes at block end.
                 ds.read_cursor = offset
@@ -2072,15 +2119,36 @@ store._ddl['txout_approx'],
                                        (store.binin(magic),))
                 if len(rows) == 1:
                     chain_id = rows[0][0]
+
             if chain_id is None:
-                store.log.error(
+                store.log.warning(
                     "Chain not found for magic number %s in block file %s at"
-                    " offset %d.  If file contents have changed, consider"
-                    " forcing a rescan: UPDATE datadir SET blkfile_number=1,"
-                    " blkfile_offset=0 WHERE dirname='%s'",
-                    repr(magic), filename, offset, dircfg['dirname'])
+                    " offset %d.", magic.encode('hex'), filename, offset)
+
+                not_magic = magic
+                # Read this file's initial magic number.
+                magic = ds.input[0:4]
+
+                if magic == not_magic:
+                    ds.read_cursor = offset
+                    break
+
+                store.log.info(
+                    "Scanning for initial magic number %s.",
+                    magic.encode('hex'))
+
                 ds.read_cursor = offset
-                break
+                offset = ds.input.find(magic, offset)
+                if offset == -1:
+                    store.log.info("Magic number scan unsuccessful.")
+                    break
+
+                store.log.info(
+                    "Skipped %d bytes in block file %s at offset %d.",
+                    offset - ds.read_cursor, filename, ds.read_cursor)
+
+                ds.read_cursor = offset
+                continue
 
             length = ds.read_int32()
             if ds.read_cursor + length > len(ds.input):

@@ -538,14 +538,19 @@ class Abe:
             body += ['<a href="', dotdotblock, hash, '">', hash, '</a><br />\n']
 
         body += [
-            'Height: ', height, '<br />\n',
+            ['Height: ', height, '<br />\n']
+            if height is not None else '',
+
             'Version: ', block_version, '<br />\n',
             'Transaction Merkle Root: ', hashMerkleRoot, '<br />\n',
             'Time: ', nTime, ' (', format_time(nTime), ')<br />\n',
             'Difficulty: ', format_difficulty(util.calculate_difficulty(nBits)),
             ' (Bits: %x)' % (nBits,), '<br />\n',
-            'Cumulative Difficulty: ', format_difficulty(
-                util.work_to_difficulty(block_chain_work)), '<br />\n',
+
+            ['Cumulative Difficulty: ', format_difficulty(
+                    util.work_to_difficulty(block_chain_work)), '<br />\n']
+            if block_chain_work is not None else '',
+
             'Nonce: ', nNonce, '<br />\n',
             'Transactions: ', num_tx, '<br />\n',
             'Value out: ', format_satoshis(value_out, chain), '<br />\n',
@@ -827,7 +832,8 @@ class Abe:
         chain = None
         for row in block_rows:
             (name, in_longest, nTime, height, blk_hash, tx_pos) = (
-                row[0], int(row[1]), int(row[2]), int(row[3]),
+                row[0], int(row[1]), int(row[2]),
+                None if row[3] is None else int(row[3]),
                 abe.store.hashout_hex(row[4]), int(row[5]))
             if chain is None:
                 chain = abe.chain_lookup_by_name(name)

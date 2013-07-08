@@ -90,9 +90,9 @@ def populate_pubkeys(store):
         store.log.info("Found %d", count)
 
 upgrades = [
-    ('AbeNoStats1', add_datadir_loader),
+    ('AbeNoStats1', add_datadir_loader),     # Fast
     ('AbeNoStats2', abstract_sql),
-    ('AbeNoStats3', populate_pubkeys),
+    ('AbeNoStats3', populate_pubkeys),       # Minutes
     ('AbeNoStats4', None),
 ]
 
