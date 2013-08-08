@@ -23,6 +23,28 @@ import logging
 import DataStore
 import readconf
 
+def link_txin(store):
+    store.log.info(
+        "Linking missed transaction inputs to their previous outputs.")
+
+    store.sql("""
+        UPDATE txin SET txout_id = (
+            SELECT txout_id
+              FROM unlinked_txin JOIN txout JOIN tx ON (txout.tx_id = tx.tx_id)
+             WHERE txin.txin_id = unlinked_txin.txin_id
+               AND tx.tx_hash = unlinked_txin.txout_tx_hash
+               AND txout.txout_pos = unlinked_txin.txout_pos)
+         WHERE txout_id IS NULL""")
+    store.log.info("Updated %d txout_id.", store.cursor.rowcount)
+    store.commit()
+
+    store.sql("""
+        DELETE FROM unlinked_txin
+         WHERE (SELECT txout_id FROM txin
+                 WHERE txin.txin_id = unlinked_txin.txin_id) IS NOT NULL""")
+    store.log.info("Deleted %d unlinked_txin.", store.cursor.rowcount)
+    store.commit()
+
 def delete_tx(store, id_or_hash):
     try:
         tx_id = int(id_or_hash)
@@ -164,7 +186,9 @@ Commands:
                             from the database.
 
   delete-tx TX_ID           Delete the specified transaction.
-  delete-tx TX_HASH""")
+  delete-tx TX_HASH
+
+  link-txin                 Link transaction inputs to previous outputs.""")
         return 0
 
     logging.basicConfig(
@@ -181,10 +205,12 @@ Commands:
         command = argv.pop(0)
         if command == 'delete-chain-blocks':
             delete_chain_blocks(store, argv.pop(0))
-        elif command == 'delete-block':
-            delete_block(store, argv.pop(0))
+        #elif command == 'delete-block':
+        #    delete_block(store, argv.pop(0))
         elif command == 'delete-tx':
             delete_tx(store, argv.pop(0))
+        elif command == 'link-txin':
+            link_txin(store)
         else:
             raise ValueError("Unknown command: " + command)
 
