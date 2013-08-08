@@ -23,7 +23,50 @@ import logging
 import DataStore
 import readconf
 
-def delete_chain(store, name):
+def delete_tx(store, id_or_hash):
+    try:
+        tx_id = int(id_or_hash)
+    except ValueError:
+        (tx_id,) = store.selectrow(
+            "SELECT tx_id FROM tx WHERE tx_hash = ?",
+            (store.hashin_hex(id_or_hash),))
+    store.log.info("Deleting transaction with tx_id=%d", tx_id)
+
+    store.sql("""
+        DELETE FROM unlinked_txin WHERE txin_id IN (
+            SELECT txin_id FROM txin WHERE tx_id = ?)""",
+              (tx_id,))
+    store.log.info("Deleted %d from unlinked_txin.", store.cursor.rowcount)
+
+    store.sql("DELETE FROM txin WHERE tx_id = ?", (tx_id,))
+    store.log.info("Deleted %d from txin.", store.cursor.rowcount)
+
+    store.sql("DELETE FROM txout WHERE tx_id = ?", (tx_id,))
+    store.log.info("Deleted %d from txout.", store.cursor.rowcount)
+
+    store.sql("DELETE FROM tx WHERE tx_id = ?", (tx_id,))
+    store.log.info("Deleted %d from tx.", store.cursor.rowcount)
+
+    store.commit()
+    store.log.info("Commit.")
+
+def delete_block(store, id_or_hash):
+    try:
+        block_id = int(id_or_hash)
+    except ValueError:
+        (block_id,) = store.selectrow(
+            "SELECT block_id FROM block WHERE block_hash = ?",
+            (store.hashin_hex(id_or_hash),))
+    store.log.info("Deleting block with block_id=%d", block_id)
+
+    # XXX Need to handle descendant blocks.
+    store.sql("DELETE FROM orphan_block WHERE block_id = ?", (block_id,))
+    store.log.info("Deleted %d from orphan_block.", store.cursor.rowcount)
+
+    store.sql("DELETE FROM block_txin WHERE block_id = ?", (block_id,))
+    store.log.info("Deleted %d from block_txin.", store.cursor.rowcount)
+
+def delete_chain_blocks(store, name):
     (chain_id,) = store.selectrow(
         "SELECT chain_id FROM chain WHERE chain_name = ?", (name,))
     block_ids = []
@@ -118,7 +161,10 @@ Options:
 Commands:
 
   delete-chain-blocks NAME  Delete all blocks in the specified chain
-                            from the database.""")
+                            from the database.
+
+  delete-tx TX_ID           Delete the specified transaction.
+  delete-tx TX_HASH""")
         return 0
 
     logging.basicConfig(
@@ -134,7 +180,11 @@ Commands:
     while len(argv) != 0:
         command = argv.pop(0)
         if command == 'delete-chain-blocks':
-            delete_chain(store, argv.pop(0))
+            delete_chain_blocks(store, argv.pop(0))
+        elif command == 'delete-block':
+            delete_block(store, argv.pop(0))
+        elif command == 'delete-tx':
+            delete_tx(store, argv.pop(0))
         else:
             raise ValueError("Unknown command: " + command)
 
