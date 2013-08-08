@@ -52,6 +52,15 @@ def delete_chain(store, name):
     store.log.info("Deleted %d from block_next.", store.cursor.rowcount)
 
     store.sql("""
+        UPDATE block SET prev_block_id = NULL, block_height = NULL
+         WHERE block_id IN (
+            SELECT block_id FROM chain_candidate WHERE chain_id = ?)""",
+                        (chain_id,))
+    store.commit()
+    store.log.info("Disconnected %d blocks from their parents.",
+                   store.cursor.rowcount)
+
+    store.sql("""
         DELETE FROM block_tx WHERE block_id IN (
             SELECT block_id FROM chain_candidate WHERE chain_id = ?)""",
                         (chain_id,))
