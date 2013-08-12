@@ -1726,7 +1726,7 @@ store._ddl['txout_approx'],
         for pos in xrange(len(b['transactions'])):
             tx = b['transactions'][pos]
             if 'hash' not in tx:
-                tx['hash'] = util.double_sha256(tx['tx'])
+                tx['hash'] = util.double_sha256(tx['__data__'])
             tx_hash_array.append(tx['hash'])
             tx['tx_id'] = store.tx_find_id_and_value(tx, pos == 0)
 
@@ -2174,7 +2174,7 @@ store._ddl['txout_approx'],
         dbhash = store.hashin(tx['hash'])
 
         if 'size' not in tx:
-            tx['size'] = len(tx['tx'])
+            tx['size'] = len(tx['__data__'])
 
         store.sql("""
             INSERT INTO tx (tx_id, tx_hash, tx_version, tx_lockTime, tx_size)
