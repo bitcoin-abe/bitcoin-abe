@@ -325,7 +325,7 @@ class DataStore(object):
         # 256-bit integers and represents them as little endian, we
         # have to reverse them in hex to satisfy human expectations.
         def rev(x):
-            return x[::-1]
+            return None if x is None else x[::-1]
         def to_hex(x):
             return None if x is None else str(x).encode('hex')
         def from_hex(x):
@@ -2790,8 +2790,8 @@ store._ddl['txout_approx'],
                         'height':   height,
                         }
 
-                    if util.block_hash(block) != hash:
-                        raise InvalidBlock('block hash mismatch')
+                    #if util.block_hash(block) != hash:
+                    #    raise InvalidBlock('block hash mismatch')
 
                     for rpc_tx_hash in rpc_block['tx']:
                         tx = store.export_tx(tx_hash = str(rpc_tx_hash),
