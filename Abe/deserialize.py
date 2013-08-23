@@ -5,6 +5,7 @@
 from BCDataStream import *
 from enumeration import Enumeration
 from base58 import public_key_to_bc_address, hash_160_to_bc_address
+import logging
 import socket
 import time
 from util import short_hex, long_hex
@@ -17,7 +18,7 @@ def parse_CAddress(vds):
   d['nServices'] = vds.read_uint64()
   d['pchReserved'] = vds.read_bytes(12)
   d['ip'] = socket.inet_ntoa(vds.read_bytes(4))
-  d['port'] = vds.read_uint16()
+  d['port'] = socket.htons(vds.read_uint16())
   return d
 
 def deserialize_CAddress(d):
@@ -44,6 +45,7 @@ def parse_TxIn(vds):
   d['scriptSig'] = vds.read_bytes(vds.read_compact_size())
   d['sequence'] = vds.read_uint32()
   return d
+
 def deserialize_TxIn(d, transaction_index=None, owner_keys=None):
   if d['prevout_hash'] == "\x00"*32:
     result = "TxIn: COIN GENERATED"
@@ -78,7 +80,7 @@ def deserialize_TxOut(d, owner_keys=None):
 
 def parse_Transaction(vds):
   d = {}
-  start = vds.read_cursor
+  start_pos = vds.read_cursor
   d['version'] = vds.read_int32()
   d['nTime'] = vds.read_uint32()
   n_vin = vds.read_compact_size()
@@ -90,14 +92,18 @@ def parse_Transaction(vds):
   for i in xrange(n_vout):
     d['txOut'].append(parse_TxOut(vds))
   d['lockTime'] = vds.read_uint32()
-  d['tx'] = vds.input[start:vds.read_cursor]
+  d['__data__'] = vds.input[start_pos:vds.read_cursor]
   return d
-def deserialize_Transaction(d, transaction_index=None, owner_keys=None):
+
+def deserialize_Transaction(d, transaction_index=None, owner_keys=None, print_raw_tx=False):
   result = "%d tx in, %d out\n"%(len(d['txIn']), len(d['txOut']))
   for txIn in d['txIn']:
     result += deserialize_TxIn(txIn, transaction_index) + "\n"
   for txOut in d['txOut']:
     result += deserialize_TxOut(txOut, owner_keys) + "\n"
+  if print_raw_tx == True:
+      result += "Transaction hex value: " + d['__data__'].encode('hex') + "\n"
+  
   return result
 
 def parse_MerkleTx(vds):
@@ -150,6 +156,11 @@ def deserialize_WalletTx(d, transaction_index=None, owner_keys=None):
   result += " fromMe:"+str(d['fromMe'])+" spent:"+str(d['spent'])
   return result
 
+# The CAuxPow (auxiliary proof of work) structure supports merged mining.
+# A flag in the block version field indicates the structure's presence.
+# As of 8/2011, the Original Bitcoin Client does not use it.  CAuxPow
+# originated in Namecoin; see
+# https://github.com/vinced/namecoin/blob/mergedmine/doc/README_merged-mining.md.
 def parse_AuxPow(vds):
   d = parse_MerkleTx(vds)
   n_chainMerkleBranch = vds.read_compact_size()
@@ -173,23 +184,23 @@ def parse_BlockHeader(vds):
 
 def parse_Block(vds):
   d = parse_BlockHeader(vds)
+  d['transactions'] = []
 #  if d['version'] & (1 << 8):
 #    d['auxpow'] = parse_AuxPow(vds)
-  d['transactions'] = []
   nTransactions = vds.read_compact_size()
   for i in xrange(nTransactions):
     d['transactions'].append(parse_Transaction(vds))
 
   return d
   
-def deserialize_Block(d):
+def deserialize_Block(d, print_raw_tx=False):
   result = "Time: "+time.ctime(d['nTime'])+" Nonce: "+str(d['nNonce'])
   result += "\nnBits: 0x"+hex(d['nBits'])
   result += "\nhashMerkleRoot: 0x"+d['hashMerkleRoot'][::-1].encode('hex_codec')
   result += "\nPrevious block: "+d['hashPrev'][::-1].encode('hex_codec')
   result += "\n%d transactions:\n"%len(d['transactions'])
   for t in d['transactions']:
-    result += deserialize_Transaction(t)+"\n"
+    result += deserialize_Transaction(t, print_raw_tx=print_raw_tx)+"\n"
   result += "\nRaw block header: "+d['__header__'].encode('hex_codec')
   return result
 
@@ -220,10 +231,8 @@ opcodes = Enumeration("Opcodes", [
     "OP_WITHIN", "OP_RIPEMD160", "OP_SHA1", "OP_SHA256", "OP_HASH160",
     "OP_HASH256", "OP_CODESEPARATOR", "OP_CHECKSIG", "OP_CHECKSIGVERIFY", "OP_CHECKMULTISIG",
     "OP_CHECKMULTISIGVERIFY",
-    ("OP_SINGLEBYTE_END", 0xF0),
-    ("OP_DOUBLEBYTE_BEGIN", 0xF000),
-    "OP_PUBKEY", "OP_PUBKEYHASH",
-    ("OP_INVALIDOPCODE", 0xFFFF),
+    "OP_NOP1", "OP_NOP2", "OP_NOP3", "OP_NOP4", "OP_NOP5", "OP_NOP6", "OP_NOP7", "OP_NOP8", "OP_NOP9", "OP_NOP10",
+    ("OP_INVALIDOPCODE", 0xFF),
 ])
 
 def script_GetOp(bytes):
@@ -232,10 +241,6 @@ def script_GetOp(bytes):
     vch = None
     opcode = ord(bytes[i])
     i += 1
-    if opcode >= opcodes.OP_SINGLEBYTE_END:
-      opcode <<= 8
-      opcode |= ord(bytes[i])
-      i += 1
 
     if opcode <= opcodes.OP_PUSHDATA4:
       nSize = opcode
@@ -248,13 +253,20 @@ def script_GetOp(bytes):
       elif opcode == opcodes.OP_PUSHDATA4:
         (nSize,) = struct.unpack_from('<I', bytes, i)
         i += 4
-      vch = bytes[i:i+nSize]
-      i += nSize
+      if i+nSize > len(bytes):
+        vch = "_INVALID_"+bytes[i:]
+        i = len(bytes)
+      else:
+        vch = bytes[i:i+nSize]
+        i += nSize
 
     yield (opcode, vch, i)
 
 def script_GetOpName(opcode):
-  return (opcodes.whatis(opcode)).replace("OP_", "")
+  try:
+    return (opcodes.whatis(opcode)).replace("OP_", "")
+  except KeyError:
+    return "InvalidOp_"+str(opcode)
 
 def decode_script(bytes):
   result = ''
@@ -277,26 +289,46 @@ def match_decoded(decoded, to_match):
       return False
   return True
 
-def extract_public_key(bytes):
-  decoded = [ x for x in script_GetOp(bytes) ]
+def extract_public_key(bytes, version='\x00'):
+  try:
+    decoded = [ x for x in script_GetOp(bytes) ]
+  except struct.error:
+    return "(None)"
 
   # non-generated TxIn transactions push a signature
   # (seventy-something bytes) and then their public key
-  # (65 bytes) onto the stack:
+  # (33 or 65 bytes) onto the stack:
   match = [ opcodes.OP_PUSHDATA4, opcodes.OP_PUSHDATA4 ]
   if match_decoded(decoded, match):
-    return public_key_to_bc_address(decoded[1][1])
+    return public_key_to_bc_address(decoded[1][1], version=version)
 
   # The Genesis Block, self-payments, and pay-by-IP-address payments look like:
   # 65 BYTES:... CHECKSIG
   match = [ opcodes.OP_PUSHDATA4, opcodes.OP_CHECKSIG ]
   if match_decoded(decoded, match):
-    return public_key_to_bc_address(decoded[0][1])
+    return public_key_to_bc_address(decoded[0][1], version=version)
 
   # Pay-by-Bitcoin-address TxOuts look like:
   # DUP HASH160 20 BYTES:... EQUALVERIFY CHECKSIG
   match = [ opcodes.OP_DUP, opcodes.OP_HASH160, opcodes.OP_PUSHDATA4, opcodes.OP_EQUALVERIFY, opcodes.OP_CHECKSIG ]
   if match_decoded(decoded, match):
-    return hash_160_to_bc_address(decoded[2][1])
+    return hash_160_to_bc_address(decoded[2][1], version=version)
+
+  # BIP11 TxOuts look like one of these:
+  # Note that match_decoded is dumb, so OP_1 actually matches OP_1/2/3/etc:
+  multisigs = [
+    [ opcodes.OP_1, opcodes.OP_PUSHDATA4, opcodes.OP_1, opcodes.OP_CHECKMULTISIG ],
+    [ opcodes.OP_2, opcodes.OP_PUSHDATA4, opcodes.OP_PUSHDATA4, opcodes.OP_2, opcodes.OP_CHECKMULTISIG ],
+    [ opcodes.OP_3, opcodes.OP_PUSHDATA4, opcodes.OP_PUSHDATA4, opcodes.OP_3, opcodes.OP_CHECKMULTISIG ]
+  ]
+  for match in multisigs:
+    if match_decoded(decoded, match):
+      return "["+','.join([public_key_to_bc_address(decoded[i][1]) for i in range(1,len(decoded)-1)])+"]"
+
+  # BIP16 TxOuts look like:
+  # HASH160 20 BYTES:... EQUAL
+  match = [ opcodes.OP_HASH160, 0x14, opcodes.OP_EQUAL ]
+  if match_decoded(decoded, match):
+    return hash_160_to_bc_address(decoded[1][1], version="\x05")
 
   return "(None)"

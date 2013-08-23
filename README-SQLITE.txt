@@ -1,5 +1,5 @@
-On recent versions of SQLite, Abe fails to detect the maximum integer
-size and requires the --int-type=str option for proper functioning.
+SQLite is not appropriate for a busy public service, since it does not
+support concurrent access.
 
 Ubuntu supplies the sqlite3 module in the python-pysqlite2 [sic]
 package.
@@ -8,7 +8,6 @@ Create abe-sqlite.conf with contents:
 
     dbtype sqlite3
     connect-args abe.sqlite
-    int-type str
     upgrade
     port 2750
 

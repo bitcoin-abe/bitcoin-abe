@@ -1,0 +1,49 @@
+#! /bin/bash
+
+# Copyright(C) 2013 by John Tobey <jtobey@john-edwin-tobey.org>
+
+BLOCK_ACCEPTED="ProcessBlock: ACCEPTED"
+
+# XXX Should be an option.  Maximum number of seconds between runs.
+MEMPOOL_INTERVAL=30
+
+usage() {
+    cat <<EOF
+Usage: abe_loader --config ABE_CONF --datadir DATADIR
+Wait for new transactions and blocks, and load them into an Abe database.
+
+Monitor DATADIR/debug.log for $MEMPOOL_INTERVAL seconds or until a block arrives.
+Run Abe in batch mode with the given configuration, and loop to wait again.
+EOF
+}
+
+parse_opts() {
+    while [ "$#" -ne 0 ]
+    do
+        case "$1" in
+            -datadir=* | --datadir=*)
+                DATADIR="${1#*=}"
+                ;;
+            -datadir | --datadir)
+                shift
+                DATADIR="$1"
+                ;;
+            -h | -help | --help)
+                usage
+                exit
+                ;;
+        esac
+        shift
+    done
+}
+
+DATADIR="$HOME/.bitcoin"
+parse_opts "$@"
+
+tail -F "$DATADIR"/debug.log |
+grep --line-buffered -- "$BLOCK_ACCEPTED" |
+while true
+do
+    python -m Abe.abe "$@" --no-serve < /dev/null
+    read -t "$MEMPOOL_INTERVAL" a
+done

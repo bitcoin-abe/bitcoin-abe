@@ -38,16 +38,25 @@ def double_sha256(s):
 
 # Based on CBlock::BuildMerkleTree().
 def merkle(hashes):
-    while True:
+    while len(hashes) > 1:
         size = len(hashes)
-        if size <= 1:
-            break
         out = []
         for i in xrange(0, size, 2):
             i2 = min(i + 1, size - 1)
             out.append(double_sha256(hashes[i] + hashes[i2]))
         hashes = out
     return hashes and hashes[0]
+
+def block_hash(block):
+    import BCDataStream
+    ds = BCDataStream.BCDataStream()
+    ds.write_int32(block['version'])
+    ds.write(block['hashPrev'])
+    ds.write(block['hashMerkleRoot'])
+    ds.write_uint32(block['nTime'])
+    ds.write_uint32(block['nBits'])
+    ds.write_uint32(block['nNonce'])
+    return double_sha256(ds.input)
 
 def pubkey_to_hash(pubkey):
     return RIPEMD160.new(SHA256.new(pubkey).digest()).digest()
@@ -107,3 +116,33 @@ def decode_address(addr):
     if len(bytes) < 25:
         bytes = ('\0' * (25 - len(bytes))) + bytes
     return bytes[:-24], bytes[-24:-4]
+
+class JsonrpcException(Exception):
+    def __init__(ex, error, method, params):
+        Exception.__init__(ex)
+        ex.code = error['code']
+        ex.message = error['message']
+        ex.data = error.get('data')
+        ex.method = method
+        ex.params = params
+    def __str__(ex):
+        return ex.method + ": " + ex.message + " (code " + str(ex.code) + ")"
+
+class JsonrpcMethodNotFound(JsonrpcException):
+    pass
+
+def jsonrpc(url, method, *params):
+    import json, urllib
+    postdata = json.dumps({"jsonrpc": "2.0",
+                           "method": method, "params": params, "id": "x"})
+    respdata = urllib.urlopen(url, postdata).read()
+    resp = json.loads(respdata)
+    if resp.get('error') is not None:
+        if resp['error']['code'] == -32601:
+            raise JsonrpcMethodNotFound(resp['error'], method, params)
+        raise JsonrpcException(resp['error'], method, params)
+    return resp['result']
+
+def is_coinbase_tx(tx):
+    return len(tx['txIn']) == 1 and tx['txIn'][0]['prevout_hash'] == \
+        "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"

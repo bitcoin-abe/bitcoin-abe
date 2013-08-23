@@ -1,3 +1,12 @@
+* MerkleRootMismatch reported when a non-final blocks/blk*.dat ends in
+  a NUL span.  Ignore the span.
+
+* datadir "loader" option seems not to override default-loader.
+
+* Block/tx blacklist.
+
+* Consider allowing unlimited script length.
+
 * UnicodeEncodeError on non-ASCII MySQLdb connect params.
 
 * Bugs affecting bytea hashin?
@@ -43,9 +52,6 @@
   tx_hash=9969603dca74d14d29d1d5f56b94c7872551607f8c2d6837ab9715c60721b50e,
   Bitcoin 154012, 8:04678afd04678afd DROP SHA256 32:894e...e95c EQUAL,
   redeemed with 7:04678afd0467.
-  tx_hash=0e842d4d66bc1c30a88f17eefa1e3436c6524aca39e9ad358edf380daf7a49ab,
-  Bitcoin 163368, 33:024d...d5f7 CHECKSIG, 32-byte pubkey, redeemed
-  with 73:3046...8d01.
   tx_hash=b8fd633e7713a43d5ac87266adc78444669b987a56b3a65fb92d58c2c4b0e84d,
   Bitcoin 163685, raw 142a9bc5447d664c1d0141392a842d23dba45c4f13b175.
   tx_hash=60a20bd93aa49ab4b28d514ec10b06e1829ce6818ec06cd3aabd013ebcdc4bb1,
@@ -71,7 +77,9 @@
   particular, don't imply that an output was "redeemed" when the
   redeeming transaction is not in the chain.
 
-* Write a test suite.  Include reorgs and upgrades.
+* Write a test suite.  Include reorgs, duplicate coinbases, and upgrades.
+
+* JSON/JSONP support in /q functions.
 
 * Search by firstbits.
 
@@ -108,25 +116,20 @@
 * Consider showing amount of time ago along with or instead of
   absolute times.
 
-* Perhaps rewrite adopt_orphans iteratively to avoid Python's
-  recursion limit.
-
 * Separate HTML from data access.
 
 * Consider denormalization for performance: prevout_hash in txin,
   pubkey_hash in txout, etc.
 
-* Support PostgreSQL BYTEA and similar binary types for improved space
-  use and memory footprint.
-
-* Factor the coin-days destroyed feature as an optional add-on.
+* Factor the coin-days destroyed feature as an optional add-on.  Work
+  begin in branch no-statistics.
 
 * Slight variation in CoinDD et al. among sites indicates a bug.
   Possibly fixed and due to corrupt data.
 
 * Clean up and document limits on search result size.
 
-* Admin interface to reset blkfile_offset, delete chains, etc.
+* Admin interface to delete chains, etc.
 
 * Add a tool to upload transactions if bitcoind supports it.
 
@@ -149,7 +152,7 @@
   nextretarget        estimate
   avgtxsize           avgtxvalue          avgblocksize
   interval            eta                 avgtxnumber
-  addressbalance      addressfirstseen    mytransactions
+                      addressfirstseen    mytransactions
   reorglog
 
 * BTC-specific /q functions:
@@ -170,8 +173,6 @@
 * Present Namecoin name operations as an optional add-on.
 
 * Extract info from MultiCoin config files.
-
-* Import transactions from the pool.
 
 * Perhaps add coin tracking features: allow the administrator to
   specify "interesting" (e.g., suspected fraudulent) transactions and
