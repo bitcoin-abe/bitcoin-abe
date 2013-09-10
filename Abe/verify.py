@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # Prototype database validation script.  Same args as abe.py.
 
-# Copyright(C) 2011 by John Tobey <jtobey@john-edwin-tobey.org>
+# Copyright(C) 2011 by Abe developers.
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as

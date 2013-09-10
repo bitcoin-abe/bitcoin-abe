@@ -115,7 +115,7 @@ class Aml(Abe):
 </ul>
 <br/><br/>
 <p style="font-size: smaller">
-This site is powered by <span style="font-style: italic"> <a href="https://github.com/jtobey/bitcoin-abe">bitcoin-ABE</a></span>
+This site is powered by <span style="font-style: italic"> <a href="https://github.com/bitcoin-abe/bitcoin-abe">bitcoin-ABE</a></span>
 &nbsp;&nbsp;source:<a href="ecdsa.py">[1]</a>&nbsp;<a href="abe.diff">[2]</a>
 </p>"""
                    ]

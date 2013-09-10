@@ -10,7 +10,7 @@ setup(
     package_data = {'Abe': ['htdocs/*']},
     author       = "John Tobey",
     author_email = "jtobey@john-edwin-tobey.org",
-    url          = "https://github.com/jtobey/bitcoin-abe",
+    url          = "https://github.com/bitcoin-abe/bitcoin-abe",
     classifiers=[
         'Development Status :: 4 - Beta',
         'Environment :: Console',

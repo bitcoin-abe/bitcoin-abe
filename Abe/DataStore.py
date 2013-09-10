@@ -1,4 +1,4 @@
-# Copyright(C) 2011,2012,2013 by John Tobey <jtobey@john-edwin-tobey.org>
+# Copyright(C) 2011,2012,2013 by Abe developers.
 
 # DataStore.py: back end database access for Abe.
 
