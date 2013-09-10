@@ -1,4 +1,4 @@
-# Copyright(C) 2013 by John Tobey <jtobey@john-edwin-tobey.org>
+# Copyright(C) 2013 by Abe developers.
 
 # genesis_tx.py: known transactions unavailable through RPC for
 # historical reasons: https://bitcointalk.org/index.php?topic=119530.0
