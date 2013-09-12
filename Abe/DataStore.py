@@ -1739,7 +1739,7 @@ store._ddl['txout_approx'],
                     tx['tx_id'] = store.import_and_commit_tx(tx, pos == 0)
                 else:
                     tx['tx_id'] = store.import_tx(tx, pos == 0)
-                if tx['unlinked_count'] > 0:
+                if tx.get('unlinked_count', 1) > 0:
                     all_txins_linked = False
 
             if tx['value_in'] is None:
