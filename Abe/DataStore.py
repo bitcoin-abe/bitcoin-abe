@@ -2281,6 +2281,28 @@ store._ddl['txout_approx'],
             store.import_tx(tx, util.is_coinbase_tx(tx))
             store.imported_bytes(tx['size'])
 
+    def get_spends(store, tx_hash):
+        tx_id = store.selectrow("""
+                SELECT tx_id
+                  FROM tx
+                 WHERE tx_hash = ?
+            """, (store.hashin_hex(tx_hash),))[0]
+
+        spend_rows = store.selectall("""SELECT txin.tx_id, txin.txin_pos, txout.txout_pos
+                           FROM txin
+                           INNER JOIN txout ON txin.txout_id = txout.txout_id
+                           WHERE txout.tx_id = ?""", (tx_id,))
+                
+        spends = []
+        for spend in spend_rows:
+            sp_tx_id = spend[0]
+            sp_txin_pos = spend[1]
+            txout_pos = spend[2]
+            tx_hash = store.hashout_hex(
+                store.selectrow("SELECT tx_hash FROM tx WHERE tx_id = ?", (sp_tx_id, ))[0])
+            spends.append([txout_pos, tx_hash, sp_txin_pos])
+        return spends
+
     def export_tx(store, tx_id=None, tx_hash=None, decimals=8, format="api"):
         """Return a dict as seen by /rawtx or None if not found."""
 

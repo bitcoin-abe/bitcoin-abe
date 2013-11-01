@@ -956,6 +956,16 @@ class Abe:
 
         body += ['</table>\n']
 
+    def handle_spends(abe, page):
+        abe.do_raw(page, abe.do_spends)
+    def do_spends(abe, page, chain):
+        tx_hash = wsgiref.util.shift_path_info(page['env'])
+        if tx_hash in (None, '') or page['env']['PATH_INFO'] != '' \
+                or not is_hash_prefix(tx_hash):
+            return 'ERROR: Not in correct format'
+        spends = abe.store.get_spends(tx_hash)
+        return json.dumps(spends, indent=2)
+
     def handle_rawtx(abe, page):
         abe.do_raw(page, abe.do_rawtx)
 
