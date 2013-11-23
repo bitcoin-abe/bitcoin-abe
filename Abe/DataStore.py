@@ -56,22 +56,10 @@ CONFIG_DEFAULTS = {
 WORK_BITS = 304  # XXX more than necessary.
 
 CHAIN_CONFIG = [
-    {"chain":"Bitcoin",
-     "code3":"BTC", "address_version":"\x00", "magic":"\xf9\xbe\xb4\xd9"},
+    {"chain":"Blakecoin",
+     "code3":"BLC", "address_version":"\x1a", "magic":"\xf9\xbe\xb4\xd2"},
     {"chain":"Testnet",
-     "code3":"BC0", "address_version":"\x6f", "magic":"\xfa\xbf\xb5\xda"},
-    {"chain":"Namecoin",
-     "code3":"NMC", "address_version":"\x34", "magic":"\xf9\xbe\xb4\xfe"},
-    {"chain":"Weeds", "network":"Weedsnet",
-     "code3":"WDS", "address_version":"\xf3", "magic":"\xf8\xbf\xb5\xda"},
-    {"chain":"BeerTokens",
-     "code3":"BER", "address_version":"\xf2", "magic":"\xf7\xbf\xb5\xdb"},
-    {"chain":"SolidCoin",
-     "code3":"SCN", "address_version":"\x7d", "magic":"\xde\xad\xba\xbe"},
-    {"chain":"ScTestnet",
-     "code3":"SC0", "address_version":"\x6f", "magic":"\xca\xfe\xba\xbe"},
-    {"chain":"Worldcoin",
-     "code3":"WDC", "address_version":"\x49", "magic":"\xfb\xc0\xb6\xdb"},
+     "code3":"BC0", "address_version":"\x8e", "magic":"\x0b\x11\x09\x07"},
     #{"chain":"",
     # "code3":"", "address_version":"\x", "magic":""},
     ]
@@ -666,7 +654,7 @@ class DataStore(object):
                 "loader": loader}
 
         # By default, scan every dir we know.  This doesn't happen in
-        # practise, because abe.py sets ~/.bitcoin as default datadir.
+        # practise, because abe.py sets ~/.blakecoin as default datadir.
         if store.args.datadir is None:
             store.datadirs = datadirs.values()
             return
@@ -741,7 +729,7 @@ class DataStore(object):
     def _find_no_bit8_chain_ids(store, no_bit8_chains):
         chains = no_bit8_chains
         if chains is None:
-            chains = ["Bitcoin", "Testnet"]
+            chains = ["Blakecoin", "Testnet"]
         if isinstance(chains, str):
             chains = [chains]
         ids = set()
@@ -1027,7 +1015,7 @@ store._ddl['configvar'],
     policy_name VARCHAR(100) UNIQUE NOT NULL
 )""",
 
-# A block of the type used by Bitcoin.
+# A block of the type used by Blakecoin.
 """CREATE TABLE block (
     block_id      NUMERIC(14) NOT NULL PRIMARY KEY,
     block_hash    BIT(256)    UNIQUE NOT NULL,
@@ -1105,7 +1093,7 @@ store._ddl['configvar'],
     FOREIGN KEY (next_block_id) REFERENCES block (block_id)
 )""",
 
-# A transaction of the type used by Bitcoin.
+# A transaction of the type used by Blakecoin.
 """CREATE TABLE tx (
     tx_id         NUMERIC(26) NOT NULL PRIMARY KEY,
     tx_hash       BIT(256)    UNIQUE NOT NULL,
@@ -1128,8 +1116,8 @@ store._ddl['configvar'],
 )""",
 """CREATE INDEX x_block_tx_tx ON block_tx (tx_id)""",
 
-# A public key for sending bitcoins.  PUBKEY_HASH is derivable from a
-# Bitcoin or Testnet address.
+# A public key for sending blakecoins.  PUBKEY_HASH is derivable from a
+# Blakecoin or Testnet address.
 """CREATE TABLE pubkey (
     pubkey_id     NUMERIC(26) NOT NULL PRIMARY KEY,
     pubkey_hash   BIT(160)    UNIQUE NOT NULL,
@@ -1728,7 +1716,7 @@ store._ddl['txout_approx'],
         for pos in xrange(len(b['transactions'])):
             tx = b['transactions'][pos]
             if 'hash' not in tx:
-                tx['hash'] = util.double_sha256(tx['__data__'])
+                tx['hash'] = util.single_sha256(tx['__data__'])
             tx_hash_array.append(tx['hash'])
             tx['tx_id'] = store.tx_find_id_and_value(tx, pos == 0)
 
@@ -2271,7 +2259,7 @@ store._ddl['txout_approx'],
         return tx_id
 
     def maybe_import_binary_tx(store, binary_tx):
-        tx_hash = util.double_sha256(binary_tx)
+        tx_hash = util.single_sha256(binary_tx)
         (count,) = store.selectrow(
             "SELECT COUNT(1) FROM tx WHERE tx_hash = ?",
             (store.hashin(tx_hash),))
@@ -2660,7 +2648,7 @@ store._ddl['txout_approx'],
         chain_ids = frozenset([chain_id])
 
         conffile = dircfg.get("conf",
-                              os.path.join(dircfg['dirname'], "bitcoin.conf"))
+                              os.path.join(dircfg['dirname'], "blakecoin.conf"))
         try:
             conf = dict([line.strip().split("=", 1)
                          if "=" in line
@@ -2723,7 +2711,7 @@ store._ddl['txout_approx'],
                     return None
 
             rpc_tx = rpc_tx_hex.decode('hex')
-            tx_hash = util.double_sha256(rpc_tx)
+            tx_hash = util.single_sha256(rpc_tx)
 
             if tx_hash != rpc_tx_hash.decode('hex')[::-1]:
                 raise InvalidBlock('transaction hash mismatch')
@@ -2735,7 +2723,7 @@ store._ddl['txout_approx'],
         try:
 
             # Get block hash at height, and at the same time, test
-            # bitcoind connectivity.
+            # blakecoind connectivity.
             try:
                 next_hash = get_blockhash(height)
             except util.JsonrpcException, e:
@@ -2825,7 +2813,7 @@ store._ddl['txout_approx'],
                     store.imported_bytes(tx['size'])
 
         except util.JsonrpcMethodNotFound, e:
-            store.log.debug("bitcoind %s not supported", e.method)
+            store.log.debug("blakecoind %s not supported", e.method)
             return False
 
         except InvalidBlock, e:
@@ -3013,7 +3001,7 @@ store._ddl['txout_approx'],
                 break
             end = ds.read_cursor + length
 
-            hash = util.double_sha256(
+            hash = util.blake256(
                 ds.input[ds.read_cursor : ds.read_cursor + 80])
             # XXX should decode target and check hash against it to
             # avoid loading garbage data.  But not for merged-mined or

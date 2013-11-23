@@ -37,7 +37,7 @@ parse_opts() {
     done
 }
 
-DATADIR="$HOME/.bitcoin"
+DATADIR="$HOME/.blakecoin"
 parse_opts "$@"
 
 tail -F "$DATADIR"/debug.log |

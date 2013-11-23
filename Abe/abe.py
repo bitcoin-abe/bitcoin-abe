@@ -41,14 +41,11 @@ __version__ = version.__version__
 
 ABE_APPNAME = "Abe"
 ABE_VERSION = __version__
-ABE_URL = 'https://github.com/bitcoin-abe/bitcoin-abe'
+ABE_URL = 'https://github.com/knorrly/blakecoin-abe'
 
-COPYRIGHT_YEARS = '2011'
+COPYRIGHT_YEARS = '2013'
 COPYRIGHT = "Abe developers"
 COPYRIGHT_URL = 'https://github.com/bitcoin-abe'
-
-DONATIONS_BTC = '1PWC7PNHL1SgvZaN7xEtygenKjWobWsCuf'
-DONATIONS_NMC = 'NJ3MSELK1cWnqUa6xhF2wUYAnz3RSrWXcK'
 
 TIME1970 = time.strptime('1970-01-01','%Y-%m-%d')
 EPOCH1970 = calendar.timegm(TIME1970)
@@ -78,9 +75,6 @@ DEFAULT_TEMPLATE = """
             Powered by <a href="%(ABE_URL)s">%(APPNAME)s</a>
         </span>
         %(download)s
-        Tips appreciated!
-        <a href="%(dotdot)saddress/%(DONATIONS_BTC)s">BTC</a>
-        <a href="%(dotdot)saddress/%(DONATIONS_NMC)s">NMC</a>
     </p>
 </body>
 </html>
@@ -2184,8 +2178,6 @@ def main(argv):
             "COPYRIGHT": COPYRIGHT,
             "COPYRIGHT_YEARS": COPYRIGHT_YEARS,
             "COPYRIGHT_URL": COPYRIGHT_URL,
-            "DONATIONS_BTC": DONATIONS_BTC,
-            "DONATIONS_NMC": DONATIONS_NMC,
             "CONTENT_TYPE": DEFAULT_CONTENT_TYPE,
             "HOMEPAGE": DEFAULT_HOMEPAGE,
             },
@@ -2204,7 +2196,7 @@ def main(argv):
     elif argv[0] in ('-h', '--help'):
         print ("""Usage: python -m Abe.abe [-h] [--config=FILE] [--CONFIGVAR=VALUE]...
 
-A Bitcoin block chain browser.
+A Blakecoin block chain browser.
 
   --help                    Show this help message and exit.
   --version                 Show the program version and exit.

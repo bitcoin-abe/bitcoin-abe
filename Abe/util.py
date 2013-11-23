@@ -5,6 +5,7 @@
 import re
 import base58
 import Crypto.Hash.SHA256 as SHA256
+from blake8 import BLAKE as BLAKE
 
 try:
     import Crypto.Hash.RIPEMD160 as RIPEMD160
@@ -17,10 +18,10 @@ def determine_db_dir():
     import os.path
     import platform
     if platform.system() == "Darwin":
-        return os.path.expanduser("~/Library/Application Support/Bitcoin/")
+        return os.path.expanduser("~/Library/Application Support/Blakecoin/")
     elif platform.system() == "Windows":
-        return os.path.join(os.environ['APPDATA'], "Bitcoin")
-    return os.path.expanduser("~/.bitcoin")
+        return os.path.join(os.environ['APPDATA'], "Blakecoin")
+    return os.path.expanduser("~/.blakecoin")
 
 # This function comes from bitcointools, bct-LICENSE.txt.
 def long_hex(bytes):
@@ -33,19 +34,25 @@ def short_hex(bytes):
         return t
     return t[0:4]+"..."+t[-4:]
 
+def single_sha256(s):
+    return SHA256.new(s).digest()
+
 def double_sha256(s):
     return SHA256.new(SHA256.new(s).digest()).digest()
 
+def blake256(s):
+    return BLAKE(256).digest(s)
+
 # Based on CBlock::BuildMerkleTree().
 def merkle(hashes):
-    while len(hashes) > 1:
-        size = len(hashes)
-        out = []
-        for i in xrange(0, size, 2):
-            i2 = min(i + 1, size - 1)
-            out.append(double_sha256(hashes[i] + hashes[i2]))
-        hashes = out
-    return hashes and hashes[0]
+   while len(hashes) > 1:
+       size = len(hashes)
+       out = []
+       for i in xrange(0, size, 2):
+           i2 = min(i + 1, size - 1)
+           out.append(double_sha256(hashes[i] + hashes[i2]))
+       hashes = out
+   return hashes and hashes[0]
 
 def block_hash(block):
     import BCDataStream
@@ -56,7 +63,7 @@ def block_hash(block):
     ds.write_uint32(block['nTime'])
     ds.write_uint32(block['nBits'])
     ds.write_uint32(block['nNonce'])
-    return double_sha256(ds.input)
+    return blake256(ds.input)
 
 def pubkey_to_hash(pubkey):
     return RIPEMD160.new(SHA256.new(pubkey).digest()).digest()
@@ -102,7 +109,7 @@ def possible_address(string):
 
 def hash_to_address(version, hash):
     vh = version + hash
-    return base58.b58encode(vh + double_sha256(vh)[:4])
+    return base58.b58encode(vh + blake256(vh)[:4])
 
 def decode_check_address(address):
     if possible_address(address):

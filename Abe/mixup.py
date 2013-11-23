@@ -75,7 +75,7 @@ def mixup_blocks(store, ds, count, datadir_chain_id = None, seed = None):
         # XXX pasted out of DataStore.import_blkdat
         end = ds.read_cursor + length
 
-        hash = util.double_sha256(
+        hash = util.blake256(
             ds.input[ds.read_cursor : ds.read_cursor + 80])
         # XXX should decode target and check hash against it to
         # avoid loading garbage data.  But not for merged-mined or

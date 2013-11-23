@@ -1,4 +1,9 @@
-Abe: a free block chain browser for Bitcoin-based currencies.
+Blakecoin-Abe: a free block chain browser for the Blakecoin currencies.
+https://github.com/knorrly/blakecoin-abe
+
+forked from
+
+Blakecoin-Abe: a free block chain browser for Bitcoin-based currencies.
 https://github.com/bitcoin-abe/bitcoin-abe
 
     Copyright(C) 2011,2012,2013 by Abe developers.
@@ -8,7 +13,7 @@ https://github.com/bitcoin-abe/bitcoin-abe
 Welcome to Abe!
 ===============
 
-This software reads the Bitcoin block file, transforms and loads the
+This software reads the Blakecoin block file, transforms and loads the
 data into a database, and presents a web interface similar to Bitcoin
 Block Explorer, http://blockexplorer.com/.
 
@@ -32,13 +37,13 @@ Abe formerly ran on some ODBC configurations, Oracle, and IBM DB2, but
 we have not tested to be sure it still works.  See the comments in
 abe.conf about dbtype for configuration examples.
 
-Abe works with files created by the original (Satoshi) Bitcoin client.
+Abe works with files created by the original Blakecoin client.
 You will need a copy of the block files (blk0001.dat, blk0002.dat,
-etc. in your Bitcoin directory or its blocks/ subdirectory).  You may
-let Abe read the block files while Bitcoin runs, assuming Bitcoin only
+etc. in your Blakecoin directory or its blocks/ subdirectory).  You may
+let Abe read the block files while Blakecoin runs, assuming Blakecoin only
 appends to the file.  Prior to Bitcoin v0.8, this assumption seemed
 safe.  Abe may need some fixes to avoid skipping blocks while current
-and future Bitcoin versions run.
+and future Blakecoin versions run.
 
 License
 -------
@@ -110,38 +115,11 @@ and network interface in abe.conf, e.g.:
     port 2750
     host 127.0.0.1  # or a domain name
 
-Input
------
-
-To display Namecoin or any block chain with data somewhere other than
-the default Bitcoin directory, specify "datadir" in abe.conf, e.g.:
-
-    datadir = /home/bitcoin/.namecoin
-
-Note that the web interface is currently unaware of name transactions,
-but see namecoin_dump.py in the tools directory.
-
-The datadir directive can include a new chain's basic configuration,
-e.g.:
-
-    datadir += [{
-            "dirname": "/home/weeds/testnet",
-            "chain":   "Weeds",
-            "code3":   "WDS",
-            "address_version": "o" }]
-
-Note that "+=" adds to the existing datadir configuration, while "="
-replaces it.  For help with address_version, please open doc/FAQ.html
-in a web browser.
-
 More information
 ----------------
 
 Please see TODO.txt for a list of what is not yet implemented but
 would like to be.
 
-Forum thread: https://bitcointalk.org/index.php?topic=22785.0
+Abe Forum thread: https://bitcointalk.org/index.php?topic=22785.0
 Newbies: https://bitcointalk.org/index.php?topic=51139.0
-
-Donations appreciated: 1PWC7PNHL1SgvZaN7xEtygenKjWobWsCuf (BTC)
-NJ3MSELK1cWnqUa6xhF2wUYAnz3RSrWXcK (NMC)
