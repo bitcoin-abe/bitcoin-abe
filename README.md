@@ -1,4 +1,4 @@
-Blakecoin-Abe: a free block chain browser for the Blakecoin currencies.
+Blakecoin-Abe: a free block chain browser for the Blakecoin currency.
 https://github.com/knorrly/blakecoin-abe
 
 forked from
