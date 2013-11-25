@@ -2281,6 +2281,28 @@ store._ddl['txout_approx'],
             store.import_tx(tx, util.is_coinbase_tx(tx))
             store.imported_bytes(tx['size'])
 
+    def get_spends(store, tx_hash):
+        tx_id = store.selectrow("""
+                SELECT tx_id
+                  FROM tx
+                 WHERE tx_hash = ?
+            """, (store.hashin_hex(tx_hash),))[0]
+
+        spend_rows = store.selectall("""SELECT txin.tx_id, txin.txin_pos, txout.txout_pos
+                           FROM txin
+                           INNER JOIN txout ON txin.txout_id = txout.txout_id
+                           WHERE txout.tx_id = ?""", (tx_id,))
+                
+        spends = []
+        for spend in spend_rows:
+            sp_tx_id = spend[0]
+            sp_txin_pos = spend[1]
+            txout_pos = spend[2]
+            tx_hash = store.hashout_hex(
+                store.selectrow("SELECT tx_hash FROM tx WHERE tx_id = ?", (sp_tx_id, ))[0])
+            spends.append([txout_pos, tx_hash, sp_txin_pos])
+        return spends
+
     def export_tx(store, tx_id=None, tx_hash=None, decimals=8, format="api"):
         """Return a dict as seen by /rawtx or None if not found."""
 
@@ -2322,7 +2344,8 @@ store._ddl['txout_approx'],
                 COALESCE(tx.tx_hash, uti.txout_tx_hash),
                 COALESCE(txout.txout_pos, uti.txout_pos)""" + (""",
                 txin_scriptSig,
-                txin_sequence""" if store.keep_scriptsig else "") + """
+                txin_sequence""" if store.keep_scriptsig else "") + """,
+                txout.txout_value
             FROM txin
             LEFT JOIN txout ON (txin.txout_id = txout.txout_id)
             LEFT JOIN tx ON (txout.tx_id = tx.tx_id)
@@ -2331,19 +2354,23 @@ store._ddl['txout_approx'],
             ORDER BY txin.txin_pos""", (tx_id,)):
             prevout_hash = row[0]
             prevout_n = None if row[1] is None else int(row[1])
+            value = row[4]
             if is_bin:
                 txin = {
                     'prevout_hash': store.hashout(prevout_hash),
-                    'prevout_n': prevout_n}
+                    'prevout_n': prevout_n,
+                    'value': store.formatValue(value, decimals)}
             else:
                 if prevout_hash is None:
                     prev_out = {
                         'hash': "0" * 64,  # XXX should store this?
-                        'n': 0xffffffff}   # XXX should store this?
+                        'n': 0xffffffff,   # XXX should store this?
+                        'value': '0'}
                 else:
                     prev_out = {
                         'hash': store.hashout_hex(prevout_hash),
-                        'n': prevout_n}
+                        'n': prevout_n,
+                        'value': store.formatValue(value, decimals)}
                 txin = {'prev_out': prev_out}
             if store.keep_scriptsig:
                 scriptSig = row[2]
@@ -2368,12 +2395,8 @@ store._ddl['txout_approx'],
                     'value': int(satoshis),
                     'scriptPubKey': store.binout(scriptPubKey)}
             else:
-                coin = 10 ** decimals
-                satoshis = int(satoshis)
-                integer = satoshis / coin
-                frac = satoshis % coin
                 txout = {
-                    'value': ("%%d.%%0%dd" % (decimals,)) % (integer, frac),
+                    'value': store.formatValue(satoshis, decimals),
                     'raw_scriptPubKey': store.binout_hex(scriptPubKey)}
             txouts.append(txout)
 
@@ -2382,6 +2405,13 @@ store._ddl['txout_approx'],
             tx['vout_sz'] = len(txouts)
 
         return tx
+    
+    def formatValue(store, satoshis, decimals):
+        coin = 10 ** decimals
+        satoshis = int(satoshis)
+        integer = satoshis / coin
+        frac = satoshis % coin
+        return ("%%d.%%0%dd" % (decimals,)) % (integer, frac)
 
     # Called to indicate that the given block has the correct magic
     # number and policy for the given chains.  Updates CHAIN_CANDIDATE
