@@ -1350,7 +1350,7 @@ class Abe:
                 ('tx',)))
 
     def handle_b(abe, page):
-        if 'chain' in page:
+        if 'chain' in page and page['chain'] is not None:
             chain = page['chain']
             height = wsgiref.util.shift_path_info(page['env'])
             try:
