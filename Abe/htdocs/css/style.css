@@ -1,0 +1,36 @@
+#header, #footer {
+	padding-top: 1px;
+	background-color: #142129;
+}
+
+#header h1 {
+	color: #fff;
+	margin: 10px 0;
+}
+
+#footer {
+	color: #fff;
+}
+
+#q {
+	width: 300px;
+	display: inline;
+}
+
+#body-container {
+	min-height: 750px;
+	padding-top: 10px;
+}
+
+.pagination > li > a, .pagination > li > span {
+    padding: 0 12px;
+}
+
+.alert-top {
+    border: 1px solid rgba(0, 0, 0, 0);
+    border-radius: 4px;
+    font-size: 0.9em;
+    margin: 10px 0 0 0;
+    padding: 10px 35px 10px 10px;
+    width: 370px;
+}
