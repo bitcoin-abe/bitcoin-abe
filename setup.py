@@ -7,7 +7,7 @@ setup(
     version      = __version__,
     requires     = ['Crypto.Hash'],
     packages     = ["Abe"],
-    package_data = {'Abe': ['htdocs/*']},
+    package_data = {'Abe': ['htdocs/robots.txt', 'htdocs/css/*','htdocs/js/*', 'htdocs/fonts/*', 'htdocs/images/*']},
     author       = "John Tobey",
     author_email = "jtobey@john-edwin-tobey.org",
     url          = "https://github.com/jtobey/bitcoin-abe",

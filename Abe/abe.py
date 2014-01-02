@@ -57,31 +57,72 @@ EPOCH1970 = calendar.timegm(TIME1970)
 # Configurable templates may contain either.  HTML seems better supported
 # under Internet Explorer.
 DEFAULT_CONTENT_TYPE = "text/html; charset=utf-8"
-DEFAULT_HOMEPAGE = "chains";
+DEFAULT_HOMEPAGE = "chain/Diamond";
 DEFAULT_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel="stylesheet" type="text/css"
-     href="%(dotdot)s%(STATIC_PATH)sabe.css" />
-    <link rel="shortcut icon" href="%(dotdot)s%(STATIC_PATH)sfavicon.ico" />
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8"> 
+    <link rel="stylesheet" type="text/css" href="%(dotdot)s%(STATIC_PATH)scss/bootstrap.min.css" />
+    <link rel="stylesheet" type="text/css" href="%(dotdot)s%(STATIC_PATH)scss/style.css" />
+    <link rel="shortcut icon" href="%(dotdot)s%(STATIC_PATH)simages/favicon.png" />
     <title>%(title)s</title>
 </head>
 <body>
-    <h1><a href="%(dotdot)s%(HOMEPAGE)s"><img
-     src="%(dotdot)s%(STATIC_PATH)slogo32.png" alt="Abe logo" /></a> %(h1)s
-    </h1>
+    <div id="header">
+        <div class="container">
+            <h1 class="pull-left">
+                <a href="%(dotdot)s%(HOMEPAGE)s">
+                <img src="%(dotdot)s%(STATIC_PATH)simages/dmd_logo_80x801.png" alt="Diamond"></a> Diamond Block Explorer
+            </h1>
+			
+			<div class="alert alert-info alert-dismissable alert-top pull-right">
+				<button type="button" class="close" data-dismiss="alert" aria-hidden="true">&times;</button>
+				<strong>Help support this site!</strong>
+				<p>Visit our mining pools at <a href="http://pool.diamondblocks.info">pool.diamondblocks.info</a> and <a href="http://pool.phsblocks.com">pool.phsblocks.com</a>.</p>
+			</div>
+       </div>
+    </div>
+    <div class="container" id="body-container">
     %(body)s
-    <p><a href="%(dotdot)sq">API</a> (machine-readable pages)</p>
-    <p style="font-size: smaller">
-        <span style="font-style: italic">
-            Powered by <a href="%(ABE_URL)s">%(APPNAME)s</a>
-        </span>
-        %(download)s
-        Tips appreciated!
-        <a href="%(dotdot)saddress/%(DONATIONS_BTC)s">BTC</a>
-        <a href="%(dotdot)saddress/%(DONATIONS_NMC)s">NMC</a>
-    </p>
+    </div>
+
+
+<script src="%(dotdot)s%(STATIC_PATH)sjs/jquery.min.js"></script>
+<script src="%(dotdot)s%(STATIC_PATH)sjs/bootstrap.min.js"></script>
+<script src="%(dotdot)s%(STATIC_PATH)sjs/jquery.cookie.js"></script>
+<script src="%(dotdot)s%(STATIC_PATH)sjs/nethash.js"></script>
+<script>
+    $('#q').popover({
+        trigger: 'hover',
+        'placement': 'top'
+    });
+	
+	if($.cookie('alert-top') === 'closed' ) {
+        $('.alert-top').hide();
+    }
+
+    $('.close').click(function(e) {
+        e.preventDefault();
+        $.cookie('alert-top', 'closed', { path: '/' });
+    });
+</script>
+<div id="footer" style="padding-top: 10px">
+    <div class="container">
+        <p><a href="http://www.diamondblocks.info/q">API</a> (machine-readable pages)</p>
+        <p style="font-size: smaller">
+            <span style="font-style: italic">
+                Powered by <a href="https://github.com/bitcoin-abe/bitcoin-abe">Abe</a>
+            </span>
+
+            <br>
+            Diamondblocks.info site by Tripmode. Please donate to help support site:<br>
+            <b>BTC</b>: 1trip99Hd2cCfWftbPzdbcmBD35KeKyKw <b>DMD</b>: <a href="http://www.diamondblocks.info/address/dXHDYczgN3VuM9kdrnAFEC6iscoCtvqzRF">dXHDYczgN3VuM9kdrnAFEC6iscoCtvqzRF</a> <b>PHS</b>: <a href="http://diamondblocks.info/address/9Z9FZzczh77vc6GkTW32nG4FLwBB6fyVKi">9Z9FZzczh77vc6GkTW32nG4FLwBB6fyVKi</a> 
+            <br>
+            Donate to Abe developer at BTC: 1PWC7PNHL1SgvZaN7xEtygenKjWobWsCuf
+        </p>
+    </div>
+</div>
 </body>
 </html>
 """
@@ -453,35 +494,44 @@ class Abe:
             hi = int(rows[0][1])
         basename = os.path.basename(page['env']['PATH_INFO'])
 
-        nav = ['<a href="',
-               basename, '?count=', str(count), '">&lt;&lt;</a>']
-        nav += [' <a href="', basename, '?hi=', str(hi + count),
-                 '&amp;count=', str(count), '">&lt;</a>']
-        nav += [' ', '&gt;']
+        nav = ['<div class="pagination-wrapper clearfix"><ul style="margin: 0 auto" class="pagination pull-left">']
+
+        nav += ['<li><a href="', basename, '?count=', str(count), '">&laquo;</a></li>']
+        nav += ['<li><a href="', basename, '?hi=', str(hi + count), '&amp;count=', str(count), '">&lsaquo;</a></li>']
+
         if hi >= count:
-            nav[-1] = ['<a href="', basename, '?hi=', str(hi - count),
-                        '&amp;count=', str(count), '">', nav[-1], '</a>']
-        nav += [' ', '&gt;&gt;']
+            nav += ['<li><a href="', basename, '?hi=', str(hi - count),
+                        '&amp;count=', str(count), '">&rsaquo;</a></li>']
+        else:
+			nav += ['<li class="disabled"><a href="#">', '&rsaquo;</a></li>']
+
         if hi != count - 1:
-            nav[-1] = ['<a href="', basename, '?hi=', str(count - 1),
-                        '&amp;count=', str(count), '">', nav[-1], '</a>']
-        for c in (20, 50, 100, 500, 2016):
+            nav += ['<li><a href="', basename, '?hi=', str(count - 1),
+                        '&amp;count=', str(count), '">&raquo;</a></li>']
+        else:
+			nav += ['<li class="disabled"><a href="#">', '&raquo;</a></li>']
+
+        nav += ['</ul><p class="text-center pull-right"><span style="font-size:0.9em;color:#aaa">Records per page:</span> ']
+		
+        for c in (20, 50, 100):
             nav += [' ']
             if c != count:
-                nav += ['<a href="', basename, '?count=', str(c)]
+                nav += ['<a class="btn btn-default btn-xs" href="', basename, '?count=', str(c)]
                 if hi is not None:
                     nav += ['&amp;hi=', str(max(hi, c - 1))]
                 nav += ['">']
-            nav += [' ', str(c)]
-            if c != count:
-                nav += ['</a>']
-
-        nav += [' <a href="', page['dotdot'], '">Search</a>']
-
+            	nav += [' ', str(c)]
+                nav += ['</a> ']
+            else:
+                nav += ['<a class="btn active btn-default btn-xs" href="#">']
+                nav += [' ', str(c)]
+                nav += ['</a> ']
+        nav += '</p></div>';
+		
         extra = False
         #extra = True
-        body += ['<p>', nav, '</p>\n',
-                 '<table><tr><th>Block</th><th>Approx. Time</th>',
+        body += [nav,
+                 '<table class="table table-condensed table-hover"><tr><th>Block</th><th>Approx. Time</th>',
                  '<th>Transactions</th><th>Value Out</th>',
                  '<th>Difficulty</th><th>Outstanding</th>',
                  '<th>Average Age</th><th>Chain Age</th>',
@@ -708,7 +758,7 @@ class Abe:
                     "pubkey_hash": pubkey_hash,
                     })
 
-        body += ['<table><tr><th>Transaction</th><th>Fee</th>'
+        body += ['<table class="table table-condensed table-hover"><tr><th>Transaction</th><th>Fee</th>'
                  '<th>Size (kB)</th><th>From (amount)</th><th>To (amount)</th>'
                  '</tr>\n']
         for tx_id in tx_ids:
@@ -936,7 +986,7 @@ class Abe:
             '<br />\n',
             '<a href="../rawtx/', tx_hash, '">Raw transaction</a><br />\n']
         body += ['</p>\n',
-                 '<a name="inputs"><h3>Inputs</h3></a>\n<table>\n',
+                 '<a name="inputs"><h3>Inputs</h3></a>\n<table class="table table-condensed table-hover">\n',
                  '<tr><th>Index</th><th>Previous output</th><th>Amount</th>',
                  '<th>From address</th>']
         if abe.store.keep_scriptsig:
@@ -946,7 +996,7 @@ class Abe:
             row_to_html(row, 'i', 'o',
                         'Generation' if is_coinbase else 'Unknown')
         body += ['</table>\n',
-                 '<a name="outputs"><h3>Outputs</h3></a>\n<table>\n',
+                 '<a name="outputs"><h3>Outputs</h3></a>\n<table class="table table-condensed table-hover">\n',
                  '<tr><th>Index</th><th>Redeemed at input</th><th>Amount</th>',
                  '<th>To address</th><th>ScriptPubKey</th></tr>\n']
         for row in out_rows:
@@ -1130,7 +1180,7 @@ class Abe:
 
         body += ['</p>\n'
                  '<h3>Transactions</h3>\n'
-                 '<table>\n<tr><th>Transaction</th><th>Block</th>'
+                 '<table class="table table-condensed table-hover">\n<tr><th>Transaction</th><th>Block</th>'
                  '<th>Approx. Time</th><th>Amount</th><th>Balance</th>'
                  '<th>Currency</th></tr>\n']
 
@@ -1156,13 +1206,14 @@ class Abe:
     def search_form(abe, page):
         q = (page['params'].get('q') or [''])[0]
         return [
-            '<p>Search by address, block number or hash, transaction or'
-            ' public key hash, or chain name:</p>\n'
-            '<form action="', page['dotdot'], 'search"><p>\n'
-            '<input name="q" size="64" value="', escape(q), '" />'
-            '<button type="submit">Search</button>\n'
-            '<br />Address or hash search requires at least the first ',
-            HASH_PREFIX_MIN, ' characters.</p></form>\n']
+'<form action="', page['dotdot'], 'search" style="margin: 50px 0">'
+	'<div id="search" class="text-center">'
+		'<input id="q" name="q" value="', escape(q), '" type="text" class="form-control" data-toggle="popover" data-content="Search by address, block number or hash, transaction or public key hash, or chain name. Address or hash search requires at least the first ', HASH_PREFIX_MIN, ' characters." />'
+		' <button type="submit" class="btn btn-primary">'
+			'<span class="glyphicon glyphicon-search"></span> Search'
+		'</button>'
+	'</div>'
+'</form>']
 
     def handle_search(abe, page):
         page['title'] = 'Search'
