@@ -279,7 +279,7 @@ class Abe:
         content = page['template'] % tvars
         if isinstance(content, unicode):
             content = content.encode('UTF-8')
-        return content
+        return [content]
 
     def get_handler(abe, cmd):
         return getattr(abe, 'handle_' + cmd, None)
