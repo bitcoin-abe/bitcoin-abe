@@ -40,7 +40,7 @@ Apache must have the directory configured with Options +ExecCGI.
 
 Create file /etc/apache2/sites-available/abe with these contents:
 
-    <VirtualHost *>
+    <VirtualHost *:80>
         ServerName YOUR.ABE.DOMAIN
         Alias /static/ HTDOCS/DIRECTORY/
         Alias /robots.txt HTDOCS/DIRECTORY/robots.txt
