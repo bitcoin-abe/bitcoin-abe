@@ -659,16 +659,15 @@ class DataStore(object):
         datadirs = {}
         for row in store.selectall("""
             SELECT datadir_id, dirname, blkfile_number, blkfile_offset,
-                   chain_id, datadir_loader
+                   chain_id
               FROM datadir"""):
-            id, dir, num, offs, chain_id, loader = row
+            id, dir, num, offs, chain_id = row
             datadirs[dir] = {
                 "id": id,
                 "dirname": dir,
                 "blkfile_number": int(num),
                 "blkfile_offset": int(offs),
-                "chain_id": None if chain_id is None else int(chain_id),
-                "loader": loader}
+                "chain_id": None if chain_id is None else int(chain_id)}
 
         # By default, scan every dir we know.  This doesn't happen in
         # practise, because abe.py sets ~/.bitcoin as default datadir.
@@ -677,6 +676,7 @@ class DataStore(object):
             return
 
         store.datadirs = []
+        to_copy = ['loader']
         for dircfg in store.args.datadir:
             if isinstance(dircfg, dict):
                 dirname = dircfg.get('dirname')
@@ -685,7 +685,10 @@ class DataStore(object):
                         'Missing dirname in datadir configuration: '
                         + str(dircfg))
                 if dirname in datadirs:
-                    store.datadirs.append(datadirs[dirname])
+                    d = datadirs[dirname]
+                    for key in to_copy:
+                        d[key] = dircfg.get(key, None)
+                    store.datadirs.append(d)
                     continue
 
                 chain_id = dircfg.get('chain_id')
@@ -722,8 +725,6 @@ class DataStore(object):
                         store.log.warning("Assigned chain_id %d to %s",
                                           chain_id, chain_name)
 
-                loader = dircfg.get('loader')
-
             elif dircfg in datadirs:
                 store.datadirs.append(datadirs[dircfg])
                 continue
@@ -732,16 +733,17 @@ class DataStore(object):
                 # standard chains.
                 dirname = dircfg
                 chain_id = None
-                loader = None
 
-            store.datadirs.append({
+            d = {
                 "id": store.new_id("datadir"),
                 "dirname": dirname,
                 "blkfile_number": 1,
                 "blkfile_offset": 0,
                 "chain_id": chain_id,
-                "loader": loader,
-                })
+                }
+            for key in to_copy:
+                d[key] = dircfg.get(key, None)
+            store.datadirs.append(d)
 
     def _find_no_bit8_chain_ids(store, no_bit8_chains):
         chains = no_bit8_chains
@@ -1015,8 +1017,7 @@ store._ddl['configvar'],
     dirname     VARCHAR(2000) NOT NULL,
     blkfile_number NUMERIC(8) NULL,
     blkfile_offset NUMERIC(20) NULL,
-    chain_id    NUMERIC(10) NULL,
-    datadir_loader VARCHAR(100) NULL
+    chain_id    NUMERIC(10) NULL
 )""",
 
 # MAGIC lists the magic numbers seen in messages and block files, known
@@ -3089,12 +3090,11 @@ store._ddl['txout_approx'],
         if store.cursor.rowcount == 0:
             store.sql("""
                 INSERT INTO datadir (datadir_id, dirname, blkfile_number,
-                    blkfile_offset, chain_id, datadir_loader)
-                VALUES (?, ?, ?, ?, ?, ?)""",
+                    blkfile_offset, chain_id)
+                VALUES (?, ?, ?, ?, ?)""",
                       (dircfg['id'], dircfg['dirname'],
                        dircfg['blkfile_number'],
-                       store.intin(offset), dircfg['chain_id'],
-                       dircfg['loader']))
+                       store.intin(offset), dircfg['chain_id']))
         dircfg['blkfile_offset'] = offset
 
     def _refresh_dircfg(store, dircfg):
