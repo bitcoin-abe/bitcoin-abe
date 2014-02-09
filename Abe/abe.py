@@ -264,7 +264,7 @@ class Abe:
             abe.store.rollback()
             raise
 
-        abe.store.rollback()  # Close imlicitly opened transaction.
+        abe.store.rollback()  # Close implicitly opened transaction.
 
         start_response(status, [('Content-type', page['content_type']),
                                 ('Cache-Control', 'max-age=30')])
@@ -2110,7 +2110,18 @@ def redirect(page):
 def serve(store):
     args = store.args
     abe = Abe(store, args)
-    if args.host or args.port:
+
+    if args.query is not None:
+        def start_response(status, headers):
+            pass
+        import urlparse
+        parsed = urlparse.urlparse(args.query)
+        print abe({
+                'SCRIPT_NAME':  '',
+                'PATH_INFO':    parsed.path,
+                'QUERY_STRING': parsed.query
+                }, start_response)
+    elif args.host or args.port:
         # HTTP server.
         if args.host is None:
             args.host = "localhost"
@@ -2163,6 +2174,7 @@ def main(argv):
     conf = {
         "port":                     None,
         "host":                     None,
+        "query":                    None,
         "no_serve":                 None,
         "no_load":                  None,
         "debug":                    None,
@@ -2209,6 +2221,7 @@ A Bitcoin block chain browser.
   --help                    Show this help message and exit.
   --version                 Show the program version and exit.
   --print-htdocs-directory  Show the static content directory name and exit.
+  --query /q/COMMAND        Show the given URI content and exit.
   --config FILE             Read options from FILE.
 
 All configuration variables may be given as command arguments.
@@ -2230,7 +2243,7 @@ See abe.conf for commented examples.""")
 
     logging.basicConfig(
         stream=sys.stdout,
-        level=logging.DEBUG,
+        level = logging.DEBUG if args.query is None else logging.ERROR,
         format=DEFAULT_LOG_FORMAT)
     if args.logging is not None:
         import logging.config as logging_config
