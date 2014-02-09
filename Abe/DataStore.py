@@ -133,10 +133,6 @@ class DataStore(object):
         args.datadir names Bitcoin data directories containing
         blk0001.dat to scan for new blocks.
         """
-        if args.dbtype is None:
-            raise TypeError(
-                "dbtype is required; please see abe.conf for examples")
-
         if args.datadir is None:
             args.datadir = util.determine_db_dir()
         if isinstance(args.datadir, str):
@@ -150,6 +146,15 @@ class DataStore(object):
         store.rpclog = logging.getLogger(__name__ + ".rpc")
         if not args.log_rpc:
             store.rpclog.setLevel(logging.ERROR)
+
+        if args.dbtype is None:
+            store.log.warn("dbtype not configured, see abe.conf for examples");
+            store.module = None
+            store.config = CONFIG_DEFAULTS.copy()
+            store.datadirs = []
+            store.use_firstbits = CONFIG_DEFAULTS['use_firstbits']
+            return
+
         store.module = __import__(args.dbtype)
         store.auto_reconnect = False
         store.init_conn()
@@ -862,6 +867,8 @@ class DataStore(object):
         store.in_transaction = False
 
     def rollback(store):
+        if store.module is None:
+            return
         store.sqllog.info("ROLLBACK")
         try:
             store.conn.rollback()
