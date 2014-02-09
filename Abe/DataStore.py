@@ -3020,6 +3020,7 @@ store._ddl['txout_approx'],
                 break
             end = ds.read_cursor + length
 
+            # XXX replace with chain.block_header_hash(ds)
             hash = util.double_sha256(
                 ds.input[ds.read_cursor : ds.read_cursor + 80])
             # XXX should decode target and check hash against it to
@@ -3028,6 +3029,7 @@ store._ddl['txout_approx'],
             # algorithms.  Time to resurrect policy_id?
 
             if not store.offer_existing_block(hash, chain_id):
+                # XXX replace with chain.parse_block(ds)
                 b = store.parse_block(ds, chain_id, magic, length)
                 b["hash"] = hash
                 chain_ids = frozenset([] if chain_id is None else [chain_id])
