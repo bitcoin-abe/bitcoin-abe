@@ -1,8 +1,6 @@
 * MerkleRootMismatch reported when a non-final blocks/blk*.dat ends in
   a NUL span.  Ignore the span.
 
-* datadir "loader" option seems not to override default-loader.
-
 * Block/tx blacklist.
 
 * Consider allowing unlimited script length.
