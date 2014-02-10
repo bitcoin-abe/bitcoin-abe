@@ -927,9 +927,6 @@ def drop_magic(store):
 def add_chain_decimals(store):
     store.ddl("ALTER TABLE chain ADD chain_decimals NUMERIC(2)")
 
-def populate_chain_decimals(store):
-    store.sql("UPDATE chain SET chain_decimals = 8")
-
 def insert_chain_novacoin(store):
     import Chain
     store.insert_chain(Chain.create("NovaCoin"))
@@ -1023,8 +1020,7 @@ upgrades = [
     ('Abe35.4', drop_policy),            # Fast
     ('Abe35.5', drop_magic),             # Fast
     ('Abe36',   add_chain_decimals),     # Fast
-    ('Abe36.1', populate_chain_decimals), # Fast
-    ('Abe36.2', insert_chain_novacoin),  # Fast
+    ('Abe36.1', insert_chain_novacoin),  # Fast
     ('Abe37', None)
 ]
 

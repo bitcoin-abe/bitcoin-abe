@@ -208,7 +208,11 @@ class DataStore(object):
         store.use_firstbits = (store.config['use_firstbits'] == "true")
 
         for hex_tx in args.import_tx:
-            store.maybe_import_binary_tx(str(hex_tx).decode('hex'))
+            chain = None
+            if isinstance(hex_tx, dict):
+                chain_name = hex_tx.get("chain")
+                hex_tx = hex_tx.get("tx")
+            store.maybe_import_binary_tx(chain_name, str(hex_tx).decode('hex'))
 
         store.default_loader = args.default_loader
 
@@ -673,17 +677,26 @@ class DataStore(object):
                 "chain_id": None if chain_id is None else int(chain_id),
                 "loader": None}
 
+        #print("datadirs: %r" % datadirs)
+
         # By default, scan every dir we know.  This doesn't happen in
         # practise, because abe.py sets ~/.bitcoin as default datadir.
         if store.args.datadir is None:
             store.datadirs = datadirs.values()
             return
 
+        def lookup_chain_id(name):
+            row = store.selectrow(
+                "SELECT chain_id FROM chain WHERE chain_name = ?",
+                (name,))
+            return None if row is None else int(row[0])
+
         store.datadirs = []
         for dircfg in store.args.datadir:
             loader = None
 
             if isinstance(dircfg, dict):
+                #print("dircfg is dict: %r" % dircfg)  # XXX
                 dirname = dircfg.get('dirname')
                 if dirname is None:
                     raise ValueError(
@@ -692,6 +705,8 @@ class DataStore(object):
                 if dirname in datadirs:
                     d = datadirs[dirname]
                     d['loader'] = dircfg.get('loader', None)
+                    if d['chain_id'] is None and 'chain' in dircfg:
+                        d['chain_id'] = lookup_chain_id(dircfg['chain'])
                     store.datadirs.append(d)
                     continue
 
@@ -699,14 +714,9 @@ class DataStore(object):
                 chain_id = dircfg.get('chain_id')
                 if chain_id is None:
                     chain_name = dircfg.get('chain')
-                    row = store.selectrow(
-                        "SELECT chain_id FROM chain WHERE chain_name = ?",
-                        (chain_name,))
+                    chain_id = lookup_chain_id(chain_name)
 
-                    if row is not None:
-                        chain_id = row[0]
-
-                    elif chain_name is not None:
+                    if chain_id is None and chain_name is not None:
                         chain_id = store.new_id('chain')
 
                         code3 = dircfg.get('code3')
@@ -1736,9 +1746,13 @@ store._ddl['txout_approx'],
                 None if total_ss is None else int(total_ss),
                 int(nTime))
 
-    def import_block(store, b, chain_ids=frozenset()):
+    def import_block(store, b, chain_ids=None, chain=None):
 
         # Import new transactions.
+
+        if chain_ids is None:
+            chain_ids = frozenset() if chain is None else frozenset([chain.id])
+
         b['value_in'] = 0
         b['value_out'] = 0
         b['value_destroyed'] = 0
@@ -1750,8 +1764,14 @@ store._ddl['txout_approx'],
 
         for pos in xrange(len(b['transactions'])):
             tx = b['transactions'][pos]
+
             if 'hash' not in tx:
-                tx['hash'] = util.double_sha256(tx['__data__'])
+                if chain is None:
+                    store.log.debug("Falling back to SHA256 transaction hash")
+                    tx['hash'] = util.double_sha256(tx['__data__'])
+                else:
+                    tx['hash'] = chain.transaction_hash(tx['__data__'])
+
             tx_hash_array.append(tx['hash'])
             tx['tx_id'] = store.tx_find_id_and_value(tx, pos == 0)
 
@@ -2293,13 +2313,20 @@ store._ddl['txout_approx'],
 
         return tx_id
 
-    def maybe_import_binary_tx(store, binary_tx):
-        tx_hash = util.double_sha256(binary_tx)
+    def maybe_import_binary_tx(store, chain_name, binary_tx):
+        if chain_name is None:
+            chain = Chain.create(None)  # default to BTC tx format
+        else:
+            chain = store.chains_by.name(chain_name)
+
+        tx_hash = chain.transaction_hash(binary_tx)
+
         (count,) = store.selectrow(
             "SELECT COUNT(1) FROM tx WHERE tx_hash = ?",
             (store.hashin(tx_hash),))
+
         if count == 0:
-            tx = store.parse_tx(binary_tx)
+            tx = chain.parse_transaction(binary_tx)
             tx['hash'] = tx_hash
             store.import_tx(tx, util.is_coinbase_tx(tx))
             store.imported_bytes(tx['size'])
@@ -2746,12 +2773,12 @@ store._ddl['txout_approx'],
                     return None
 
             rpc_tx = rpc_tx_hex.decode('hex')
-            tx_hash = util.double_sha256(rpc_tx)
+            tx_hash = chain.transaction_hash(rpc_tx)
 
             if tx_hash != rpc_tx_hash.decode('hex')[::-1]:
                 raise InvalidBlock('transaction hash mismatch')
 
-            tx = store.parse_tx(rpc_tx)
+            tx = chain.parse_transaction(rpc_tx)
             tx['hash'] = tx_hash
             return tx
 
@@ -2815,7 +2842,8 @@ store._ddl['txout_approx'],
                         'height':   height,
                         }
 
-                    if util.block_hash(block) != hash:
+                    if chain.block_header_hash(chain.serialize_block_header(
+                            block)) != hash:
                         raise InvalidBlock('block hash mismatch')
 
                     for rpc_tx_hash in rpc_block['tx']:
@@ -2828,7 +2856,7 @@ store._ddl['txout_approx'],
 
                         block['transactions'].append(tx)
 
-                    store.import_block(block, chain_ids = frozenset([chain.id]))
+                    store.import_block(block, chain = chain)
                     store.imported_bytes(block['size'])
                     rpc_hash = rpc_block.get('nextblockhash')
 
@@ -3031,7 +3059,7 @@ store._ddl['txout_approx'],
                 break
             end = ds.read_cursor + length
 
-            hash = chain.block_header_hash(ds)
+            hash = chain.ds_block_header_hash(ds)
 
             # XXX should decode target and check hash against it to
             # avoid loading garbage data.  But not for merged-mined or
@@ -3039,9 +3067,9 @@ store._ddl['txout_approx'],
             # algorithms.
 
             if not store.offer_existing_block(hash, chain.id):
-                b = chain.parse_block(ds)
+                b = chain.ds_parse_block(ds)
                 b["hash"] = hash
-                store.import_block(b, chain_ids = frozenset([chain.id]))
+                store.import_block(b, chain = chain)
                 if ds.read_cursor != end:
                     store.log.debug("Skipped %d bytes at block end",
                                     end - ds.read_cursor)
@@ -3056,12 +3084,6 @@ store._ddl['txout_approx'],
 
         if ds.read_cursor != dircfg['blkfile_offset']:
             store.save_blkfile_offset(dircfg, ds.read_cursor)
-
-    def parse_tx(store, bytes):
-        ds = BCDataStream.BCDataStream()
-        ds.input = bytes
-        ds.read_cursor = 0
-        return deserialize.parse_Transaction(ds)
 
     def blkfile_name(store, dircfg, number=None):
         if number is None:
