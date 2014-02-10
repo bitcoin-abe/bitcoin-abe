@@ -202,8 +202,8 @@ class Abe:
                     raise ValueError("shortlink-type: 2 character minimum")
             elif not store.use_firstbits:
                 abe.shortlink_type = "non-firstbits"
-                abe.log.warn("Ignoring shortlink-type=firstbits since" +
-                             " the database does not support it.")
+                abe.log.warning("Ignoring shortlink-type=firstbits since" +
+                                " the database does not support it.")
         if abe.shortlink_type == "non-firstbits":
             abe.shortlink_type = 10
 
@@ -302,18 +302,21 @@ class Abe:
             SELECT c.chain_name, b.block_height, b.block_nTime, b.block_hash,
                    b.block_total_seconds, b.block_total_satoshis,
                    b.block_satoshi_seconds,
-                   b.block_total_ss, c.chain_id, c.chain_code3,
-                   c.chain_address_version, c.chain_last_block_id
+                   b.block_total_ss
               FROM chain c
               JOIN block b ON (c.chain_last_block_id = b.block_id)
              ORDER BY c.chain_name
         """)
         for row in rows:
             name = row[0]
-            chain = abe._row_to_chain((row[8], name, row[9], row[10], row[11]))
+            chain = abe.store.get_chain_by_name(name)
+            if chain is None:
+                abe.log.warning("Store does not know chain: %s", name)
+                continue
+
             body += [
                 '<tr><td><a href="chain/', escape(name), '">',
-                escape(name), '</a></td><td>', escape(chain['code3']), '</td>']
+                escape(name), '</a></td><td>', escape(chain.code3), '</td>']
 
             if row[1] is not None:
                 (height, nTime, hash) = (
@@ -360,35 +363,13 @@ class Abe:
         if len(rows) == 0:
             body += ['<p>No block data found.</p>\n']
 
-    def _chain_fields(abe):
-        return ["id", "name", "code3", "address_version", "last_block_id"]
-
-    def _row_to_chain(abe, row):
-        if row is None:
-            raise NoSuchChainError()
-        chain = {}
-        fields = abe._chain_fields()
-        for i in range(len(fields)):
-            chain[fields[i]] = row[i]
-        chain['address_version'] = abe.store.binout(chain['address_version'])
-        return chain
-
     def chain_lookup_by_name(abe, symbol):
         if symbol is None:
             return abe.get_default_chain()
-        return abe._row_to_chain(abe.store.selectrow("""
-            SELECT chain_""" + ", chain_".join(abe._chain_fields()) + """
-              FROM chain
-             WHERE chain_name = ?""", (symbol,)))
+        return abe.store.get_chain_by_name(symbol)
 
     def get_default_chain(abe):
         return abe.chain_lookup_by_name('Bitcoin')
-
-    def chain_lookup_by_id(abe, chain_id):
-        return abe._row_to_chain(abe.store.selectrow("""
-            SELECT chain_""" + ", chain_".join(abe._chain_fields()) + """
-              FROM chain
-             WHERE chain_id = ?""", (chain_id,)))
 
     def call_handler(abe, page, cmd):
         handler = abe.get_handler(cmd)
@@ -411,7 +392,7 @@ class Abe:
             abe.call_handler(page, cmd)
             return
 
-        page['title'] = chain['name']
+        page['title'] = chain.name
 
         body = page['body']
         body += abe.search_form(page)
@@ -426,7 +407,7 @@ class Abe:
                   FROM block b
                   JOIN chain c ON (c.chain_last_block_id = b.block_id)
                  WHERE c.chain_id = ?
-            """, (chain['id'],))
+            """, (chain.id,))
             if row:
                 hi = row[0]
         if hi is None:
@@ -449,7 +430,7 @@ class Abe:
                AND cc.block_height BETWEEN ? AND ?
                AND cc.in_longest = 1
              ORDER BY cc.block_height DESC LIMIT ?
-        """, (chain['id'], hi - count + 1, hi, count))
+        """, (chain.id, hi - count + 1, hi, count))
 
         if hi is None:
             hi = int(rows[0][1])
@@ -535,7 +516,7 @@ class Abe:
 
     def _show_block(abe, where, bind, page, dotdotblock, chain):
         address_version = ('\0' if chain is None
-                           else chain['address_version'])
+                           else chain.address_version)
         body = page['body']
         sql = """
             SELECT
@@ -591,10 +572,10 @@ class Abe:
         if chain is None:
             page['title'] = ['Block ', block_hash[:4], '...', block_hash[-10:]]
         else:
-            page['title'] = [escape(chain['name']), ' ', height]
+            page['title'] = [escape(chain.name), ' ', height]
             page['h1'] = ['<a href="', page['dotdot'], 'chain/',
-                          escape(chain['name']), '?hi=', height, '">',
-                          escape(chain['name']), '</a> ', height]
+                          escape(chain.name), '?hi=', height, '">',
+                          escape(chain.name), '</a> ', height]
 
         body += abe.short_link(page, 'b/' + block_shortlink(block_hash))
 
@@ -774,8 +755,8 @@ class Abe:
             abe._show_block('block_hash = ?', (dbhash,), page, '', None)
         else:
             chain_id, block_id, height = row
-            chain = abe.chain_lookup_by_id(chain_id)
-            page['title'] = [escape(chain['name']), ' ', height]
+            chain = abe.store.get_chain_by_id(chain_id)
+            page['title'] = [escape(chain.name), ' ', height]
             abe._show_block('block_id = ?', (block_id,), page, '', chain)
 
     def handle_tx(abe, page):
@@ -844,7 +825,7 @@ class Abe:
             if row['binaddr'] is None:
                 body += ['Unknown']
             else:
-                body += hash_to_address_link(chain['address_version'],
+                body += hash_to_address_link(chain.address_version,
                                              row['binaddr'], '../')
             body += ['</td>\n']
             if row['script'] is not None:
@@ -911,9 +892,9 @@ class Abe:
             if chain is None:
                 chain = abe.chain_lookup_by_name(name)
                 is_coinbase = (tx_pos == 0)
-            elif name <> chain['name']:
-                abe.log.warn('Transaction ' + tx_hash + ' in multiple chains: '
-                             + name + ', ' + chain['name'])
+            elif name <> chain.name:
+                abe.log.warning('Transaction ' + tx_hash + ' in multiple chains: '
+                             + name + ', ' + chain.name)
             body += [
                 'Appeared in <a href="../block/', blk_hash, '">',
                 escape(name), ' ',
@@ -921,7 +902,7 @@ class Abe:
                 '</a> (', format_time(nTime), ')<br />\n']
 
         if chain is None:
-            abe.log.warn('Assuming default chain for Transaction ' + tx_hash)
+            abe.log.warning('Assuming default chain for Transaction ' + tx_hash)
             chain = abe.get_default_chain()
 
         body += [
@@ -984,18 +965,17 @@ class Abe:
 
         dbhash = abe.store.binin(binaddr)
 
-        chains = {}
         balance = {}
         received = {}
         sent = {}
         count = [0, 0]
-        chain_ids = []
+        chains = []
         def adj_balance(txpoint):
             chain_id = txpoint['chain_id']
             value = txpoint['value']
             if chain_id not in balance:
-                chain_ids.append(chain_id)
-                chains[chain_id] = abe.chain_lookup_by_id(chain_id)
+                chain = abe.store.get_chain_by_id(chain_id)
+                chains.append(chain)
                 balance[chain_id] = 0
                 received[chain_id] = 0
                 sent[chain_id] = 0
@@ -1086,21 +1066,20 @@ class Abe:
             adj_balance(txpoint)
             txpoints.append(txpoint)
 
-        if (not chain_ids):
+        if (not chains):
             body += ['<p>Address not seen on the network.</p>']
             return
 
         def format_amounts(amounts, link):
             ret = []
-            for chain_id in chain_ids:
-                chain = chains[chain_id]
-                if chain_id != chain_ids[0]:
+            for chain in chains:
+                if ret:
                     ret += [', ']
                 ret += [format_satoshis(amounts[chain_id], chain),
-                        ' ', escape(chain['code3'])]
+                        ' ', escape(chain.code3)]
                 if link:
                     other = util.hash_to_address(
-                        chain['address_version'], binaddr)
+                        chain.address_version, binaddr)
                     if other != address:
                         ret[-1] = ['<a href="', page['dotdot'],
                                    'address/', other,
@@ -1121,8 +1100,8 @@ class Abe:
 
         body += ['<p>Balance: '] + format_amounts(balance, True)
 
-        for chain_id in chain_ids:
-            balance[chain_id] = 0  # Reset for history traversal.
+        for chain in chains:
+            balance[chain.id] = 0  # Reset for history traversal.
 
         body += ['<br />\n',
                  'Transactions in: ', count[0], '<br />\n',
@@ -1137,7 +1116,7 @@ class Abe:
                  '<th>Currency</th></tr>\n']
 
         for elt in txpoints:
-            chain = chains[elt['chain_id']]
+            chain = abe.store.get_chain_by_id(elt['chain_id'])
             balance[elt['chain_id']] += elt['value']
             body += ['<tr><td><a href="../tx/', elt['tx_hash'],
                      '#', 'i' if elt['is_in'] else 'o', elt['pos'],
@@ -1151,7 +1130,7 @@ class Abe:
                 body += [format_satoshis(elt['value'], chain)]
             body += ['</td><td>',
                      format_satoshis(balance[elt['chain_id']], chain),
-                     '</td><td>', escape(chain['code3']),
+                     '</td><td>', escape(chain.code3),
                      '</td></tr>\n']
         body += ['</table>\n']
 
@@ -1370,10 +1349,10 @@ class Abe:
             if cmd is not None:
                 raise PageNotFound()  # XXX want to support /a/...
 
-            page['title'] = [escape(chain['name']), ' ', height]
+            page['title'] = [escape(chain.name), ' ', height]
             abe._show_block(
                 'chain_id = ? AND block_height = ? AND in_longest = 1',
-                (chain['id'], height), page, page['dotdot'] + 'block/', chain)
+                (chain.id, height), page, page['dotdot'] + 'block/', chain)
             return
 
         abe.show_search_results(
@@ -1408,7 +1387,7 @@ class Abe:
                 str(MAX_UNSPENT_ADDRESSES)
 
         if chain:
-            chain_id = chain['id']
+            chain_id = chain.id
             bind = [chain_id]
         else:
             chain_id = None
@@ -1551,7 +1530,7 @@ class Abe:
     def get_max_block_height(abe, chain):
         # "getblockcount" traditionally returns max(block_height),
         # which is one less than the actual block count.
-        return abe.store.get_block_number(chain['id'])
+        return abe.store.get_block_number(chain.id)
 
     def q_getblockcount(abe, page, chain):
         """shows the current block number."""
@@ -1565,7 +1544,7 @@ class Abe:
         if chain is None:
             return 'Shows the difficulty of the last block in CHAIN.\n' \
                 '/chain/CHAIN/q/getdifficulty\n'
-        target = abe.store.get_target(chain['id'])
+        target = abe.store.get_target(chain.id)
         return "" if target is None else util.target_to_difficulty(target)
 
     def q_translate_address(abe, page, chain):
@@ -1577,7 +1556,7 @@ class Abe:
         version, hash = util.decode_check_address(addr)
         if hash is None:
             return addr + " (INVALID ADDRESS)"
-        return util.hash_to_address(chain['address_version'], hash)
+        return util.hash_to_address(chain.address_version, hash)
 
     def q_decode_address(abe, page, chain):
         """shows the version prefix and hash encoded in an address."""
@@ -1625,7 +1604,7 @@ class Abe:
             version, hash = arg1.split(":", 1)
 
         elif chain:
-            version, hash = chain['address_version'].encode('hex'), arg1
+            version, hash = chain.address_version.encode('hex'), arg1
 
         else:
             # Default: Bitcoin address starting with "1".
@@ -1731,9 +1710,9 @@ class Abe:
                 "" if stop is None else """
                AND ints.block_height <= ?""") + """
              ORDER BY cc.block_height""",
-                                   (interval, start, chain['id'])
+                                   (interval, start, chain.id)
                                    if stop is None else
-                                   (interval, start, chain['id'], stop_ix))
+                                   (interval, start, chain.id, stop_ix))
         if fmt == "csv":
             ret = NETHASH_HEADER
 
@@ -1819,7 +1798,7 @@ class Abe:
                   FROM chain c
                   LEFT JOIN block b ON (c.chain_last_block_id = b.block_id)
                  WHERE c.chain_id = ?
-            """, (chain['id'],))
+            """, (chain.id,))
         else:
             row = abe.store.selectrow("""
                 SELECT b.block_total_satoshis
@@ -1828,7 +1807,7 @@ class Abe:
                  WHERE cc.chain_id = ?
                    AND cc.block_height = ?
                    AND cc.in_longest = 1
-            """, (chain['id'], height))
+            """, (chain.id, height))
             if not row:
                 return 'ERROR: block %d not seen yet' % (height,)
         return format_satoshis(row[0], chain) if row else 0
@@ -1844,7 +1823,7 @@ class Abe:
             return 'ERROR: address invalid'
 
         version, hash = util.decode_address(addr)
-        return format_satoshis(abe.store.get_received(chain['id'], hash), chain)
+        return format_satoshis(abe.store.get_received(chain.id, hash), chain)
 
     def q_getsentbyaddress(abe, page, chain):
         """shows the amount ever sent from a given address."""
@@ -1857,7 +1836,7 @@ class Abe:
             return 'ERROR: address invalid'
 
         version, hash = util.decode_address(addr)
-        return format_satoshis(abe.store.get_sent(chain['id'], hash), chain)
+        return format_satoshis(abe.store.get_sent(chain.id, hash), chain)
 
     def q_addressbalance(abe, page, chain):
         """amount ever received minus amount ever sent by a given address."""
@@ -1870,7 +1849,7 @@ class Abe:
             return 'ERROR: address invalid'
 
         version, hash = util.decode_address(addr)
-        total = abe.store.get_balance(chain['id'], hash)
+        total = abe.store.get_balance(chain.id, hash)
 
         return ("ERROR: please try again" if total is None else
                 format_satoshis(total, chain))
@@ -1899,7 +1878,7 @@ class Abe:
         ret = abe.store.get_firstbits(
             address_version = version,
             db_pubkey_hash = abe.store.binin(dbhash),
-            chain_id = (chain and chain['id']))
+            chain_id = (chain and chain.id))
 
         if ret is None:
             return 'ERROR: address not in the chain.'
@@ -1923,7 +1902,7 @@ class Abe:
                 '/q/addr/FIRSTBITS\n'
 
         return "\n".join(abe.store.firstbits_to_addresses(
-                fb, chain_id = (chain and chain['id'])))
+                fb, chain_id = (chain and chain.id)))
 
     def handle_download(abe, page):
         name = abe.args.download_name
