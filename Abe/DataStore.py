@@ -791,6 +791,12 @@ class DataStore(object):
             store.chains_by.name[chain.name] = chain
             store.chains_by.magic[chain.magic] = chain
 
+    def get_chain_by_id(store, chain_id):
+        return store.chains_by.id[chain_id]
+
+    def get_chain_by_name(store, name):
+        return store.chains_by.name.get(name, None)
+
     def _new_id_update(store, key):
         """
         Allocate a synthetic identifier by updating a table.
