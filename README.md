@@ -113,13 +113,15 @@ and network interface in abe.conf, e.g.:
 Input
 -----
 
-To display Namecoin or any block chain with data somewhere other than
-the default Bitcoin directory, specify "datadir" in abe.conf, e.g.:
+To display Namecoin, NovaCoin, or any block chain with data somewhere
+other than the default Bitcoin directory, specify "datadir" in
+abe.conf, e.g.:
 
     datadir = /home/bitcoin/.namecoin
 
-Note that the web interface is currently unaware of name transactions,
-but see namecoin_dump.py in the tools directory.
+Note that the web interface is currently unaware of name and
+proof-of-stake transactions, but see namecoin_dump.py in the tools
+directory.
 
 The datadir directive can include a new chain's basic configuration,
 e.g.:
