@@ -2659,7 +2659,7 @@ store._ddl['txout_approx'],
         if chain_id is None:
             store.log.debug("no chain_id")
             return False
-        chain_ids = frozenset([chain_id])
+        chain = store.chains_by.id[chain_id]
 
         conffile = dircfg.get("conf",
                               os.path.join(dircfg['dirname'], "bitcoin.conf"))
@@ -2701,7 +2701,7 @@ store._ddl['txout_approx'],
         (max_height,) = store.selectrow("""
             SELECT MAX(block_height)
               FROM chain_candidate
-             WHERE chain_id = ?""", (chain_id,))
+             WHERE chain_id = ?""", (chain.id,))
         height = 0 if max_height is None else int(max_height) + 1
 
         def get_tx(rpc_tx_hash):
@@ -2758,7 +2758,7 @@ store._ddl['txout_approx'],
                      WHERE b.block_hash = ?
                        AND b.block_height IS NOT NULL
                        AND cc.chain_id = ?""", (
-                        store.hashin_hex(str(hash)), chain_id)):
+                        store.hashin_hex(str(hash)), chain.id)):
                     break
 
                 next_hash = hash
@@ -2769,7 +2769,7 @@ store._ddl['txout_approx'],
             while rpc_hash is not None:
                 hash = rpc_hash.decode('hex')[::-1]
 
-                if store.offer_existing_block(hash, chain_id):
+                if store.offer_existing_block(hash, chain.id):
                     rpc_hash = get_blockhash(height + 1)
                 else:
                     rpc_block = rpc("getblock", rpc_hash)
@@ -2807,7 +2807,7 @@ store._ddl['txout_approx'],
 
                         block['transactions'].append(tx)
 
-                    store.import_block(block, chain_ids = chain_ids)
+                    store.import_block(block, chain_ids = frozenset([chain.id]))
                     store.imported_bytes(block['size'])
                     rpc_hash = rpc_block.get('nextblockhash')
 
