@@ -12,9 +12,9 @@ This software reads the Bitcoin block file, transforms and loads the
 data into a database, and presents a web interface similar to Bitcoin
 Block Explorer, http://blockexplorer.com/.
 
-Abe draws inspiration from Bitcoin Block Explorer (BBE) and seeks some
-level of compatibility with it but uses a completely new
-implementation.
+Abe draws inspiration from Bitcoin Block Explorer (BBE) and
+BlockChain.info and seeks some level of compatibility with them but
+uses a completely new implementation.
 
 Installation
 ------------
