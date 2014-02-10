@@ -889,6 +889,41 @@ def populate_pubkeys(store):
                 count += 1
         store.log.info("Found %d", count)
 
+def add_chain_policy(store):
+    store.ddl("ALTER TABLE chain ADD chain_policy VARCHAR(255)")
+
+def populate_chain_policy(store):
+    store.sql("UPDATE chain SET chain_policy = chain_name")
+
+def add_chain_magic(store):
+    store.ddl("ALTER TABLE chain ADD chain_magic BIT(32)")
+
+def populate_chain_magic(store):
+    for chain_id, magic in store.selectall("""
+        SELECT chain.chain_id, magic.magic
+          FROM chain
+          JOIN magic ON (chain.magic_id = magic.magic_id)"""):
+        store.sql("UPDATE chain SET chain_magic = ? WHERE chain_id = ?",
+                  (magic, chain_id))
+
+def drop_policy(store):
+    for stmt in [
+        "ALTER TABLE chain DROP COLUMN policy_id",
+        "DROP TABLE policy"]:
+        try:
+            store.ddl(stmt)
+        except store.module.DatabaseError, e:
+            store.log.warning("Cleanup failed, ignoring: %s", stmt)
+
+def drop_magic(store):
+    for stmt in [
+        "ALTER TABLE chain DROP COLUMN magic_id",
+        "DROP TABLE magic"]:
+        try:
+            store.ddl(stmt)
+        except store.module.DatabaseError, e:
+            store.log.warning("Cleanup failed, ignoring: %s", stmt)
+
 upgrades = [
     ('6',    add_block_value_in),
     ('6.1',  add_block_value_out),
@@ -971,7 +1006,13 @@ upgrades = [
     ('Abe32.2', drop_tmp_datadir),       # Fast
     ('Abe33',   add_datadir_loader),     # Fast
     ('Abe34',   populate_pubkeys),       # Minutes?
-    ('Abe35', None)
+    ('Abe35',   add_chain_policy),       # Fast
+    ('Abe35.1', populate_chain_policy),  # Fast
+    ('Abe35.2', add_chain_magic),        # Fast
+    ('Abe35.3', populate_chain_magic),   # Fast
+    ('Abe35.4', drop_policy),            # Fast
+    ('Abe35.5', drop_magic),             # Fast
+    ('Abe36', None)
 ]
 
 def upgrade_schema(store):

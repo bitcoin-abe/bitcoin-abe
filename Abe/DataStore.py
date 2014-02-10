@@ -26,6 +26,8 @@ import os
 import re
 import errno
 
+import Chain
+
 # bitcointools -- modified deserialize.py to return raw transaction
 import BCDataStream
 import deserialize
@@ -33,7 +35,7 @@ import util
 import logging
 import base58
 
-SCHEMA_VERSION = "Abe35"
+SCHEMA_VERSION = "Abe36"
 
 CONFIG_DEFAULTS = {
     "dbtype":             None,
@@ -193,8 +195,7 @@ class DataStore(object):
             store.sql("UPDATE datadir SET blkfile_number=1, blkfile_offset=0")
 
         store._init_datadirs()
-        store.no_bit8_chain_ids = store._find_no_bit8_chain_ids(
-            args.ignore_bit8_chains)
+        store._init_chains()
 
         store.commit_bytes = args.commit_bytes
         if store.commit_bytes is None:
@@ -652,6 +653,7 @@ class DataStore(object):
         return ret
 
     def _init_datadirs(store):
+        """Parse store.args.datadir, create store.datadirs."""
         if store.args.datadir == []:
             store.datadirs = []
             return
@@ -667,7 +669,8 @@ class DataStore(object):
                 "dirname": dir,
                 "blkfile_number": int(num),
                 "blkfile_offset": int(offs),
-                "chain_id": None if chain_id is None else int(chain_id)}
+                "chain_id": None if chain_id is None else int(chain_id),
+                "loader": None}
 
         # By default, scan every dir we know.  This doesn't happen in
         # practise, because abe.py sets ~/.bitcoin as default datadir.
@@ -676,8 +679,9 @@ class DataStore(object):
             return
 
         store.datadirs = []
-        to_copy = ['loader']
         for dircfg in store.args.datadir:
+            loader = None
+
             if isinstance(dircfg, dict):
                 dirname = dircfg.get('dirname')
                 if dirname is None:
@@ -686,11 +690,11 @@ class DataStore(object):
                         + str(dircfg))
                 if dirname in datadirs:
                     d = datadirs[dirname]
-                    for key in to_copy:
-                        d[key] = dircfg.get(key, None)
+                    d['loader'] = dircfg.get('loader', None)
                     store.datadirs.append(d)
                     continue
 
+                loader = dircfg.get('loader', None)
                 chain_id = dircfg.get('chain_id')
                 if chain_id is None:
                     chain_name = dircfg.get('chain')
@@ -714,13 +718,18 @@ class DataStore(object):
                             addr_vers = "\0"
                         elif isinstance(addr_vers, unicode):
                             addr_vers = addr_vers.encode('latin_1')
+
+                        # XXX Could do chain_magic, but this datadir won't
+                        # use it, because it knows its chain.
+
                         store.sql("""
                             INSERT INTO chain (
                                 chain_id, chain_name, chain_code3,
-                                chain_address_version
-                            ) VALUES (?, ?, ?, ?)""",
+                                chain_address_version, chain_policy
+                            ) VALUES (?, ?, ?, ?, ?)""",
                                   (chain_id, chain_name, code3,
-                                   store.binin(addr_vers)))
+                                   store.binin(addr_vers),
+                                   dircfg.get('policy', chain_name)))
                         store.commit()
                         store.log.warning("Assigned chain_id %d to %s",
                                           chain_id, chain_name)
@@ -740,30 +749,47 @@ class DataStore(object):
                 "blkfile_number": 1,
                 "blkfile_offset": 0,
                 "chain_id": chain_id,
+                "loader": loader,
                 }
-            for key in to_copy:
-                d[key] = dircfg.get(key, None)
             store.datadirs.append(d)
 
-    def _find_no_bit8_chain_ids(store, no_bit8_chains):
-        chains = no_bit8_chains
-        if chains is None:
-            chains = ["Bitcoin", "Testnet"]
-        if isinstance(chains, str):
-            chains = [chains]
-        ids = set()
-        for name in chains:
-            rows = store.selectall(
-                "SELECT chain_id FROM chain WHERE chain_name = ?", (name,))
-            if not rows:
-                if no_bit8_chains is not None:
-                    # Make them fix their config.
-                    raise ValueError(
-                        "Unknown chain name in ignore-bit8-chains: " + name)
-                continue
-            for row in rows:
-                ids.add(int(row[0]))
-        return ids
+    def _init_chains(store):
+        store.chains_by = lambda: 0
+        store.chains_by.id = {}
+        store.chains_by.name = {}
+        store.chains_by.magic = {}
+
+        # Legacy config option.
+        no_bit8_chains = store.args.ignore_bit8_chains or []
+        if isinstance(no_bit8_chains, str):
+            no_bit8_chains = [no_bit8_chains]
+
+        for chain_id, magic, chain_name, chain_code3, address_version, \
+                chain_policy in \
+                store.selectall("""
+                    SELECT chain_id, chain_magic, chain_name, chain_code3,
+                           chain_address_version, chain_policy
+                      FROM chain
+                """):
+            chain = Chain.create(
+                id              = int(chain_id),
+                magic           = store.binout(magic),
+                name            = unicode(chain_name),
+                code3           = unicode(chain_code3),
+                address_version = store.binout(address_version),
+                policy          = unicode(chain_policy))
+
+            # Legacy config option.
+            if chain.name in no_bit8_chains and \
+                    chain.block_version_bit_merge_mine == 8:
+                chain = Chain.create(
+                    id=chain.id, magic=chain.magic, name=chain.name,
+                    code3=chain.code3, address_version=chain.address_version,
+                    policy="LegacyNoBit8")
+
+            store.chains_by.id[chain.id] = chain
+            store.chains_by.name[chain.name] = chain
+            store.chains_by.magic[chain.magic] = chain
 
     def _new_id_update(store, key):
         """
@@ -1020,21 +1046,6 @@ store._ddl['configvar'],
     chain_id    NUMERIC(10) NULL
 )""",
 
-# MAGIC lists the magic numbers seen in messages and block files, known
-# in the original Bitcoin source as `pchMessageStart'.
-"""CREATE TABLE magic (
-    magic_id    NUMERIC(10) NOT NULL PRIMARY KEY,
-    magic       BIT(32)     UNIQUE NOT NULL,
-    magic_name  VARCHAR(100) UNIQUE NOT NULL
-)""",
-
-# POLICY identifies a block acceptance policy.  Not currently used,
-# but required by CHAIN.
-"""CREATE TABLE policy (
-    policy_id   NUMERIC(10) NOT NULL PRIMARY KEY,
-    policy_name VARCHAR(100) UNIQUE NOT NULL
-)""",
-
 # A block of the type used by Bitcoin.
 """CREATE TABLE block (
     block_id      NUMERIC(14) NOT NULL PRIMARY KEY,
@@ -1067,14 +1078,12 @@ store._ddl['configvar'],
 # block, possibly null.  A chain may have a currency code.
 """CREATE TABLE chain (
     chain_id    NUMERIC(10) NOT NULL PRIMARY KEY,
-    magic_id    NUMERIC(10) NULL,
-    policy_id   NUMERIC(10) NULL,
     chain_name  VARCHAR(100) UNIQUE NOT NULL,
     chain_code3 CHAR(3)     NULL,
     chain_address_version BIT VARYING(800) NOT NULL,
+    chain_magic BIT(32)     NULL,
+    chain_policy VARCHAR(255) NOT NULL,
     chain_last_block_id NUMERIC(14) NULL,
-    FOREIGN KEY (magic_id)  REFERENCES magic (magic_id),
-    FOREIGN KEY (policy_id) REFERENCES policy (policy_id),
     FOREIGN KEY (chain_last_block_id)
         REFERENCES block (block_id)
 )""",
@@ -1209,7 +1218,7 @@ store._ddl['txout_approx'],
                 store.log.error("Failed: %s", stmt)
                 raise
 
-        for key in ['magic', 'policy', 'chain', 'datadir',
+        for key in ['chain', 'datadir',
                     'tx', 'txout', 'pubkey', 'txin', 'block']:
             store.create_sequence(key)
 
@@ -1217,31 +1226,16 @@ store._ddl['txout_approx'],
 
         # Insert some well-known chain metadata.
         for conf in CHAIN_CONFIG:
-            for thing in "magic", "policy", "chain":
-                if thing + "_id" not in conf:
-                    conf[thing + "_id"] = store.new_id(thing)
-            if "network" not in conf:
-                conf["network"] = conf["chain"]
-            for thing in "magic", "policy":
-                if thing + "_name" not in conf:
-                    conf[thing + "_name"] = conf["network"] + " " + thing
-            store.sql("""
-                INSERT INTO magic (magic_id, magic, magic_name)
-                VALUES (?, ?, ?)""",
-                      (conf["magic_id"], store.binin(conf["magic"]),
-                       conf["magic_name"]))
-            store.sql("""
-                INSERT INTO policy (policy_id, policy_name)
-                VALUES (?, ?)""",
-                      (conf["policy_id"], conf["policy_name"]))
+            if "chain_id" not in conf:
+                conf["chain_id"] = store.new_id("chain")
             store.sql("""
                 INSERT INTO chain (
-                    chain_id, magic_id, policy_id, chain_name, chain_code3,
-                    chain_address_version
+                    chain_id, chain_magic, chain_name, chain_code3,
+                    chain_address_version, chain_policy
                 ) VALUES (?, ?, ?, ?, ?, ?)""",
-                      (conf["chain_id"], conf["magic_id"], conf["policy_id"],
+                      (conf["chain_id"], store.binin(conf["magic"]),
                        conf["chain"], conf["code3"],
-                       store.binin(conf["address_version"])))
+                       store.binin(conf["address_version"]), conf["chain"]))
 
         store.sql("""
             INSERT INTO pubkey (pubkey_id, pubkey_hash) VALUES (?, ?)""",
@@ -2973,17 +2967,12 @@ store._ddl['txout_approx'],
 
             # Assume blocks obey the respective policy if they get here.
             chain_id = dircfg['chain_id']
-            if chain_id is None:
-                rows = store.selectall("""
-                    SELECT chain.chain_id
-                      FROM chain
-                      JOIN magic ON (chain.magic_id = magic.magic_id)
-                     WHERE magic.magic = ?""",
-                                       (store.binin(magic),))
-                if len(rows) == 1:
-                    chain_id = rows[0][0]
+            chain = store.chains_by.id.get(chain_id, None)
 
-            if chain_id is None:
+            if chain is None:
+                chain = store.chains_by.magic.get(magic, None)
+
+            if chain is None:
                 store.log.warning(
                     "Chain not found for magic number %s in block file %s at"
                     " offset %d.", magic.encode('hex'), filename, offset)
@@ -3016,25 +3005,22 @@ store._ddl['txout_approx'],
             length = ds.read_int32()
             if ds.read_cursor + length > len(ds.input):
                 store.log.debug("incomplete block of length %d chain %d",
-                                length, chain_id)
+                                length, chain.id)
                 ds.read_cursor = offset
                 break
             end = ds.read_cursor + length
 
-            # XXX replace with chain.block_header_hash(ds)
-            hash = util.double_sha256(
-                ds.input[ds.read_cursor : ds.read_cursor + 80])
+            hash = chain.block_header_hash(ds)
+
             # XXX should decode target and check hash against it to
             # avoid loading garbage data.  But not for merged-mined or
             # CPU-mined chains that use different proof-of-work
-            # algorithms.  Time to resurrect policy_id?
+            # algorithms.
 
-            if not store.offer_existing_block(hash, chain_id):
-                # XXX replace with chain.parse_block(ds)
-                b = store.parse_block(ds, chain_id, magic, length)
+            if not store.offer_existing_block(hash, chain.id):
+                b = chain.parse_block(ds)
                 b["hash"] = hash
-                chain_ids = frozenset([] if chain_id is None else [chain_id])
-                store.import_block(b, chain_ids = chain_ids)
+                store.import_block(b, chain_ids = frozenset([chain.id]))
                 if ds.read_cursor != end:
                     store.log.debug("Skipped %d bytes at block end",
                                     end - ds.read_cursor)
@@ -3049,21 +3035,6 @@ store._ddl['txout_approx'],
 
         if ds.read_cursor != dircfg['blkfile_offset']:
             store.save_blkfile_offset(dircfg, ds.read_cursor)
-
-    def parse_block(store, ds, chain_id=None, magic=None, length=None):
-        d = deserialize.parse_BlockHeader(ds)
-        if d['version'] & (1 << 8):
-            if chain_id in store.no_bit8_chain_ids:
-                store.log.debug(
-                    "Ignored bit8 in version 0x%08x of chain_id %d",
-                    d['version'], chain_id)
-            else:
-                d['auxpow'] = deserialize.parse_AuxPow(ds)
-        d['transactions'] = []
-        nTransactions = ds.read_compact_size()
-        for i in xrange(nTransactions):
-            d['transactions'].append(deserialize.parse_Transaction(ds))
-        return d
 
     def parse_tx(store, bytes):
         ds = BCDataStream.BCDataStream()
