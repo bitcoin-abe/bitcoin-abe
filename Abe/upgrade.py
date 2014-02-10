@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright(C) 2011,2012,2013 by Abe developers.
+# Copyright(C) 2011,2012,2013,2014 by Abe developers.
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -924,6 +924,16 @@ def drop_magic(store):
         except store.module.DatabaseError, e:
             store.log.warning("Cleanup failed, ignoring: %s", stmt)
 
+def add_chain_decimals(store):
+    store.ddl("ALTER TABLE chain ADD chain_decimals NUMERIC(2)")
+
+def populate_chain_decimals(store):
+    store.sql("UPDATE chain SET chain_decimals = 8")
+
+def insert_chain_novacoin(store):
+    import Chain
+    store.insert_chain(Chain.create("NovaCoin"))
+
 upgrades = [
     ('6',    add_block_value_in),
     ('6.1',  add_block_value_out),
@@ -1012,7 +1022,10 @@ upgrades = [
     ('Abe35.3', populate_chain_magic),   # Fast
     ('Abe35.4', drop_policy),            # Fast
     ('Abe35.5', drop_magic),             # Fast
-    ('Abe36', None)
+    ('Abe36',   add_chain_decimals),     # Fast
+    ('Abe36.1', populate_chain_decimals), # Fast
+    ('Abe36.2', insert_chain_novacoin),  # Fast
+    ('Abe37', None)
 ]
 
 def upgrade_schema(store):

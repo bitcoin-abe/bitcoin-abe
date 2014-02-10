@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright(C) 2011,2012,2013 by Abe developers.
+# Copyright(C) 2011,2012,2013,2014 by Abe developers.
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -88,9 +88,7 @@ DEFAULT_TEMPLATE = """
 
 DEFAULT_LOG_FORMAT = "%(message)s"
 
-# XXX This should probably be a property of chain, or even a query param.
-LOG10COIN = 8
-COIN = 10 ** LOG10COIN
+DEFAULT_DECIMALS = 8
 
 # It is fun to change "6" to "3" and search lots of addresses.
 ADDR_PREFIX_RE = re.compile('[1-9A-HJ-NP-Za-km-z]{6,}\\Z')
@@ -348,8 +346,11 @@ class Abe:
                         if denominator <= 0:
                             percent_destroyed = '&nbsp;'
                         else:
-                            percent_destroyed = '%5g%%' % (
-                                100.0 - (100.0 * (ss + more) / denominator))
+                            try:
+                                percent_destroyed = '%5g%%' % (
+                                    100.0 - (100.0 * (ss + more) / denominator))
+                            except:
+                                percent_destroyed = '0%'
 
                     body += [
                         '<td>', format_time(started)[:10], '</td>',
@@ -2002,16 +2003,18 @@ def format_time(nTime):
     return time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(int(nTime)))
 
 def format_satoshis(satoshis, chain):
-    # XXX Should find COIN and LOG10COIN from chain.
+    decimals = DEFAULT_DECIMALS if chain.decimals is None else chain.decimals
+    coin = 10 ** decimals
+
     if satoshis is None:
         return ''
     if satoshis < 0:
         return '-' + format_satoshis(-satoshis, chain)
     satoshis = int(satoshis)
-    integer = satoshis / COIN
-    frac = satoshis % COIN
+    integer = satoshis / coin
+    frac = satoshis % coin
     return (str(integer) +
-            ('.' + (('0' * LOG10COIN) + str(frac))[-LOG10COIN:])
+            ('.' + (('0' * decimals) + str(frac))[-decimals:])
             .rstrip('0').rstrip('.'))
 
 def format_difficulty(diff):

@@ -78,10 +78,12 @@ def deserialize_TxOut(d, owner_keys=None):
     else: result += " Own: False"
   return result
 
-def parse_Transaction(vds):
+def parse_Transaction(vds, has_nTime=False):
   d = {}
   start_pos = vds.read_cursor
   d['version'] = vds.read_int32()
+  if has_nTime:
+    d['nTime'] = vds.read_uint32()
   n_vin = vds.read_compact_size()
   d['txIn'] = []
   for i in xrange(n_vin):

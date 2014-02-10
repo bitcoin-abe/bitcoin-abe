@@ -1,4 +1,4 @@
-# Copyright(C) 2011,2012,2013 by Abe developers.
+# Copyright(C) 2011,2012,2013,2014 by Abe developers.
 
 # DataStore.py: back end database access for Abe.
 
@@ -74,6 +74,7 @@ CHAIN_CONFIG = [
      "code3":"SC0", "address_version":"\x6f", "magic":"\xca\xfe\xba\xbe"},
     {"chain":"Worldcoin",
      "code3":"WDC", "address_version":"\x49", "magic":"\xfb\xc0\xb6\xdb"},
+    {"chain":"NovaCoin"},
     #{"chain":"",
     # "code3":"", "address_version":"\x", "magic":""},
     ]
@@ -719,17 +720,22 @@ class DataStore(object):
                         elif isinstance(addr_vers, unicode):
                             addr_vers = addr_vers.encode('latin_1')
 
+                        decimals = dircfg.get('decimals')
+                        if decimals is not None:
+                            decimals = int(decimals)
+
                         # XXX Could do chain_magic, but this datadir won't
                         # use it, because it knows its chain.
 
                         store.sql("""
                             INSERT INTO chain (
                                 chain_id, chain_name, chain_code3,
-                                chain_address_version, chain_policy
-                            ) VALUES (?, ?, ?, ?, ?)""",
+                                chain_address_version, chain_policy,
+                                chain_decimals
+                            ) VALUES (?, ?, ?, ?, ?, ?)""",
                                   (chain_id, chain_name, code3,
                                    store.binin(addr_vers),
-                                   dircfg.get('policy', chain_name)))
+                                   dircfg.get('policy', chain_name), decimals))
                         store.commit()
                         store.log.warning("Assigned chain_id %d to %s",
                                           chain_id, chain_name)
@@ -765,19 +771,21 @@ class DataStore(object):
             no_bit8_chains = [no_bit8_chains]
 
         for chain_id, magic, chain_name, chain_code3, address_version, \
-                chain_policy in \
+                chain_policy, chain_decimals in \
                 store.selectall("""
                     SELECT chain_id, chain_magic, chain_name, chain_code3,
-                           chain_address_version, chain_policy
+                           chain_address_version, chain_policy, chain_decimals
                       FROM chain
                 """):
             chain = Chain.create(
                 id              = int(chain_id),
                 magic           = store.binout(magic),
                 name            = unicode(chain_name),
-                code3           = unicode(chain_code3),
+                code3           = chain_code3 and unicode(chain_code3),
                 address_version = store.binout(address_version),
-                policy          = unicode(chain_policy))
+                policy          = unicode(chain_policy),
+                decimals        = None if chain_decimals is None else \
+                    int(chain_decimals))
 
             # Legacy config option.
             if chain.name in no_bit8_chains and \
@@ -785,7 +793,7 @@ class DataStore(object):
                 chain = Chain.create(
                     id=chain.id, magic=chain.magic, name=chain.name,
                     code3=chain.code3, address_version=chain.address_version,
-                    policy="LegacyNoBit8")
+                    decimals=chain.decimals, policy="LegacyNoBit8")
 
             store.chains_by.id[chain.id] = chain
             store.chains_by.name[chain.name] = chain
@@ -1089,6 +1097,7 @@ store._ddl['configvar'],
     chain_address_version BIT VARYING(800) NOT NULL,
     chain_magic BIT(32)     NULL,
     chain_policy VARCHAR(255) NOT NULL,
+    chain_decimals NUMERIC(2) NULL,
     chain_last_block_id NUMERIC(14) NULL,
     FOREIGN KEY (chain_last_block_id)
         REFERENCES block (block_id)
@@ -1232,16 +1241,11 @@ store._ddl['txout_approx'],
 
         # Insert some well-known chain metadata.
         for conf in CHAIN_CONFIG:
-            if "chain_id" not in conf:
-                conf["chain_id"] = store.new_id("chain")
-            store.sql("""
-                INSERT INTO chain (
-                    chain_id, chain_magic, chain_name, chain_code3,
-                    chain_address_version, chain_policy
-                ) VALUES (?, ?, ?, ?, ?, ?)""",
-                      (conf["chain_id"], store.binin(conf["magic"]),
-                       conf["chain"], conf["code3"],
-                       store.binin(conf["address_version"]), conf["chain"]))
+            conf = conf.copy()
+            conf["name"] = conf.pop("chain")
+
+            chain = Chain.create(policy=conf["name"], **conf)
+            store.insert_chain(chain)
 
         store.sql("""
             INSERT INTO pubkey (pubkey_id, pubkey_hash) VALUES (?, ?)""",
@@ -1270,6 +1274,17 @@ store._ddl['txout_approx'],
 
         store.save_config()
         store.commit()
+
+    def insert_chain(store, chain):
+        chain.id = store.new_id("chain")
+        store.sql("""
+            INSERT INTO chain (
+                chain_id, chain_magic, chain_name, chain_code3,
+                chain_address_version, chain_policy, chain_decimals
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                  (chain.id, store.binin(chain.magic), chain.name,
+                   chain.code3, store.binin(chain.address_version),
+                   chain.name, chain.decimals))
 
     def get_lock(store):
         if store.version_below('Abe26'):
