@@ -33,6 +33,9 @@ class Chain(object):
             if attr in kwargs or not hasattr(chain, attr):
                 setattr(chain, attr, kwargs.get(attr))
 
+    def has_feature(chain, feature):
+        return False
+
     def ds_parse_block_header(chain, ds):
         return deserialize.parse_BlockHeader(ds)
 
@@ -103,6 +106,9 @@ class PpcPosChain(Chain):
         d = Chain.ds_parse_block(chain, ds)
         d['block_sig'] = ds.read_bytes(ds.read_compact_size())
         return d
+
+    def has_feature(chain, feature):
+        return feature == 'ppc_proof_of_stake'
 
 class NovaCoin(LtcScryptChain, PpcPosChain):
     def __init__(chain, **kwargs):
