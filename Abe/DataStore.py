@@ -2459,7 +2459,7 @@ store._ddl['txout_approx'],
                    AND b.block_id = c.chain_last_block_id""", (chain_id,))
             if row:
                 loser_id, loser_height, loser_work = row
-                if loser_id <> top['block_id'] and \
+                if loser_id != top['block_id'] and \
                         store.binout_int(loser_work) >= top['chain_work']:
                     row = None
             if row:
@@ -2478,7 +2478,7 @@ store._ddl['txout_approx'],
                     winner_id = store.get_prev_block_id(winner_id)
                     winner_height -= 1
                 loser_height = None
-                while loser_id <> winner_id:
+                while loser_id != winner_id:
                     to_disconnect.insert(0, loser_id)
                     loser_id = store.get_prev_block_id(loser_id)
                     to_connect.insert(0, winner_id)

@@ -893,7 +893,7 @@ class Abe:
             if chain is None:
                 chain = abe.chain_lookup_by_name(name)
                 is_coinbase = (tx_pos == 0)
-            elif name <> chain.name:
+            elif name != chain.name:
                 abe.log.warning('Transaction ' + tx_hash + ' in multiple chains: '
                              + name + ', ' + chain.name)
             body += [
