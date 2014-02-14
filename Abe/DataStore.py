@@ -35,7 +35,7 @@ import util
 import logging
 import base58
 
-SCHEMA_VERSION = "Abe36"
+SCHEMA_VERSION = "Abe37"
 
 CONFIG_DEFAULTS = {
     "dbtype":             None,
