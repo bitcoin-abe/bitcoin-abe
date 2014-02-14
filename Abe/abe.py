@@ -570,65 +570,6 @@ class Abe:
              ORDER BY cc.in_longest DESC""",
                                   (block_id,))
 
-        if chain is None:
-            page['title'] = ['Block ', block_hash[:4], '...', block_hash[-10:]]
-        else:
-            page['title'] = [escape(chain.name), ' ', height]
-            page['h1'] = ['<a href="', page['dotdot'], 'chain/',
-                          escape(chain.name), '?hi=', height, '">',
-                          escape(chain.name), '</a> ', height]
-
-        body += abe.short_link(page, 'b/' + block_shortlink(block_hash))
-
-        body += ['<p>Hash: ', block_hash, '<br />\n']
-
-        if prev_block_hash is not None:
-            body += ['Previous Block: <a href="', dotdotblock,
-                     prev_block_hash, '">', prev_block_hash, '</a><br />\n']
-        if next_list:
-            body += ['Next Block: ']
-        for row in next_list:
-            hash = abe.store.hashout_hex(row[0])
-            body += ['<a href="', dotdotblock, hash, '">', hash, '</a><br />\n']
-
-        body += [
-            ['Height: ', height, '<br />\n']
-            if height is not None else '',
-
-            'Version: ', block_version, '<br />\n',
-            'Transaction Merkle Root: ', hashMerkleRoot, '<br />\n',
-            'Time: ', nTime, ' (', format_time(nTime), ')<br />\n',
-            'Difficulty: ', format_difficulty(util.calculate_difficulty(nBits)),
-            ' (Bits: %x)' % (nBits,), '<br />\n',
-
-            ['Cumulative Difficulty: ', format_difficulty(
-                    util.work_to_difficulty(block_chain_work)), '<br />\n']
-            if block_chain_work is not None else '',
-
-            'Nonce: ', nNonce, '<br />\n',
-            'Transactions: ', num_tx, '<br />\n',
-            'Value out: ', format_satoshis(value_out, chain), '<br />\n',
-
-            ['Average Coin Age: %6g' % (ss / 86400.0 / satoshis,),
-             ' days<br />\n']
-            if satoshis and (ss is not None) else '',
-
-            '' if destroyed is None else
-            ['Coin-days Destroyed: ',
-             format_satoshis(destroyed / 86400.0, chain), '<br />\n'],
-
-            ['Cumulative Coin-days Destroyed: %6g%%<br />\n' %
-             (100 * (1 - float(ss) / total_ss),)]
-            if total_ss else '',
-
-            ['sat=',satoshis,';sec=',seconds,';ss=',ss,
-             ';total_ss=',total_ss,';destroyed=',destroyed]
-            if abe.debug else '',
-
-            '</p>\n']
-
-        body += ['<h3>Transactions</h3>\n']
-
         tx_ids = []
         txs = {}
         block_out = 0
@@ -691,6 +632,65 @@ class Abe:
                     "value": txin_value,
                     "pubkey_hash": pubkey_hash,
                     })
+
+        if chain is None:
+            page['title'] = ['Block ', block_hash[:4], '...', block_hash[-10:]]
+        else:
+            page['title'] = [escape(chain.name), ' ', height]
+            page['h1'] = ['<a href="', page['dotdot'], 'chain/',
+                          escape(chain.name), '?hi=', height, '">',
+                          escape(chain.name), '</a> ', height]
+
+        body += abe.short_link(page, 'b/' + block_shortlink(block_hash))
+
+        body += ['<p>Hash: ', block_hash, '<br />\n']
+
+        if prev_block_hash is not None:
+            body += ['Previous Block: <a href="', dotdotblock,
+                     prev_block_hash, '">', prev_block_hash, '</a><br />\n']
+        if next_list:
+            body += ['Next Block: ']
+        for row in next_list:
+            hash = abe.store.hashout_hex(row[0])
+            body += ['<a href="', dotdotblock, hash, '">', hash, '</a><br />\n']
+
+        body += [
+            ['Height: ', height, '<br />\n']
+            if height is not None else '',
+
+            'Version: ', block_version, '<br />\n',
+            'Transaction Merkle Root: ', hashMerkleRoot, '<br />\n',
+            'Time: ', nTime, ' (', format_time(nTime), ')<br />\n',
+            'Difficulty: ', format_difficulty(util.calculate_difficulty(nBits)),
+            ' (Bits: %x)' % (nBits,), '<br />\n',
+
+            ['Cumulative Difficulty: ', format_difficulty(
+                    util.work_to_difficulty(block_chain_work)), '<br />\n']
+            if block_chain_work is not None else '',
+
+            'Nonce: ', nNonce, '<br />\n',
+            'Transactions: ', num_tx, '<br />\n',
+            'Value out: ', format_satoshis(value_out, chain), '<br />\n',
+
+            ['Average Coin Age: %6g' % (ss / 86400.0 / satoshis,),
+             ' days<br />\n']
+            if satoshis and (ss is not None) else '',
+
+            '' if destroyed is None else
+            ['Coin-days Destroyed: ',
+             format_satoshis(destroyed / 86400.0, chain), '<br />\n'],
+
+            ['Cumulative Coin-days Destroyed: %6g%%<br />\n' %
+             (100 * (1 - float(ss) / total_ss),)]
+            if total_ss else '',
+
+            ['sat=',satoshis,';sec=',seconds,';ss=',ss,
+             ';total_ss=',total_ss,';destroyed=',destroyed]
+            if abe.debug else '',
+
+            '</p>\n']
+
+        body += ['<h3>Transactions</h3>\n']
 
         body += ['<table><tr><th>Transaction</th><th>Fee</th>'
                  '<th>Size (kB)</th><th>From (amount)</th><th>To (amount)</th>'
