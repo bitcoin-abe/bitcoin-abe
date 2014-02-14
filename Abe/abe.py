@@ -633,6 +633,15 @@ class Abe:
                     "pubkey_hash": pubkey_hash,
                     })
 
+        generated = block_out - block_in
+        coinbase_tx = txs[tx_ids[0]]
+        coinbase_tx['fees'] = 0
+        block_fees = coinbase_tx['total_out'] - generated
+
+        for tx_id in tx_ids[1:]:
+            tx = txs[tx_id]
+            tx['fees'] = tx['total_in'] - tx['total_out']
+
         if chain is None:
             page['title'] = ['Block ', block_hash[:4], '...', block_hash[-10:]]
         else:
@@ -671,6 +680,7 @@ class Abe:
             'Nonce: ', nNonce, '<br />\n',
             'Transactions: ', num_tx, '<br />\n',
             'Value out: ', format_satoshis(value_out, chain), '<br />\n',
+            'Transaction Fees: ', format_satoshis(block_fees, chain), '<br />\n',
 
             ['Average Coin Age: %6g' % (ss / 86400.0 / satoshis,),
              ' days<br />\n']
@@ -697,21 +707,14 @@ class Abe:
                  '</tr>\n']
         for tx_id in tx_ids:
             tx = txs[tx_id]
-            is_coinbase = (tx_id == tx_ids[0])
-            if is_coinbase:
-                fees = 0
-            else:
-                fees = tx['total_in'] - tx['total_out']
             body += ['<tr><td><a href="../tx/' + tx['hash'] + '">',
                      tx['hash'][:10], '...</a>'
-                     '</td><td>', format_satoshis(fees, chain),
+                     '</td><td>', format_satoshis(tx['fees'], chain),
                      '</td><td>', tx['size'] / 1000.0,
                      '</td><td>']
-            if is_coinbase:
-                gen = block_out - block_in
-                fees = tx['total_out'] - gen
-                body += ['Generation: ', format_satoshis(gen, chain),
-                         ' + ', format_satoshis(fees, chain), ' total fees']
+            if tx == coinbase_tx:
+                body += ['Generation: ', format_satoshis(generated, chain),
+                         ' + ', format_satoshis(block_fees, chain), ' total fees']
             else:
                 for txin in tx['in']:
                     body += hash_to_address_link(
