@@ -799,11 +799,8 @@ class DataStore(object):
 
             # Legacy config option.
             if chain.name in no_bit8_chains and \
-                    chain.block_version_bit_merge_mine == 8:
-                chain = Chain.create(
-                    id=chain.id, magic=chain.magic, name=chain.name,
-                    code3=chain.code3, address_version=chain.address_version,
-                    decimals=chain.decimals, policy="LegacyNoBit8")
+                    chain.has_feature('block_version_bit8_merge_mine'):
+                chain = Chain.create(src=chain, policy="LegacyNoBit8")
 
             store.chains_by.id[chain.id] = chain
             store.chains_by.name[chain.name] = chain
