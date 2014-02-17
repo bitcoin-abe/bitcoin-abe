@@ -346,11 +346,8 @@ class Abe:
                         if denominator <= 0:
                             percent_destroyed = '&nbsp;'
                         else:
-                            try:
-                                percent_destroyed = '%5g%%' % (
-                                    100.0 - (100.0 * (ss + more) / denominator))
-                            except:
-                                percent_destroyed = '0%'
+                            percent_destroyed = '%5g%%' % (
+                                100.0 - (100.0 * (ss + more) / denominator))
 
                     body += [
                         '<td>', format_time(started)[:10], '</td>',
@@ -494,8 +491,7 @@ class Abe:
             if total_ss <= 0:
                 percent_destroyed = '&nbsp;'
             else:
-                percent_destroyed = '%5g' % (
-                    100.0 - (100.0 * ss / total_ss)) + '%'
+                percent_destroyed = '%5g%%' % (100.0 - (100.0 * ss / total_ss))
 
             body += [
                 '<tr><td><a href="', page['dotdot'], 'block/',
