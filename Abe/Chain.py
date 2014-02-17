@@ -117,9 +117,6 @@ class PpcPosChain(Chain):
         d['block_sig'] = ds.read_bytes(ds.read_compact_size())
         return d
 
-    def has_feature(chain, feature):
-        return feature == 'ppc_proof_of_stake'
-
 class NovaCoin(LtcScryptChain, PpcPosChain):
     def __init__(chain, **kwargs):
         chain.name = 'NovaCoin'
@@ -128,3 +125,6 @@ class NovaCoin(LtcScryptChain, PpcPosChain):
         chain.magic = "\xe4\xe8\xe9\xe5"
         chain.decimals = 6
         Chain.__init__(chain, **kwargs)
+
+    def has_feature(chain, feature):
+        return feature == 'nvc_proof_of_stake'
