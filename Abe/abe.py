@@ -634,9 +634,20 @@ class Abe:
         coinbase_tx['fees'] = 0
         block_fees = coinbase_tx['total_out'] - generated
 
+        # Proof-of-stake display based loosely on CryptoManiac/novacoin and
+        # http://nvc.cryptocoinexplorer.com.
+        is_stake_chain = chain.has_feature('nvc_proof_of_stake')
+        is_proof_of_stake = is_stake_chain and \
+            len(tx_ids) > 1 and coinbase_tx['total_out'] == 0
+
         for tx_id in tx_ids[1:]:
             tx = txs[tx_id]
             tx['fees'] = tx['total_in'] - tx['total_out']
+
+        if is_proof_of_stake:
+            posgen = -txs[tx_ids[1]]['fees']
+            txs[tx_ids[1]]['fees'] = 0
+            block_fees += posgen
 
         if chain is None:
             page['title'] = ['Block ', block_hash[:4], '...', block_hash[-10:]]
@@ -648,7 +659,13 @@ class Abe:
 
         body += abe.short_link(page, 'b/' + block_shortlink(block_hash))
 
-        body += ['<p>Hash: ', block_hash, '<br />\n']
+        body += ['<p>']
+        if is_stake_chain:
+            body += [
+                'Proof of Stake' if is_proof_of_stake else 'Proof of Work',
+                ': ',
+                format_satoshis(generated, chain), ' coins generated<br />\n']
+        body += ['Hash: ', block_hash, '<br />\n']
 
         if prev_block_hash is not None:
             body += ['Previous Block: <a href="', dotdotblock,
@@ -708,17 +725,30 @@ class Abe:
                      '</td><td>', format_satoshis(tx['fees'], chain),
                      '</td><td>', tx['size'] / 1000.0,
                      '</td><td>']
-            if tx == coinbase_tx:
-                body += ['Generation: ', format_satoshis(generated, chain),
-                         ' + ', format_satoshis(block_fees, chain), ' total fees']
+            if tx is coinbase_tx:
+                body += [
+                    'POS ' if is_proof_of_stake else '',
+                    'Generation: ', format_satoshis(generated, chain), ' + ',
+                    format_satoshis(block_fees, chain), ' total fees']
             else:
                 for txin in tx['in']:
                     body += hash_to_address_link(
                         address_version, txin['pubkey_hash'], page['dotdot'])
-                    body += [': ', format_satoshis(txin['value'], chain),
-                             '<br />']
+                    body += [
+                        ': ', format_satoshis(txin['value'], chain), '<br />']
             body += ['</td><td>']
             for txout in tx['out']:
+                if is_proof_of_stake:
+                    if tx is coinbase_tx:
+                        assert txout['value'] == 0
+                        assert len(tx['out']) == 1
+                        body += [
+                            format_satoshis(posgen, chain),
+                            ' included in the following transaction']
+                        continue
+                    if txout['value'] == 0:
+                        continue
+
                 body += hash_to_address_link(
                     address_version, txout['pubkey_hash'], page['dotdot'])
                 body += [': ', format_satoshis(txout['value'], chain), '<br />']
