@@ -82,6 +82,9 @@ class Chain(object):
     def parse_transaction(chain, binary_tx):
         return chain.ds_parse_transaction(util.str_to_ds(binary_tx))
 
+    datadir_conf_file_name = "bitcoin.conf"
+    datadir_rpcport = 8332
+
 class Sha256Chain(Chain):
     def block_header_hash(chain, header):
         return util.double_sha256(header)
@@ -128,3 +131,6 @@ class NovaCoin(LtcScryptChain, PpcPosChain):
 
     def has_feature(chain, feature):
         return feature == 'nvc_proof_of_stake'
+
+    datadir_conf_file_name = "novacoin.conf"
+    datadir_rpcport = 8344

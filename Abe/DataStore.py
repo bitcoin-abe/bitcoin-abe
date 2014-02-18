@@ -2710,8 +2710,8 @@ store._ddl['txout_approx'],
             return False
         chain = store.chains_by.id[chain_id]
 
-        conffile = os.path.join(dircfg['dirname'],
-                                dircfg.get("conf", "bitcoin.conf"))
+        conffile = dircfg['conf'] or chain.datadir_conf_file_name
+        conffile = os.path.join(dircfg['dirname'], conffile)
         try:
             conf = dict([line.strip().split("=", 1)
                          if "=" in line
@@ -2725,10 +2725,9 @@ store._ddl['txout_approx'],
         rpcuser     = conf.get("rpcuser", "")
         rpcpassword = conf["rpcpassword"]
         rpcconnect  = conf.get("rpcconnect", "127.0.0.1")
-        rpcport     = conf.get("rpcport",
-                               "18332" if "testnet" in conf else "8332")
+        rpcport     = conf.get("rpcport", chain.datadir_rpcport)
         url = "http://" + rpcuser + ":" + rpcpassword + "@" + rpcconnect \
-            + ":" + rpcport
+            + ":" + str(rpcport)
 
         def rpc(func, *params):
             store.rpclog.info("RPC>> %s %s", func, params)
