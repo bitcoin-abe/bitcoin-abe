@@ -694,6 +694,7 @@ class DataStore(object):
         store.datadirs = []
         for dircfg in store.args.datadir:
             loader = None
+            conf = None
 
             if isinstance(dircfg, dict):
                 #print("dircfg is dict: %r" % dircfg)  # XXX
@@ -704,13 +705,15 @@ class DataStore(object):
                         + str(dircfg))
                 if dirname in datadirs:
                     d = datadirs[dirname]
-                    d['loader'] = dircfg.get('loader', None)
+                    d['loader'] = dircfg.get('loader')
+                    d['conf'] = dircfg.get('conf')
                     if d['chain_id'] is None and 'chain' in dircfg:
                         d['chain_id'] = lookup_chain_id(dircfg['chain'])
                     store.datadirs.append(d)
                     continue
 
-                loader = dircfg.get('loader', None)
+                loader = dircfg.get('loader')
+                conf = dircfg.get('conf')
                 chain_id = dircfg.get('chain_id')
                 if chain_id is None:
                     chain_name = dircfg.get('chain')
@@ -766,6 +769,7 @@ class DataStore(object):
                 "blkfile_offset": 0,
                 "chain_id": chain_id,
                 "loader": loader,
+                "conf": conf,
                 }
             store.datadirs.append(d)
 
@@ -2706,8 +2710,8 @@ store._ddl['txout_approx'],
             return False
         chain = store.chains_by.id[chain_id]
 
-        conffile = dircfg.get("conf",
-                              os.path.join(dircfg['dirname'], "bitcoin.conf"))
+        conffile = os.path.join(dircfg['dirname'],
+                                dircfg.get("conf", "bitcoin.conf"))
         try:
             conf = dict([line.strip().split("=", 1)
                          if "=" in line
