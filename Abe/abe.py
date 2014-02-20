@@ -655,63 +655,70 @@ class Abe:
             page['title'] = [escape(chain.name), ' ', height]
             page['h1'] = ['<a href="', page['dotdot'], 'chain/',
                           escape(chain.name), '?hi=', height, '">',
-                          escape(chain.name), '</a> ', height]
+                          escape(chain.name), '</a> Block ', height]
 
         body += abe.short_link(page, 'b/' + block_shortlink(block_hash))
 
-        body += ['<p>']
+        body += ['<h3>Details</h3>']
+        body += ['<table>']
         if is_stake_chain:
-            body += [
+            body += ['<tr><td>'
                 'Proof of Stake' if is_proof_of_stake else 'Proof of Work',
-                ': ',
-                format_satoshis(generated, chain), ' coins generated<br />\n']
-        body += ['Hash: ', block_hash, '<br />\n']
+                '</td><td>',
+                format_satoshis(generated, chain), ' coins generated</td></tr>\n']
+        body += ['<tr><td>Hash</td><td>', block_hash, '</td></tr>\n']
 
         if prev_block_hash is not None:
-            body += ['Previous Block: <a href="', dotdotblock,
-                     prev_block_hash, '">', prev_block_hash, '</a><br />\n']
+            body += ['<tr><td>Previous Block</td><td><a href="', dotdotblock,
+                     prev_block_hash, '">', prev_block_hash, '</a></td></tr>\n']
         if next_list:
-            body += ['Next Block: ']
-        for row in next_list:
-            hash = abe.store.hashout_hex(row[0])
-            body += ['<a href="', dotdotblock, hash, '">', hash, '</a><br />\n']
+            body += ['<tr><td>Next Block</td><td>']
+            firstElement = True
+            for row in next_list:
+                if firstElement:
+                    firstElement = False
+                else:
+                    body += ['<br />']
+                hash = abe.store.hashout_hex(row[0])
+                body += ['<a href="', dotdotblock, hash, '">', hash, '</a>\n']
+            body += ['</td></tr>']
 
         body += [
-            ['Height: ', height, '<br />\n']
+            ['<tr><td>Height</td><td>', height, '</td></tr>\n']
             if height is not None else '',
 
-            'Version: ', block_version, '<br />\n',
-            'Transaction Merkle Root: ', hashMerkleRoot, '<br />\n',
-            'Time: ', nTime, ' (', format_time(nTime), ')<br />\n',
-            'Difficulty: ', format_difficulty(util.calculate_difficulty(nBits)),
-            ' (Bits: %x)' % (nBits,), '<br />\n',
+            '<tr><td>Version</td><td>', block_version, '</td></tr>\n',
+            '<tr><td>Transaction Merkle Root</td><td>', hashMerkleRoot, '</td></tr>\n',
+            '<tr><td>Time</td><td>', nTime, ' (', format_time(nTime), ')</td></tr>\n',
+            '<tr><td>Difficulty</td><td>', format_difficulty(util.calculate_difficulty(nBits)),
+            ' (Bits: %x)' % (nBits,), '</td></tr>\n',
 
-            ['Cumulative Difficulty: ', format_difficulty(
-                    util.work_to_difficulty(block_chain_work)), '<br />\n']
+            ['<tr><td>Cumulative Difficulty</td><td>', format_difficulty(
+                    util.work_to_difficulty(block_chain_work)), '</td></tr>\n']
             if block_chain_work is not None else '',
 
-            'Nonce: ', nNonce, '<br />\n',
-            'Transactions: ', num_tx, '<br />\n',
-            'Value out: ', format_satoshis(value_out, chain), '<br />\n',
-            'Transaction Fees: ', format_satoshis(block_fees, chain), '<br />\n',
+            '<tr><td>Nonce</td><td>', nNonce, '</td></tr>\n',
+            '<tr><td>Transactions</td><td>', num_tx, '</td></tr>\n',
+            '<tr><td>Value out</td><td>', format_satoshis(value_out, chain), '</td></tr>\n',
+            '<tr><td>Transaction Fees</td><td>', format_satoshis(block_fees, chain), '</td></tr>\n',
 
-            ['Average Coin Age: %6g' % (ss / 86400.0 / satoshis,),
-             ' days<br />\n']
+            ['<tr><td>Average Coin Age</td><td>%6g' % (ss / 86400.0 / satoshis,),
+             ' days</td></tr>\n']
             if satoshis and (ss is not None) else '',
 
             '' if destroyed is None else
-            ['Coin-days Destroyed: ',
-             format_satoshis(destroyed / 86400.0, chain), '<br />\n'],
+            ['<tr><td>Coin-days Destroyed</td><td>',
+             format_satoshis(destroyed / 86400.0, chain), '</td></tr>\n'],
 
-            ['Cumulative Coin-days Destroyed: %6g%%<br />\n' %
+            ['<tr><td>Cumulative Coin-days Destroyed</td><td>%6g%%</td></tr>\n' %
              (100 * (1 - float(ss) / total_ss),)]
             if total_ss else '',
 
-            ['sat=',satoshis,';sec=',seconds,';ss=',ss,
-             ';total_ss=',total_ss,';destroyed=',destroyed]
+            ['<tr><td colspan=2>sat=',satoshis,';sec=',seconds,';ss=',ss,
+             ';total_ss=',total_ss,';destroyed=',destroyed,'</td></tr>']
             if abe.debug else '',
 
-            '</p>\n']
+            '</table>\n']
 
         body += ['<h3>Transactions</h3>\n']
 
@@ -912,7 +919,10 @@ class Abe:
         is_coinbase = None
 
         body += abe.short_link(page, 't/' + hexb58(tx_hash[:14]))
-        body += ['<p>Hash: ', tx_hash, '<br />\n']
+        
+        body += ['<h3>Details</h3>']
+        body += ['<table>']
+        body += ['<tr><td>Hash</td><td>', tx_hash, '</td></tr>\n']
         chain = None
         for row in block_rows:
             (name, in_longest, nTime, height, blk_hash, tx_pos) = (
@@ -926,29 +936,29 @@ class Abe:
                 abe.log.warning('Transaction ' + tx_hash + ' in multiple chains: '
                              + name + ', ' + chain.name)
             body += [
-                'Appeared in <a href="../block/', blk_hash, '">',
-                escape(name), ' ',
+                '<tr><td>Appeared in</td><td><a href="../block/', blk_hash, '">',
+                escape(name), ' Block ',
                 height if in_longest else [blk_hash[:10], '...', blk_hash[-4:]],
-                '</a> (', format_time(nTime), ')<br />\n']
+                '</a> (', format_time(nTime), ')</td></tr>\n']
 
         if chain is None:
             abe.log.warning('Assuming default chain for Transaction ' + tx_hash)
             chain = abe.get_default_chain()
 
         body += [
-            'Number of inputs: ', len(in_rows),
-            ' (<a href="#inputs">Jump to inputs</a>)<br />\n',
-            'Total in: ', format_satoshis(value_in, chain), '<br />\n',
-            'Number of outputs: ', len(out_rows),
-            ' (<a href="#outputs">Jump to outputs</a>)<br />\n',
-            'Total out: ', format_satoshis(value_out, chain), '<br />\n',
-            'Size: ', tx_size, ' bytes<br />\n',
-            'Fee: ', format_satoshis(0 if is_coinbase else
+            '<tr><td>Number of inputs</td><td>', len(in_rows),
+            ' (<a href="#inputs">Jump to inputs</a>)</td></tr>\n',
+            '<tr><td>Total in</td><td>', format_satoshis(value_in, chain), '</td></tr>\n',
+            '<tr><td>Number of outputs</td><td>', len(out_rows),
+            ' (<a href="#outputs">Jump to outputs</a>)</td></tr>\n',
+            '<tr><td>Total out</td><td>', format_satoshis(value_out, chain), '</td></tr>\n',
+            '<tr><td>Size</td><td>', tx_size, ' bytes</td></tr>\n',
+            '<tr><td>Fee</td><td>', format_satoshis(0 if is_coinbase else
                                      (value_in and value_out and
                                       value_in - value_out), chain),
-            '<br />\n',
-            '<a href="../rawtx/', tx_hash, '">Raw transaction</a><br />\n']
-        body += ['</p>\n',
+            '</td></tr>\n',
+            '<tr><td colspan="2"><a href="../rawtx/', tx_hash, '">Raw transaction</a></td></tr>\n']
+        body += ['</table>\n',
                  '<a name="inputs"><h3>Inputs</h3></a>\n<table>\n',
                  '<tr><th>Index</th><th>Previous output</th><th>Amount</th>',
                  '<th>From address</th>']
@@ -1128,18 +1138,20 @@ class Abe:
             link = address[0 : abe.shortlink_type]
         body += abe.short_link(page, 'a/' + link)
 
-        body += ['<p>Balance: '] + format_amounts(balance, True)
+        body += ['<h3>Overview</h3>']
+        body += ['<table>']
+        body += ['<tr><td>Balance</td><td>'] + format_amounts(balance, True)
 
         for chain in chains:
             balance[chain.id] = 0  # Reset for history traversal.
 
-        body += ['<br />\n',
-                 'Transactions in: ', count[0], '<br />\n',
-                 'Received: ', format_amounts(received, False), '<br />\n',
-                 'Transactions out: ', count[1], '<br />\n',
-                 'Sent: ', format_amounts(sent, False), '<br />\n']
+        body += ['</td></tr>\n',
+                 '<tr><td>Transactions in</td><td>', count[0], '</td></tr>\n',
+                 '<tr><td>Received</td><td>', format_amounts(received, False), '</td></tr>\n',
+                 '<tr><td>Transactions out</td><td>', count[1], '</td></tr>\n',
+                 '<tr><td>Sent</td><td>', format_amounts(sent, False), '</td></tr>\n']
 
-        body += ['</p>\n'
+        body += ['</table>\n'
                  '<h3>Transactions</h3>\n'
                  '<table>\n<tr><th>Transaction</th><th>Block</th>'
                  '<th>Approx. Time</th><th>Amount</th><th>Balance</th>'
