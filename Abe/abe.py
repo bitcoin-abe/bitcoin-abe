@@ -230,6 +230,10 @@ class Abe:
         cmd = wsgiref.util.shift_path_info(env)
         handler = abe.get_handler(cmd)
 
+        tvars = abe.template_vars.copy()
+        tvars['dotdot'] = page['dotdot']
+        page['template_vars'] = tvars
+
         try:
             if handler is None:
                 return abe.serve_static(cmd + env['PATH_INFO'], start_response)
@@ -239,10 +243,6 @@ class Abe:
                 # for a response!  XXX Could use threads, timers, or a
                 # cron job.
                 abe.store.catch_up()
-
-            tvars = abe.template_vars.copy()
-            tvars['dotdot'] = page['dotdot']
-            page['template_vars'] = tvars
 
             handler(page)
         except PageNotFound:
@@ -363,8 +363,12 @@ class Abe:
 
     def chain_lookup_by_name(abe, symbol):
         if symbol is None:
-            return abe.get_default_chain()
-        return abe.store.get_chain_by_name(symbol)
+            ret = abe.get_default_chain()
+        else:
+            ret = abe.store.get_chain_by_name(symbol)
+        if ret is None:
+            raise NoSuchChainError()
+        return ret
 
     def get_default_chain(abe):
         return abe.chain_lookup_by_name('Bitcoin')
