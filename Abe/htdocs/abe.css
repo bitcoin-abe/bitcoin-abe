@@ -4,12 +4,40 @@ td, th {
     padding: 0 1ex;
 }
 td {
-    border-width: 1px;
+    border-width: 0px;
     border-style: solid;
+    background-color: #F0F0F0
+}
+th {
+    background-color: #CCC;
 }
 table {
-    border-spacing: 0;
+    border-spacing: 1;
+    border: 1px solid grey;
+}
+h3 {
+    font-size: 1.5em;
+    padding: 0;
+    margin: 0.5em 0 0 0;
+}
+h1 {
+    padding: 0;
+    margin: 0 0 0 0;
 }
 .shortlink {
     font-size: smaller;
+    color: #777777;
+    margin: 0 0 0 0;
+}
+.shortlink a:link {
+    color: #777777;
+}
+.shortlink a:visited {
+    color: #777777;
+}
+.shortlink a:hover {
+    color: #777777;
+}
+.shortlink a:active {
+    color: #777777;
 }
