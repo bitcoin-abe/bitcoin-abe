@@ -724,6 +724,7 @@ class DataStore(object):
 
                         code3 = dircfg.get('code3')
                         if code3 is None:
+                            # XXX Should default via policy.
                             code3 = '000' if chain_id > 999 else "%03d" % (
                                 chain_id,)
 
