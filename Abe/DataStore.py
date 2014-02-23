@@ -74,6 +74,8 @@ CHAIN_CONFIG = [
      "code3":"SC0", "address_version":"\x6f", "magic":"\xca\xfe\xba\xbe"},
     {"chain":"Worldcoin",
      "code3":"WDC", "address_version":"\x49", "magic":"\xfb\xc0\xb6\xdb"},
+    {"chain":"BitShares-PTS",
+     "code3":"PTS", "address_version":"\x38", "magic":"\xf9\xbd\xb5\xd9"},
     {"chain":"NovaCoin"},
     #{"chain":"",
     # "code3":"", "address_version":"\x", "magic":""},

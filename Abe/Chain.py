@@ -21,6 +21,8 @@ def create(policy, **kwargs):
     #print "create(%s, %r)" % (policy, kwargs)
     if policy in [None, "Bitcoin", "Testnet", "LegacyNoBit8"]:
         return Sha256Chain(**kwargs)
+    if policy == "BitShares-PTS":
+        return BitSharesPTS(**kwargs)
     if policy == "NovaCoin":
         return NovaCoin(**kwargs)
     return Sha256NmcAuxPowChain(**kwargs)
@@ -119,6 +121,39 @@ class PpcPosChain(Chain):
         d = Chain.ds_parse_block(chain, ds)
         d['block_sig'] = ds.read_bytes(ds.read_compact_size())
         return d
+
+class BitSharesPTS(Chain):
+    def __init__(chain, **kwargs):
+        chain.name = 'BitShares-PTS'
+        chain.code3 = 'PTS'
+        chain.address_version = "\x38"
+        chain.magic = "\xf9\xbd\xb5\xd9"
+        Chain.__init__(chain, **kwargs)
+
+    def ds_parse_block_header(chain, ds):
+        d = {}
+        header_start = ds.read_cursor
+        d['version'] = ds.read_int32()
+        d['hashPrev'] = ds.read_bytes(32)
+        d['hashMerkleRoot'] = ds.read_bytes(32)
+        d['nTime'] = ds.read_uint32()
+        d['nBits'] = ds.read_uint32()
+        d['nNonce'] = ds.read_uint32()
+        d['nBirthdayA'] = ds.read_uint32()
+        d['nBirthdayB'] = ds.read_uint32()
+        header_end = ds.read_cursor
+        d['__header__'] = ds.input[header_start:header_end]
+        return d
+
+    def ds_block_header_hash(chain, ds):
+        return chain.block_header_hash(
+            ds.input[ds.read_cursor : ds.read_cursor + 88])
+
+    def block_header_hash(chain, header):
+        return util.double_sha256(header)
+
+    datadir_conf_file_name = "bitshares-pts.conf"
+    datadir_rpcport = 3838
 
 class NovaCoin(LtcScryptChain, PpcPosChain):
     def __init__(chain, **kwargs):
