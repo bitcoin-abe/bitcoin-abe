@@ -23,6 +23,8 @@ def create(policy, **kwargs):
         return Sha256Chain(**kwargs)
     if policy == "NovaCoin":
         return NovaCoin(**kwargs)
+    if policy == "CryptoCash":
+        return CryptoCash(**kwargs)
     return Sha256NmcAuxPowChain(**kwargs)
 
 class Chain(object):
@@ -120,7 +122,11 @@ class PpcPosChain(Chain):
         d['block_sig'] = ds.read_bytes(ds.read_compact_size())
         return d
 
-class NovaCoin(LtcScryptChain, PpcPosChain):
+class NvcChain(LtcScryptChain, PpcPosChain):
+    def has_feature(chain, feature):
+        return feature == 'nvc_proof_of_stake'
+
+class NovaCoin(NvcChain):
     def __init__(chain, **kwargs):
         chain.name = 'NovaCoin'
         chain.code3 = 'NVC'
@@ -129,8 +135,16 @@ class NovaCoin(LtcScryptChain, PpcPosChain):
         chain.decimals = 6
         Chain.__init__(chain, **kwargs)
 
-    def has_feature(chain, feature):
-        return feature == 'nvc_proof_of_stake'
-
     datadir_conf_file_name = "novacoin.conf"
     datadir_rpcport = 8344
+
+class CryptoCash(NvcChain):
+    def __init__(chain, **kwargs):
+        chain.name = 'Cash'
+        chain.code3 = 'CAS'
+        chain.address_version = "\x22"
+        chain.magic = "\xe4\xc6\xfe\xe7"
+        Chain.__init__(chain, **kwargs)
+
+    datadir_conf_file_name = "Cash.conf"
+    datadir_rpcport = 3941

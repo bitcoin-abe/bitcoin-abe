@@ -75,6 +75,7 @@ CHAIN_CONFIG = [
     {"chain":"Worldcoin",
      "code3":"WDC", "address_version":"\x49", "magic":"\xfb\xc0\xb6\xdb"},
     {"chain":"NovaCoin"},
+    {"chain":"CryptoCash"},
     #{"chain":"",
     # "code3":"", "address_version":"\x", "magic":""},
     ]
@@ -3070,6 +3071,14 @@ store._ddl['txout_approx'],
             if not store.offer_existing_block(hash, chain.id):
                 b = chain.ds_parse_block(ds)
                 b["hash"] = hash
+
+                if (store.log.isEnabledFor(logging.DEBUG) and b["hashPrev"] == GENESIS_HASH_PREV):
+                    try:
+                        store.log.debug("Chain %d genesis tx: %s", chain.id,
+                                        b['transactions'][0]['__data__'].encode('hex'))
+                    except:
+                        pass
+
                 store.import_block(b, chain = chain)
                 if ds.read_cursor != end:
                     store.log.debug("Skipped %d bytes at block end",

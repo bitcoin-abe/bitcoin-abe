@@ -40,8 +40,9 @@ appends to the file.  Prior to Bitcoin v0.8, this assumption seemed
 safe.  Abe may need some fixes to avoid skipping blocks while current
 and future Bitcoin versions run.
 
-NovaCoin support depends on the ltc_scrypt module available from
-https://github.com/CryptoManiac/bitcoin-abe (see README-SCRYPT.txt).
+NovaCoin and CryptoCash support depends on the ltc_scrypt module
+available from https://github.com/CryptoManiac/bitcoin-abe (see
+README-SCRYPT.txt).
 
 License
 -------
