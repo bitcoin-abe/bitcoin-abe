@@ -136,8 +136,8 @@ Note that "+=" adds to the existing datadir configuration, while "="
 replaces it.  For help with address_version, please open doc/FAQ.html
 in a web browser.
 
-The web interface is currently unaware of name and proof-of-stake
-transactions, but see namecoin_dump.py in the tools directory.
+The web interface is currently unaware of name transactions, but see
+namecoin_dump.py in the tools directory.
 
 More information
 ----------------
