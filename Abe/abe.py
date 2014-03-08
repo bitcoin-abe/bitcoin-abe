@@ -368,7 +368,8 @@ class Abe:
         fields = abe._chain_fields()
         for i in range(len(fields)):
             chain[fields[i]] = row[i]
-        chain['address_version'] = abe.store.binout(chain['address_version'])
+	chain['address_version'] = "\x37"
+        #chain['address_version'] = abe.store.binout(chain['address_version'])
         return chain
 
     def chain_lookup_by_name(abe, symbol):

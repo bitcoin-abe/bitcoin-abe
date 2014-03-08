@@ -70,6 +70,8 @@ CHAIN_CONFIG = [
      "code3":"SCN", "address_version":"\x7d", "magic":"\xde\xad\xba\xbe"},
     {"chain":"ScTestnet",
      "code3":"SC0", "address_version":"\x6f", "magic":"\xca\xfe\xba\xbe"},
+    {"chain":"PPcoin",
+     "code3":"PPC", "address_version":"\x37", "magic":"\xe6\xe8\xe9\xe5"},
     #{"chain":"",
     # "code3":"", "address_version":"\x", "magic":""},
     ]
