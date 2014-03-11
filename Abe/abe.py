@@ -286,7 +286,7 @@ class Abe:
         page['title'] = ABE_APPNAME + ' Search'
         body = page['body']
         body += [
-            abe.search_form(page),
+          #  abe.search_form(page),
             '<table>\n',
             '<tr><th>Currency</th><th>Code</th><th>Block</th><th>Time</th>',
             '<th>Started</th><th>Age (days)</th><th>Coins Created</th>',
@@ -482,7 +482,7 @@ class Abe:
         extra = False
         #extra = True
         body += ['<p>', nav, '</p>\n',
-                 '<table><tr><th>Block</th><th>Approx. Time</th>',
+                 '<table><tr><th>Block Hash</th><th>Block Num</th><th>Approx. Time</th>',
                  '<th>Transactions</th><th>Value Out</th>',
                  '<th>Difficulty</th><th>Outstanding</th>',
                  '<th>Average Age</th><th>Chain Age</th>',
@@ -515,10 +515,9 @@ class Abe:
                     100.0 - (100.0 * ss / total_ss)) + '%'
 
             body += [
-                '<tr><td><a href="', page['dotdot'], 'block/',
-                abe.store.hashout_hex(hash),
-                '">', height, '</a>'
-                '</td><td>', format_time(int(nTime)),
+                '<tr><td>',abe.store.hashout_hex(hash),
+		'</td><td>', height,
+                '</td><td>', int(nTime),
                 '</td><td>', num_tx,
                 '</td><td>', format_satoshis(value_out, chain),
                 '</td><td>', util.calculate_difficulty(int(nBits)),
