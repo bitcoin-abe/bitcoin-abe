@@ -73,7 +73,7 @@ def hash_160(public_key):
   h2 = RIPEMD160.new(h1).digest()
   return h2
 
-def public_key_to_bc_address(public_key):
+def public_key_to_bc_address(public_key, version=None):
   if not have_crypto:
     return ''
   h160 = hash_160(public_key)
