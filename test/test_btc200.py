@@ -78,6 +78,96 @@ def test_coinbase_size(coinbase_200):
 def test_coinbase_ver(coinbase_200):
     assert coinbase_200['ver'] == 1
 
+@pytest.fixture(scope="module")
+def b182t1(btc200):
+    return btc200.export_tx(
+        tx_hash = '591e91f809d716912ca1d4a9295e70c3e78bab077683f79350f101da64588073',
+        format = 'detail')
+
+def test_tx_hash(b182t1):
+    assert b182t1['hash'] == '591e91f809d716912ca1d4a9295e70c3e78bab077683f79350f101da64588073'
+
+def test_tx_version(b182t1):
+    assert b182t1['version'] == 1
+
+def test_tx_lockTime(b182t1):
+    assert b182t1['lockTime'] == 0
+
+def test_tx_size(b182t1):
+    assert b182t1['size'] == 275
+
+def test_tx_cc(b182t1):
+    assert len(b182t1['chain_candidates']) == 1
+
+def test_tx_chain_name(b182t1):
+    assert b182t1['chain_candidates'][0]['chain_name'] == 'Bitcoin'
+
+def test_tx_in_longest(b182t1):
+    assert b182t1['chain_candidates'][0]['in_longest']
+
+def test_tx_block_nTime(b182t1):
+    assert b182t1['chain_candidates'][0]['block_nTime'] == 1231740736
+
+def test_tx_block_height(b182t1):
+    assert b182t1['chain_candidates'][0]['block_height'] == 182
+
+def test_tx_block_hash(b182t1):
+    assert b182t1['chain_candidates'][0]['block_hash'] == \
+        '0000000054487811fc4ff7a95be738aa5ad9320c394c482b27c0da28b227ad5d'
+
+def test_tx_tx_pos(b182t1):
+    assert b182t1['chain_candidates'][0]['tx_pos'] == 1
+
+def test_tx_in(b182t1):
+    assert len(b182t1['in']) == 1
+
+def test_tx_in_pos(b182t1):
+    assert b182t1['in'][0]['pos'] == 0
+
+def test_tx_in_binscript(b182t1):
+    assert b182t1['in'][0]['binscript'] == '47304402201f27e51caeb9a0988a1e50799ff0af94a3902403c3ad4068b063e7b4d1b0a76702206713f69bd344058b0dee55a9798759092d0916dbbc3e592fee43060005ddc17401'.decode('hex')
+
+def test_tx_in_value(b182t1):
+    assert b182t1['in'][0]['value'] == 3000000000
+
+def test_tx_in_prev_out(b182t1):
+    assert b182t1['in'][0]['o_hash'] == 'a16f3ce4dd5deb92d98ef5cf8afeaf0775ebca408f708b2146c4fb42b41e14be'
+    assert b182t1['in'][0]['o_pos'] == 1
+
+def test_tx_in_binaddr(b182t1):
+    assert b182t1['in'][0]['binaddr'] == '11b366edfc0a8b66feebae5c2e25a7b6a5d1cf31'.decode('hex')
+
+def test_tx_out(b182t1):
+    assert len(b182t1['out']) == 2
+
+def test_tx_out_pos(b182t1):
+    assert b182t1['out'][0]['pos'] == 0
+    assert b182t1['out'][1]['pos'] == 1
+
+def test_tx_out_binscript(b182t1):
+    assert b182t1['out'][0]['binscript'] == '410401518fa1d1e1e3e162852d68d9be1c0abad5e3d6297ec95f1f91b909dc1afe616d6876f92918451ca387c4387609ae1a895007096195a824baf9c38ea98c09c3ac'.decode('hex')
+    assert b182t1['out'][1]['binscript'] == '410411db93e1dcdb8a016b49840f8c53bc1eb68a382e97b1482ecad7b148a6909a5cb2e0eaddfb84ccf9744464f82e160bfa9b8b64f9d4c03f999b8643f656b412a3ac'.decode('hex')
+
+def test_tx_out_value(b182t1):
+    assert b182t1['out'][0]['value'] == 100000000
+    assert b182t1['out'][1]['value'] == 2900000000
+
+def test_tx_out_redeemed(b182t1):
+    assert b182t1['out'][0]['o_hash'] is None
+    assert b182t1['out'][0]['o_pos'] is None
+    assert b182t1['out'][1]['o_hash'] == '12b5633bad1f9c167d523ad1aa1947b2732a865bf5414eab2f9e5ae5d5c191ba'
+    assert b182t1['out'][1]['o_pos'] == 0
+
+def test_tx_out_binaddr(b182t1):
+    assert b182t1['out'][0]['binaddr'] == 'db3b465a2b678e0bdc3e4944bb41abb5a795ae04'.decode('hex')
+    assert b182t1['out'][1]['binaddr'] == '11b366edfc0a8b66feebae5c2e25a7b6a5d1cf31'.decode('hex')
+
+def test_tx_value_in(b182t1):
+    assert b182t1['value_in'] == 3000000000
+
+def test_tx_value_out(b182t1):
+    assert b182t1['value_out'] == 3000000000
+
 def _blocks():
     """Bitcoin Blocks 0-200 as an array of hex strings."""
     return [
