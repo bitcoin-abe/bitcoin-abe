@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright(C) 2012 by Abe developers.
+# Copyright(C) 2012,2014 by Abe developers.
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -20,8 +20,7 @@
 import sys
 import logging
 
-import DataStore
-import readconf
+import util
 import firstbits
 
 def keep_scriptsig_reconfigure(store, args):
@@ -50,16 +49,9 @@ def keep_scriptsig_reconfigure(store, args):
         store.release_lock(lock)
 
 def main(argv):
-    conf = {
-        "debug":                    None,
-        "logging":                  None,
-        }
-    conf.update(DataStore.CONFIG_DEFAULTS)
-
-    args, argv = readconf.parse_argv(argv, conf,
-                                     strict=False)
-    if argv and argv[0] in ('-h', '--help'):
-        print ("""Usage: python -m Abe.reconfigure [-h] [--config=FILE] [--CONFIGVAR=VALUE]...
+    cmdline = util.CmdLine(argv)
+    cmdline.usage = lambda: \
+        """Usage: python -m Abe.reconfigure [-h] [--config=FILE] [--CONFIGVAR=VALUE]...
 
 Apply configuration changes to an existing Abe database, if possible.
 
@@ -69,18 +61,12 @@ Apply configuration changes to an existing Abe database, if possible.
                             Turn Firstbits support on or off.
   --keep-scriptsig false    Remove input validation scripts from the database.
 
-All configuration variables may be given as command arguments.""")
+All configuration variables may be given as command arguments."""
+
+    store, argv = cmdline.init()
+    if store is None:
         return 0
 
-    logging.basicConfig(
-        stream=sys.stdout,
-        level=logging.DEBUG,
-        format="%(message)s")
-    if args.logging is not None:
-        import logging.config as logging_config
-        logging_config.dictConfig(args.logging)
-
-    store = DataStore.new(args)
     firstbits.reconfigure(store, args)
     keep_scriptsig_reconfigure(store, args)
     return 0

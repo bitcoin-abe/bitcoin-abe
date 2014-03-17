@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright(C) 2012 by Abe developers.
+# Copyright(C) 2012,2014 by Abe developers.
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -21,11 +21,9 @@
 import sys
 import logging
 
-import DataStore
-import readconf
 import BCDataStream, util
 
-def mixup_blocks(store, ds, count, datadir_chain_id = None, seed = None):
+def mixup_blocks(store, ds, count, datadir_chain = None, seed = None):
     bytes_done = 0
     offsets = []
 
@@ -55,24 +53,18 @@ def mixup_blocks(store, ds, count, datadir_chain_id = None, seed = None):
         length = ds.read_int32()
 
         # Assume blocks obey the respective policy if they get here.
-        chain_id = datadir_chain_id
-        if chain_id is None:
-            rows = store.selectall("""
-                SELECT chain.chain_id
-                  FROM chain
-                  JOIN magic ON (chain.magic_id = magic.magic_id)
-                 WHERE magic.magic = ?""",
-                                   (store.binin(magic),))
-            if len(rows) == 1:
-                chain_id = rows[0][0]
-        if chain_id is None:
+        chain = datadir_chain
+        if chain is None:
+            chain = store.chains_by.magic.get(magic)
+        if chain is None:
             ds.read_cursor = offset
             raise ValueError(
                 "Chain not found for magic number %s in block file at"
                 " offset %d.", repr(magic), offset)
             break
 
-        # XXX pasted out of DataStore.import_blkdat
+        # XXX pasted out of DataStore.import_blkdat, which has since undergone
+        # considerable changes.
         end = ds.read_cursor + length
 
         hash = util.double_sha256(
@@ -93,7 +85,7 @@ def mixup_blocks(store, ds, count, datadir_chain_id = None, seed = None):
         if block_row:
             # Block header already seen.  Don't import the block,
             # but try to add it to the chain.
-            if chain_id is not None:
+            if chain is not None:
                 b = {
                     "block_id":   block_row[0],
                     "height":     block_row[1],
@@ -107,20 +99,20 @@ def mixup_blocks(store, ds, count, datadir_chain_id = None, seed = None):
                       FROM chain_candidate
                      WHERE block_id = ?
                        AND chain_id = ?""",
-                                (b['block_id'], chain_id)):
+                                (b['block_id'], chain.id)):
                     store.log.info("block %d already in chain %d",
-                                   b['block_id'], chain_id)
+                                   b['block_id'], chain.id)
                     b = None
                 else:
                     if b['height'] == 0:
                         b['hashPrev'] = GENESIS_HASH_PREV
                     else:
                         b['hashPrev'] = 'dummy'  # Fool adopt_orphans.
-                    store.offer_block_to_chains(b, frozenset([chain_id]))
+                    store.offer_block_to_chains(b, frozenset([chain.id]))
         else:
-            b = store.parse_block(ds, chain_id, magic, length)
+            b = chain.ds_parse_block(ds)
             b["hash"] = hash
-            chain_ids = frozenset([] if chain_id is None else [chain_id])
+            chain_ids = frozenset([] if chain is None else [chain.id])
             store.import_block(b, chain_ids = chain_ids)
             if ds.read_cursor != end:
                 store.log.debug("Skipped %d bytes at block end",
@@ -137,18 +129,13 @@ def mixup_blocks(store, ds, count, datadir_chain_id = None, seed = None):
 
 def main(argv):
     conf = {
-        "debug":                    None,
-        "logging":                  None,
         "count":                    200,
         "seed":                     1,
         "blkfile":                  None,
         }
-    conf.update(DataStore.CONFIG_DEFAULTS)
-
-    args, argv = readconf.parse_argv(argv, conf,
-                                     strict=False)
-    if argv and argv[0] in ('-h', '--help'):
-        print ("""Usage: python -m Abe.mixup [-h] [--config=FILE] [--CONFIGVAR=VALUE]...
+    cmdline = util.CmdLine(argv, conf)
+    cmdline.usage = lambda: \
+        """Usage: python -m Abe.mixup [-h] [--config=FILE] [--CONFIGVAR=VALUE]...
 
 Load blocks out of order.
 
@@ -158,21 +145,16 @@ Load blocks out of order.
   --blkfile FILE            Load the first COUNT blocks from FILE.
   --seed NUMBER             Random seed (not implemented; 0=file order).
 
-All configuration variables may be given as command arguments.""")
+All configuration variables may be given as command arguments."""
+
+    store, argv = cmdline.init()
+    if store is None:
         return 0
+    args = store.args
 
     if args.blkfile is None:
         raise ValueError("--blkfile is required.")
 
-    logging.basicConfig(
-        stream=sys.stdout,
-        level=logging.DEBUG,
-        format="%(message)s")
-    if args.logging is not None:
-        import logging.config as logging_config
-        logging_config.dictConfig(args.logging)
-
-    store = DataStore.new(args)
     ds = BCDataStream.BCDataStream()
     file = open(args.blkfile, "rb")
     ds.map_file(file, 0)

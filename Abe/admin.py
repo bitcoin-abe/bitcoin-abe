@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright(C) 2012,2013 by Abe developers.
+# Copyright(C) 2012,2013,2014 by Abe developers.
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -20,8 +20,7 @@
 import sys
 import logging
 
-import DataStore
-import readconf
+import util
 
 def commit(store):
     store.commit()
@@ -246,16 +245,9 @@ def del_chain_blocks_2(store, name, chain_id):
     commit(store)
 
 def main(argv):
-    conf = {
-        "debug":                    None,
-        "logging":                  None,
-        }
-    conf.update(DataStore.CONFIG_DEFAULTS)
-
-    args, argv = readconf.parse_argv(argv, conf,
-                                     strict=False)
-    if argv and argv[0] in ('-h', '--help'):
-        print ("""Usage: python -m Abe.admin [-h] [--config=FILE] COMMAND...
+    cmdline = util.CmdLine(argv)
+    cmdline.usage = lambda: \
+        """Usage: python -m Abe.admin [-h] [--config=FILE] COMMAND...
 
 Options:
 
@@ -276,18 +268,11 @@ Commands:
   link-txin                 Link transaction inputs to previous outputs.
 
   rewind-datadir DIRNAME    Reset the pointer to force a rescan of
-                            blockfiles in DIRNAME.""")
+                            blockfiles in DIRNAME."""
+
+    store, argv = cmdline.init()
+    if store is None:
         return 0
-
-    logging.basicConfig(
-        stream=sys.stdout,
-        level=logging.DEBUG,
-        format="%(message)s")
-    if args.logging is not None:
-        import logging.config as logging_config
-        logging_config.dictConfig(args.logging)
-
-    store = DataStore.new(args)
 
     while len(argv) != 0:
         command = argv.pop(0)

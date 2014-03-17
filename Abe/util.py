@@ -1,3 +1,20 @@
+# Copyright(C) 2011,2012,2013,2014 by Abe developers.
+# Copyright (c) 2010 Gavin Andresen
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public
+# License along with this program.  If not, see
+# <http://www.gnu.org/licenses/agpl.html>.
+
 #
 # Misc util routines
 #
@@ -141,3 +158,34 @@ def str_to_ds(s):
     ds = BCDataStream.BCDataStream()
     ds.write(s)
     return ds
+
+class CmdLine(object):
+    def __init__(self, argv, conf=None):
+        self.argv = argv
+        if conf is None:
+            self.conf = {}
+        else:
+            self.conf = conf.copy()
+
+    def usage(self):
+        return "Sorry, no help is available."
+
+    def init(self):
+        import DataStore, readconf, logging, sys
+        self.conf.update({ "debug": None, "logging": None })
+        self.conf.update(DataStore.CONFIG_DEFAULTS)
+
+        args, argv = readconf.parse_argv(self.argv, self.conf, strict=False)
+        if argv and argv[0] in ('-h', '--help'):
+            print self.usage()
+            return None, []
+
+        logging.basicConfig(
+            stream=sys.stdout, level=logging.DEBUG, format="%(message)s")
+        if args.logging is not None:
+            import logging.config as logging_config
+            logging_config.dictConfig(args.logging)
+
+        store = DataStore.new(args)
+
+        return store, argv
