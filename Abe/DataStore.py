@@ -2337,7 +2337,7 @@ store._ddl['txout_approx'],
     def export_tx(store, tx_id=None, tx_hash=None, decimals=8, format="api"):
         """Return a dict as seen by /rawtx or None if not found."""
 
-        # TODO: merge export_tx_detail with export_tx.
+        # TODO: merge _export_tx_detail with export_tx.
         if format == 'detail':
             return store._export_tx_detail(tx_hash)
 
@@ -2483,7 +2483,7 @@ store._ddl['txout_approx'],
             pos, script, value, o_hash, o_pos, binaddr = row
             return {
                 "pos": int(pos),
-                "script": store.binout(script),
+                "binscript": store.binout(script),
                 "value": None if value is None else int(value),
                 "o_hash": store.hashout_hex(o_hash),
                 "o_pos": None if o_pos is None else int(o_pos),

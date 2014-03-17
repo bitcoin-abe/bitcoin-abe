@@ -848,8 +848,8 @@ class Abe:
                 body += hash_to_address_link(chain.address_version,
                                              row['binaddr'], '../')
             body += ['</td>\n']
-            if row['script'] is not None:
-                body += ['<td>', escape(decode_script(row['script'])),
+            if row['binscript'] is not None:
+                body += ['<td>', escape(decode_script(row['binscript'])),
                 '</td>\n']
             body += ['</tr>\n']
 
