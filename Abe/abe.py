@@ -814,10 +814,26 @@ class Abe:
         if row is None:
             body += ['<p class="error">Transaction not found.</p>']
             return
-        tx_id, tx_version, tx_lockTime, tx_size = (
-            int(row[0]), int(row[1]), int(row[2]), int(row[3]))
 
-        block_rows = abe.store.selectall("""
+        tx_id = int(row[0])
+        tx = {
+            'hash': tx_hash,
+            'version': int(row[1]),
+            'lockTime': int(row[2]),
+            'size': int(row[3]),
+            }
+
+        def parse_tx_cc(row):
+            return {
+                'chain_name': row[0],
+                'in_longest': int(row[1]),
+                'block_nTime': int(row[2]),
+                'block_height': None if row[3] is None else int(row[3]),
+                'block_hash': abe.store.hashout_hex(row[4]),
+                'tx_pos': int(row[5])
+                }
+
+        tx['chain_candidates'] = map(parse_tx_cc, abe.store.selectall("""
             SELECT c.chain_name, cc.in_longest,
                    b.block_nTime, b.block_height, b.block_hash,
                    block_tx.tx_pos
@@ -827,7 +843,7 @@ class Abe:
               JOIN block_tx ON (block_tx.block_id = b.block_id)
              WHERE block_tx.tx_id = ?
              ORDER BY c.chain_id, cc.in_longest DESC, b.block_hash
-        """, (tx_id,))
+        """, (tx_id,)))
 
         def parse_row(row):
             pos, script, value, o_hash, o_pos, binaddr = row
@@ -839,6 +855,58 @@ class Abe:
                 "o_pos": None if o_pos is None else int(o_pos),
                 "binaddr": abe.store.binout(binaddr),
                 }
+
+        # XXX Unneeded outer join.
+        tx['in'] = map(parse_row, abe.store.selectall("""
+            SELECT
+                txin.txin_pos""" + (""",
+                txin.txin_scriptSig""" if abe.store.keep_scriptsig else """,
+                NULL""") + """,
+                txout.txout_value,
+                COALESCE(prevtx.tx_hash, u.txout_tx_hash),
+                COALESCE(txout.txout_pos, u.txout_pos),
+                pubkey.pubkey_hash
+              FROM txin
+              LEFT JOIN txout ON (txout.txout_id = txin.txout_id)
+              LEFT JOIN pubkey ON (pubkey.pubkey_id = txout.pubkey_id)
+              LEFT JOIN tx prevtx ON (txout.tx_id = prevtx.tx_id)
+              LEFT JOIN unlinked_txin u ON (u.txin_id = txin.txin_id)
+             WHERE txin.tx_id = ?
+             ORDER BY txin.txin_pos
+        """, (tx_id,)))
+
+        # XXX Only two outer JOINs needed.
+        tx['out'] = map(parse_row, abe.store.selectall("""
+            SELECT
+                txout.txout_pos,
+                txout.txout_scriptPubKey,
+                txout.txout_value,
+                nexttx.tx_hash,
+                txin.txin_pos,
+                pubkey.pubkey_hash
+              FROM txout
+              LEFT JOIN txin ON (txin.txout_id = txout.txout_id)
+              LEFT JOIN pubkey ON (pubkey.pubkey_id = txout.pubkey_id)
+              LEFT JOIN tx nexttx ON (txin.tx_id = nexttx.tx_id)
+             WHERE txout.tx_id = ?
+             ORDER BY txout.txout_pos
+        """, (tx_id,)))
+
+        def sum_values(rows):
+            ret = 0
+            for row in rows:
+                if row['value'] is None:
+                    return None
+                ret += row['value']
+            return ret
+
+        tx['value_in'] = sum_values(tx['in'])
+        tx['value_out'] = sum_values(tx['out'])
+
+        return abe.show_tx(page, tx)
+
+    def show_tx(abe, page, tx):
+        body = page['body']
 
         def row_to_html(row, this_ch, other_ch, no_link_text):
             body = page['body']
@@ -867,91 +935,45 @@ class Abe:
                 '</td>\n']
             body += ['</tr>\n']
 
-        # XXX Unneeded outer join.
-        in_rows = map(parse_row, abe.store.selectall("""
-            SELECT
-                txin.txin_pos""" + (""",
-                txin.txin_scriptSig""" if abe.store.keep_scriptsig else """,
-                NULL""") + """,
-                txout.txout_value,
-                COALESCE(prevtx.tx_hash, u.txout_tx_hash),
-                COALESCE(txout.txout_pos, u.txout_pos),
-                pubkey.pubkey_hash
-              FROM txin
-              LEFT JOIN txout ON (txout.txout_id = txin.txout_id)
-              LEFT JOIN pubkey ON (pubkey.pubkey_id = txout.pubkey_id)
-              LEFT JOIN tx prevtx ON (txout.tx_id = prevtx.tx_id)
-              LEFT JOIN unlinked_txin u ON (u.txin_id = txin.txin_id)
-             WHERE txin.tx_id = ?
-             ORDER BY txin.txin_pos
-        """, (tx_id,)))
-
-        # XXX Only two outer JOINs needed.
-        out_rows = map(parse_row, abe.store.selectall("""
-            SELECT
-                txout.txout_pos,
-                txout.txout_scriptPubKey,
-                txout.txout_value,
-                nexttx.tx_hash,
-                txin.txin_pos,
-                pubkey.pubkey_hash
-              FROM txout
-              LEFT JOIN txin ON (txin.txout_id = txout.txout_id)
-              LEFT JOIN pubkey ON (pubkey.pubkey_id = txout.pubkey_id)
-              LEFT JOIN tx nexttx ON (txin.tx_id = nexttx.tx_id)
-             WHERE txout.tx_id = ?
-             ORDER BY txout.txout_pos
-        """, (tx_id,)))
-
-        def sum_values(rows):
-            ret = 0
-            for row in rows:
-                if row['value'] is None:
-                    return None
-                ret += row['value']
-            return ret
-
-        value_in = sum_values(in_rows)
-        value_out = sum_values(out_rows)
+        body += abe.short_link(page, 't/' + hexb58(tx['hash'][:14]))
+        body += ['<p>Hash: ', tx['hash'], '<br />\n']
+        chain = None
         is_coinbase = None
 
-        body += abe.short_link(page, 't/' + hexb58(tx_hash[:14]))
-        body += ['<p>Hash: ', tx_hash, '<br />\n']
-        chain = None
-        for row in block_rows:
-            (name, in_longest, nTime, height, blk_hash, tx_pos) = (
-                row[0], int(row[1]), int(row[2]),
-                None if row[3] is None else int(row[3]),
-                abe.store.hashout_hex(row[4]), int(row[5]))
+        for tx_cc in tx['chain_candidates']:
+            chain_name = tx_cc['chain_name']
+
             if chain is None:
-                chain = abe.chain_lookup_by_name(name)
-                is_coinbase = (tx_pos == 0)
-            elif name != chain.name:
-                abe.log.warning('Transaction ' + tx_hash + ' in multiple chains: '
-                             + name + ', ' + chain.name)
+                chain = abe.chain_lookup_by_name(chain_name)
+                is_coinbase = (tx_cc['tx_pos'] == 0)
+            elif chain_name != chain.name:
+                abe.log.warning('Transaction ' + tx['hash'] + ' in multiple chains: '
+                             + chain_name + ', ' + chain.name)
+
+            blk_hash = tx_cc['block_hash']
             body += [
                 'Appeared in <a href="../block/', blk_hash, '">',
-                escape(name), ' ',
-                height if in_longest else [blk_hash[:10], '...', blk_hash[-4:]],
-                '</a> (', format_time(nTime), ')<br />\n']
+                escape(chain_name), ' ',
+                tx_cc['block_height'] if tx_cc['in_longest'] else [blk_hash[:10], '...', blk_hash[-4:]],
+                '</a> (', format_time(tx_cc['block_nTime']), ')<br />\n']
 
         if chain is None:
-            abe.log.warning('Assuming default chain for Transaction ' + tx_hash)
+            abe.log.warning('Assuming default chain for Transaction ' + tx['hash'])
             chain = abe.get_default_chain()
 
         body += [
-            'Number of inputs: ', len(in_rows),
+            'Number of inputs: ', len(tx['in']),
             ' (<a href="#inputs">Jump to inputs</a>)<br />\n',
-            'Total in: ', format_satoshis(value_in, chain), '<br />\n',
-            'Number of outputs: ', len(out_rows),
+            'Total in: ', format_satoshis(tx['value_in'], chain), '<br />\n',
+            'Number of outputs: ', len(tx['out']),
             ' (<a href="#outputs">Jump to outputs</a>)<br />\n',
-            'Total out: ', format_satoshis(value_out, chain), '<br />\n',
-            'Size: ', tx_size, ' bytes<br />\n',
+            'Total out: ', format_satoshis(tx['value_out'], chain), '<br />\n',
+            'Size: ', tx['size'], ' bytes<br />\n',
             'Fee: ', format_satoshis(0 if is_coinbase else
-                                     (value_in and value_out and
-                                      value_in - value_out), chain),
+                                     (tx['value_in'] and tx['value_out'] and
+                                      tx['value_in'] - tx['value_out']), chain),
             '<br />\n',
-            '<a href="../rawtx/', tx_hash, '">Raw transaction</a><br />\n']
+            '<a href="../rawtx/', tx['hash'], '">Raw transaction</a><br />\n']
         body += ['</p>\n',
                  '<a name="inputs"><h3>Inputs</h3></a>\n<table>\n',
                  '<tr><th>Index</th><th>Previous output</th><th>Amount</th>',
@@ -959,15 +981,15 @@ class Abe:
         if abe.store.keep_scriptsig:
             body += ['<th>ScriptSig</th>']
         body += ['</tr>\n']
-        for row in in_rows:
-            row_to_html(row, 'i', 'o',
+        for txin in tx['in']:
+            row_to_html(txin, 'i', 'o',
                         'Generation' if is_coinbase else 'Unknown')
         body += ['</table>\n',
                  '<a name="outputs"><h3>Outputs</h3></a>\n<table>\n',
                  '<tr><th>Index</th><th>Redeemed at input</th><th>Amount</th>',
                  '<th>To address</th><th>ScriptPubKey</th></tr>\n']
-        for row in out_rows:
-            row_to_html(row, 'o', 'i', 'Not yet redeemed')
+        for txout in tx['out']:
+            row_to_html(txout, 'o', 'i', 'Not yet redeemed')
 
         body += ['</table>\n']
 
