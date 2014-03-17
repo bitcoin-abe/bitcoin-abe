@@ -806,102 +806,20 @@ class Abe:
             body += ['<p class="error">Not a valid transaction hash.</p>']
             return
 
+        try:
+            tx = abe.store.export_tx(tx_hash = tx_hash, format = 'detail')
+        except TypeError:
+            body += ['<p class="error">Not in correct format.</p>']
+            return
+
         row = abe.store.selectrow("""
             SELECT tx_id, tx_version, tx_lockTime, tx_size
               FROM tx
              WHERE tx_hash = ?
         """, (abe.store.hashin_hex(tx_hash),))
-        if row is None:
+        if tx is None:
             body += ['<p class="error">Transaction not found.</p>']
             return
-
-        tx_id = int(row[0])
-        tx = {
-            'hash': tx_hash,
-            'version': int(row[1]),
-            'lockTime': int(row[2]),
-            'size': int(row[3]),
-            }
-
-        def parse_tx_cc(row):
-            return {
-                'chain_name': row[0],
-                'in_longest': int(row[1]),
-                'block_nTime': int(row[2]),
-                'block_height': None if row[3] is None else int(row[3]),
-                'block_hash': abe.store.hashout_hex(row[4]),
-                'tx_pos': int(row[5])
-                }
-
-        tx['chain_candidates'] = map(parse_tx_cc, abe.store.selectall("""
-            SELECT c.chain_name, cc.in_longest,
-                   b.block_nTime, b.block_height, b.block_hash,
-                   block_tx.tx_pos
-              FROM chain c
-              JOIN chain_candidate cc ON (cc.chain_id = c.chain_id)
-              JOIN block b ON (b.block_id = cc.block_id)
-              JOIN block_tx ON (block_tx.block_id = b.block_id)
-             WHERE block_tx.tx_id = ?
-             ORDER BY c.chain_id, cc.in_longest DESC, b.block_hash
-        """, (tx_id,)))
-
-        def parse_row(row):
-            pos, script, value, o_hash, o_pos, binaddr = row
-            return {
-                "pos": int(pos),
-                "script": abe.store.binout(script),
-                "value": None if value is None else int(value),
-                "o_hash": abe.store.hashout_hex(o_hash),
-                "o_pos": None if o_pos is None else int(o_pos),
-                "binaddr": abe.store.binout(binaddr),
-                }
-
-        # XXX Unneeded outer join.
-        tx['in'] = map(parse_row, abe.store.selectall("""
-            SELECT
-                txin.txin_pos""" + (""",
-                txin.txin_scriptSig""" if abe.store.keep_scriptsig else """,
-                NULL""") + """,
-                txout.txout_value,
-                COALESCE(prevtx.tx_hash, u.txout_tx_hash),
-                COALESCE(txout.txout_pos, u.txout_pos),
-                pubkey.pubkey_hash
-              FROM txin
-              LEFT JOIN txout ON (txout.txout_id = txin.txout_id)
-              LEFT JOIN pubkey ON (pubkey.pubkey_id = txout.pubkey_id)
-              LEFT JOIN tx prevtx ON (txout.tx_id = prevtx.tx_id)
-              LEFT JOIN unlinked_txin u ON (u.txin_id = txin.txin_id)
-             WHERE txin.tx_id = ?
-             ORDER BY txin.txin_pos
-        """, (tx_id,)))
-
-        # XXX Only two outer JOINs needed.
-        tx['out'] = map(parse_row, abe.store.selectall("""
-            SELECT
-                txout.txout_pos,
-                txout.txout_scriptPubKey,
-                txout.txout_value,
-                nexttx.tx_hash,
-                txin.txin_pos,
-                pubkey.pubkey_hash
-              FROM txout
-              LEFT JOIN txin ON (txin.txout_id = txout.txout_id)
-              LEFT JOIN pubkey ON (pubkey.pubkey_id = txout.pubkey_id)
-              LEFT JOIN tx nexttx ON (txin.tx_id = nexttx.tx_id)
-             WHERE txout.tx_id = ?
-             ORDER BY txout.txout_pos
-        """, (tx_id,)))
-
-        def sum_values(rows):
-            ret = 0
-            for row in rows:
-                if row['value'] is None:
-                    return None
-                ret += row['value']
-            return ret
-
-        tx['value_in'] = sum_values(tx['in'])
-        tx['value_out'] = sum_values(tx['out'])
 
         return abe.show_tx(page, tx)
 
