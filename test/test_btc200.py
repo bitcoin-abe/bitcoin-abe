@@ -1,4 +1,4 @@
-# Copyright(C) 2011,2012,2013,2014 by Abe developers.
+# Copyright(C) 2014 by Abe developers.
 
 # test_btc200.py: test Abe loading through Bitcoin Block 200.
 
