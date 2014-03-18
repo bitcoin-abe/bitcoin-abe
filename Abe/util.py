@@ -50,19 +50,11 @@ def short_hex(bytes):
         return t
     return t[0:4]+"..."+t[-4:]
 
+NULL_HASH = "\0" * 32
+GENESIS_HASH_PREV = NULL_HASH
+
 def double_sha256(s):
     return SHA256.new(SHA256.new(s).digest()).digest()
-
-# Based on CBlock::BuildMerkleTree().
-def merkle(hashes):
-    while len(hashes) > 1:
-        size = len(hashes)
-        out = []
-        for i in xrange(0, size, 2):
-            i2 = min(i + 1, size - 1)
-            out.append(double_sha256(hashes[i] + hashes[i2]))
-        hashes = out
-    return hashes and hashes[0]
 
 def pubkey_to_hash(pubkey):
     return RIPEMD160.new(SHA256.new(pubkey).digest()).digest()
@@ -148,10 +140,6 @@ def jsonrpc(url, method, *params):
             raise JsonrpcMethodNotFound(resp['error'], method, params)
         raise JsonrpcException(resp['error'], method, params)
     return resp['result']
-
-def is_coinbase_tx(tx):
-    return len(tx['txIn']) == 1 and tx['txIn'][0]['prevout_hash'] == \
-        "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"
 
 def str_to_ds(s):
     import BCDataStream

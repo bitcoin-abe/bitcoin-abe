@@ -30,7 +30,7 @@ def create(policy, **kwargs):
 class Chain(object):
     def __init__(chain, src=None, **kwargs):
         for attr in [
-            'id', 'magic', 'name', 'code3', 'address_version', 'decimals']:
+            'id', 'magic', 'name', 'code3', 'address_version', 'decimals', 'script_addr_vers']:
 
             if attr in kwargs:
                 val = kwargs.get(attr)
@@ -59,20 +59,45 @@ class Chain(object):
             d['transactions'].append(chain.ds_parse_transaction(ds))
         return d
 
-    def ds_serialize_block_header(chain, block):
-        import BCDataStream
-        ds = BCDataStream.BCDataStream()
+    def ds_serialize_block_header(chain, ds, block):
         ds.write_int32(block['version'])
         ds.write(block['hashPrev'])
         ds.write(block['hashMerkleRoot'])
         ds.write_uint32(block['nTime'])
         ds.write_uint32(block['nBits'])
         ds.write_uint32(block['nNonce'])
-        ds.seek_file(0)
-        return ds
+
+    def ds_serialize_transaction(chain, ds, tx):
+        ds.write_int32(tx['version'])
+        ds.write_compact_size(len(tx['txIn']))
+        for txin in tx['txIn']:
+            chain.ds_serialize_txin(ds, txin)
+        ds.write_compact_size(len(tx['txOut']))
+        for txout in tx['txOut']:
+            chain.ds_serialize_txout(ds, txout)
+        ds.write_uint32(tx['lockTime'])
+
+    def ds_serialize_txin(chain, ds, txin):
+        ds.write(txin['prevout_hash'])
+        ds.write_uint32(txin['prevout_n'])
+        ds.write_string(txin['scriptSig'])
+        ds.write_uint32(txin['sequence'])
+
+    def ds_serialize_txout(chain, ds, txout):
+        ds.write_int64(txout['value'])
+        ds.write_string(txout['scriptPubKey'])
 
     def serialize_block_header(chain, block):
-        return chain.ds_serialize_block_header(block).input
+        import BCDataStream
+        ds = BCDataStream.BCDataStream()
+        chain.ds_serialize_block_header(ds, block)
+        return ds.input
+
+    def serialize_transaction(chain, tx):
+        import BCDataStream
+        ds = BCDataStream.BCDataStream()
+        chain.ds_serialize_transaction(ds, tx)
+        return ds.input
 
     def ds_block_header_hash(chain, ds):
         return chain.block_header_hash(
@@ -81,8 +106,26 @@ class Chain(object):
     def transaction_hash(chain, binary_tx):
         return util.double_sha256(binary_tx)
 
+    # Based on CBlock::BuildMerkleTree().
+    def merkle_root(chain, hashes):
+        while len(hashes) > 1:
+            size = len(hashes)
+            out = []
+            for i in xrange(0, size, 2):
+                i2 = min(i + 1, size - 1)
+                out.append(chain.transaction_hash(hashes[i] + hashes[i2]))
+            hashes = out
+        return hashes and hashes[0]
+
     def parse_transaction(chain, binary_tx):
         return chain.ds_parse_transaction(util.str_to_ds(binary_tx))
+
+    def is_coinbase_tx(chain, tx):
+        return len(tx['txIn']) == 1 and tx['txIn'][0]['prevout_hash'] == chain.coinbase_prevout_hash
+
+    coinbase_prevout_hash = util.NULL_HASH
+    coinbase_prevout_n = 0xffffffff
+    genesis_hash_prev = util.GENESIS_HASH_PREV
 
     datadir_conf_file_name = "bitcoin.conf"
     datadir_rpcport = 8332

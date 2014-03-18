@@ -59,9 +59,9 @@ WORK_BITS = 304  # XXX more than necessary.
 
 CHAIN_CONFIG = [
     {"chain":"Bitcoin",
-     "code3":"BTC", "address_version":"\x00", "magic":"\xf9\xbe\xb4\xd9"},
+     "code3":"BTC", "address_version":"\x00", "magic":"\xf9\xbe\xb4\xd9", "script_addr_vers":"\x05"},
     {"chain":"Testnet",
-     "code3":"BC0", "address_version":"\x6f", "magic":"\xfa\xbf\xb5\xda"},
+     "code3":"BC0", "address_version":"\x6f", "magic":"\xfa\xbf\xb5\xda", "script_addr_vers":"\xc4"},
     {"chain":"Namecoin",
      "code3":"NMC", "address_version":"\x34", "magic":"\xf9\xbe\xb4\xfe"},
     {"chain":"Weeds", "network":"Weedsnet",
@@ -79,9 +79,6 @@ CHAIN_CONFIG = [
     #{"chain":"",
     # "code3":"", "address_version":"\x", "magic":""},
     ]
-
-NULL_HASH = "\0" * 32
-GENESIS_HASH_PREV = NULL_HASH
 
 NULL_PUBKEY_HASH = "\0" * 20
 NULL_PUBKEY_ID = 0
@@ -1799,13 +1796,19 @@ store._ddl['txout_approx'],
         block_id = int(store.new_id("block"))
         b['block_id'] = block_id
 
-        # Verify Merkle root.
-        if b['hashMerkleRoot'] != util.merkle(tx_hash_array):
-            raise MerkleRootMismatch(b['hash'], tx_hash_array)
+        if chain is not None:
+            # Verify Merkle root.
+            if b['hashMerkleRoot'] != chain.merkle_root(tx_hash_array):
+                raise MerkleRootMismatch(b['hash'], tx_hash_array)
 
         # Look for the parent block.
         hashPrev = b['hashPrev']
-        is_genesis = hashPrev == GENESIS_HASH_PREV
+        if chain is None:
+            # XXX No longer used.
+            is_genesis = hashPrev == util.GENESIS_HASH_PREV
+        else:
+            is_genesis = hashPrev == chain.genesis_hash_prev
+
         (prev_block_id, prev_height, prev_work, prev_satoshis,
          prev_seconds, prev_ss, prev_total_ss, prev_nTime) = (
             (None, -1, 0, 0, 0, 0, 0, b['nTime'])
@@ -2331,7 +2334,7 @@ store._ddl['txout_approx'],
         if count == 0:
             tx = chain.parse_transaction(binary_tx)
             tx['hash'] = tx_hash
-            store.import_tx(tx, util.is_coinbase_tx(tx))
+            store.import_tx(tx, chain.is_coinbase_tx(tx))
             store.imported_bytes(tx['size'])
 
     def export_tx(store, tx_id=None, tx_hash=None, decimals=8, format="api"):
@@ -2595,7 +2598,7 @@ store._ddl['txout_approx'],
                 for block_id in to_connect:
                     store.connect_block(block_id, chain_id)
 
-            elif b['hashPrev'] == GENESIS_HASH_PREV:
+            elif b['hashPrev'] == store.get_chain_by_id(chain_id).genesis_hash_prev:
                 in_longest = 1  # Assume only one genesis block per chain.  XXX
             else:
                 in_longest = 0
@@ -2658,7 +2661,7 @@ store._ddl['txout_approx'],
                            b['block_id'], chain_id)
         else:
             if b['height'] == 0:
-                b['hashPrev'] = GENESIS_HASH_PREV
+                b['hashPrev'] = store.get_chain_by_id(chain_id).genesis_hash_prev
             else:
                 b['hashPrev'] = 'dummy'  # Fool adopt_orphans.
             store.offer_block_to_chains(b, frozenset([chain_id]))
@@ -2931,7 +2934,7 @@ store._ddl['txout_approx'],
                     prev_hash = \
                         rpc_block['previousblockhash'].decode('hex')[::-1] \
                         if 'previousblockhash' in rpc_block \
-                        else GENESIS_HASH_PREV
+                        else chain.genesis_hash_prev
 
                     block = {
                         'hash':     hash,
@@ -3175,7 +3178,7 @@ store._ddl['txout_approx'],
                 b = chain.ds_parse_block(ds)
                 b["hash"] = hash
 
-                if (store.log.isEnabledFor(logging.DEBUG) and b["hashPrev"] == GENESIS_HASH_PREV):
+                if (store.log.isEnabledFor(logging.DEBUG) and b["hashPrev"] == chain.genesis_hash_prev):
                     try:
                         store.log.debug("Chain %d genesis tx: %s", chain.id,
                                         b['transactions'][0]['__data__'].encode('hex'))
