@@ -56,8 +56,13 @@ class Gen(object):
     def pubkey_scriptPubKey(gen, pubkey):
         return encode_script(pubkey, opcodes.OP_CHECKSIG)
 
-    def multisig_scriptPubKey(gen, m, addrs):
-        ops = [m]
+    def multisig_scriptPubKey(gen, m, pubkeys):
+        ops = [ m + opcodes.OP_1 - 1 ]
+        for pubkey in pubkeys:
+            ops.append(len(pubkey))
+            ops.append(pubkey)
+        ops.append(len(pubkeys) + opcodes.OP_1 - 1)
+        return encode_script(*ops)
 
     def p2sh_scriptPubKey(gen, hash):
         return encode_script(opcodes.OP_HASH160, hash, opcodes.OP_EQUAL)
@@ -97,7 +102,7 @@ class Gen(object):
             elif version == gen.chain.script_addr_vers:
                 txout['scriptPubKey'] = gen.p2sh_scriptPubKey(hash)
             else:
-                raise ValueError('Invalid address version %r' % version)
+                raise ValueError('Invalid address version %r not in (%r, %r)' % (version, gen.chain.address_version, gen.chain.script_addr_vers))
         else:
             txout['scriptPubKey'] = gen.address_scriptPubKey(gen.random_addr_hash())
 

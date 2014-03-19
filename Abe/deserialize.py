@@ -273,7 +273,7 @@ def script_GetOp(bytes):
         vch = bytes[i:i+nSize]
         i += nSize
 
-    yield (opcode, vch, i)
+    yield (opcode, vch)
 
 def script_GetOpName(opcode):
   try:
@@ -283,7 +283,7 @@ def script_GetOpName(opcode):
 
 def decode_script(bytes):
   result = ''
-  for (opcode, vch, i) in script_GetOp(bytes):
+  for (opcode, vch) in script_GetOp(bytes):
     if len(result) > 0: result += " "
     if opcode <= opcodes.OP_PUSHDATA4:
       result += "%d:"%(opcode,)
@@ -328,11 +328,10 @@ def extract_public_key(bytes, version='\x00'):
     return hash_160_to_bc_address(decoded[2][1], version=version)
 
   # BIP11 TxOuts look like one of these:
-  # Note that match_decoded is dumb, so OP_1 actually matches OP_1/2/3/etc:
   multisigs = [
-    [ opcodes.OP_1, opcodes.OP_PUSHDATA4, opcodes.OP_1, opcodes.OP_CHECKMULTISIG ],
-    [ opcodes.OP_2, opcodes.OP_PUSHDATA4, opcodes.OP_PUSHDATA4, opcodes.OP_2, opcodes.OP_CHECKMULTISIG ],
-    [ opcodes.OP_3, opcodes.OP_PUSHDATA4, opcodes.OP_PUSHDATA4, opcodes.OP_3, opcodes.OP_CHECKMULTISIG ]
+    [ opcodes.OP_PUSHDATA4, opcodes.OP_PUSHDATA4, opcodes.OP_1, opcodes.OP_CHECKMULTISIG ],
+    [ opcodes.OP_PUSHDATA4, opcodes.OP_PUSHDATA4, opcodes.OP_PUSHDATA4, opcodes.OP_2, opcodes.OP_CHECKMULTISIG ],
+    [ opcodes.OP_PUSHDATA4, opcodes.OP_PUSHDATA4, opcodes.OP_PUSHDATA4, opcodes.OP_PUSHDATA4, opcodes.OP_3, opcodes.OP_CHECKMULTISIG ]
   ]
   for match in multisigs:
     if match_decoded(decoded, match):

@@ -54,7 +54,15 @@ def chain():
                                            gen.tx(txIn=[gen.txin(prevout=blocks[1]['transactions'][0]['txOut'][0],
                                                                  scriptSig='XXX')],
                                                   txOut=[gen.txout(addr='n1pTUVnjZ6GHxujaoJ62P9NBMNjLr5N2EQ',
-                                                                   value=4999000000)])]) )
+                                                                   value=999000000),
+                                                         gen.txout(addr='2NFTctsgcAmrgtiboLJUx9q8qu5H1qVpcAb',
+                                                                   value=2000000000),
+                                                         gen.txout(multisig={"m":2, "pubkeys":[
+                                    '0269184483e5494727d2dec54da85db9b18bee827bb3d1eee23b122edf810b8262'.decode('hex'),
+                                    '0217819b778f0bcfee53bbed495ca20fdc828f40ffd6d9481fe4c0d091b1486f69'.decode('hex'),
+                                    '022820a6eb4e6817bf68301856e0803e05d19f54714006f2088e74103be396eb5a'.decode('hex'),
+                                    ]},
+                                                                   value=2000000000)])]) )
 
     for block in blocks:
         store.import_block(block, chain = chain)

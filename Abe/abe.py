@@ -807,6 +807,7 @@ class Abe:
             return
 
         try:
+            # XXX Should pass chain to export_tx to help parse scripts.
             tx = abe.store.export_tx(tx_hash = tx_hash, format = 'detail')
         except TypeError:
             body += ['<p class="error">Not in correct format.</p>']

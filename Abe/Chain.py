@@ -15,6 +15,7 @@
 # <http://www.gnu.org/licenses/agpl.html>.
 
 import deserialize
+from deserialize import opcodes
 import util
 
 def create(policy, **kwargs):
@@ -26,6 +27,33 @@ def create(policy, **kwargs):
     if policy == "CryptoCash":
         return CryptoCash(**kwargs)
     return Sha256NmcAuxPowChain(**kwargs)
+
+
+PUBKEY_HASH_LENGTH = 20
+MAX_MULTISIG_KEYS = 3
+
+# Template to match a pubkey hash ("Bitcoin address transaction") in
+# txout_scriptPubKey.  OP_PUSHDATA4 matches any data push.
+SCRIPT_ADDRESS_TEMPLATE = [
+    opcodes.OP_DUP, opcodes.OP_HASH160, opcodes.OP_PUSHDATA4, opcodes.OP_EQUALVERIFY, opcodes.OP_CHECKSIG ]
+
+# Template to match a pubkey ("IP address transaction") in txout_scriptPubKey.
+SCRIPT_PUBKEY_TEMPLATE = [ opcodes.OP_PUSHDATA4, opcodes.OP_CHECKSIG ]
+
+# Template to match a BIP16 pay-to-script-hash (P2SH) output script.
+SCRIPT_P2SH_TEMPLATE = [ opcodes.OP_HASH160, PUBKEY_HASH_LENGTH, opcodes.OP_EQUAL ]
+
+# Script that can never be redeemed, used in Namecoin.
+SCRIPT_BURN = chr(opcodes.OP_RETURN)
+
+SCRIPT_TYPE_INVALID = 0
+SCRIPT_TYPE_UNKNOWN = 1
+SCRIPT_TYPE_PUBKEY = 2
+SCRIPT_TYPE_ADDRESS = 3
+SCRIPT_TYPE_BURN = 4
+SCRIPT_TYPE_MULTISIG = 5
+SCRIPT_TYPE_P2SH = 6
+
 
 class Chain(object):
     def __init__(chain, src=None, **kwargs):
@@ -126,6 +154,58 @@ class Chain(object):
     coinbase_prevout_hash = util.NULL_HASH
     coinbase_prevout_n = 0xffffffff
     genesis_hash_prev = util.GENESIS_HASH_PREV
+
+    def parse_txout_script(chain, script):
+        """
+        Return TYPE, DATA where the format of DATA depends on TYPE.
+
+        * SCRIPT_TYPE_INVALID  - DATA is the raw script
+        * SCRIPT_TYPE_UNKNOWN  - DATA is the decoded script
+        * SCRIPT_TYPE_PUBKEY   - DATA is the binary public key
+        * SCRIPT_TYPE_ADDRESS  - DATA is the binary public key hash
+        * SCRIPT_TYPE_BURN     - DATA is None
+        * SCRIPT_TYPE_MULTISIG - DATA is {"m":M, "pubkeys":list_of_pubkeys}
+        * SCRIPT_TYPE_P2SH     - DATA is the binary script hash
+        """
+        if script == SCRIPT_BURN:
+            return SCRIPT_TYPE_BURN, None
+
+        try:
+            decoded = [ x for x in deserialize.script_GetOp(script) ]
+        except:
+            return SCRIPT_TYPE_INVALID, script
+
+        if deserialize.match_decoded(decoded, SCRIPT_ADDRESS_TEMPLATE):
+            pubkey_hash = decoded[2][1]
+            if len(pubkey_hash) == PUBKEY_HASH_LENGTH:
+                return SCRIPT_TYPE_ADDRESS, pubkey_hash
+
+        elif deserialize.match_decoded(decoded, SCRIPT_PUBKEY_TEMPLATE):
+            pubkey = decoded[0][1] or chr(decoded(0))
+            return SCRIPT_TYPE_PUBKEY, pubkey
+
+        elif deserialize.match_decoded(decoded, SCRIPT_P2SH_TEMPLATE):
+            script_hash = decoded[1][1]
+            assert len(script_hash) == PUBKEY_HASH_LENGTH
+            return SCRIPT_TYPE_P2SH, script_hash
+
+        elif len(decoded) >= 4 and decoded[-1][0] == opcodes.OP_CHECKMULTISIG:
+            # cf. bitcoin/src/script.cpp:Solver
+            n = decoded[-2][0] + 1 - opcodes.OP_1
+            m = decoded[-2][0] + 1 - opcodes.OP_1
+            if 1 <= m <= n <= MAX_MULTISIG_KEYS and len(decoded) == 3 + n and \
+                    all([ decoded[i][0] <= opcodes.OP_PUSHDATA4 for i in range(1, 1+n) ]):
+                return SCRIPT_TYPE_MULTISIG, \
+                    { "m": m, "pubkeys": [ decoded[i][1] for i in range(1, 1+n) ] }
+
+        # XXX Namecoin will have to override this to accept name operations.
+        return SCRIPT_TYPE_UNKNOWN, decoded
+
+    def pubkey_hash(chain, pubkey):
+        return util.pubkey_to_hash(pubkey)
+
+    def script_hash(chain, script):
+        return chain.pubkey_hash(script)
 
     datadir_conf_file_name = "bitcoin.conf"
     datadir_rpcport = 8332
