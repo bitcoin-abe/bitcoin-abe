@@ -1178,9 +1178,7 @@ store._ddl['configvar'],
 """CREATE TABLE multisig_pubkey (
     multisig_id   NUMERIC(26) NOT NULL,
     pubkey_id     NUMERIC(26) NOT NULL,
-    pubkey_pos    NUMERIC(2) NOT NULL,
     PRIMARY KEY (multisig_id, pubkey_id),
-    UNIQUE (multisig_id, pubkey_pos),
     FOREIGN KEY (multisig_id) REFERENCES pubkey (pubkey_id),
     FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id)
 )""",
@@ -2764,11 +2762,11 @@ store._ddl['txout_approx'],
             multisig_id = store._pubkey_id(script_hash, script)
 
             if not store.selectrow("SELECT 1 FROM multisig_pubkey WHERE multisig_id = ?", (multisig_id,)):
-                for pos in xrange(len(data['pubkeys'])):
-                    pubkey_id = store.pubkey_to_id(chain, data['pubkeys'][pos])
+                for pubkey in data['pubkeys']:
+                    pubkey_id = store.pubkey_to_id(chain, pubkey)
                     store.sql("""
-                        INSERT INTO multisig_pubkey (multisig_id, pubkey_id, pubkey_pos)
-                        VALUES (?, ?, ?)""", (multisig_id, pubkey_id, pos))
+                        INSERT INTO multisig_pubkey (multisig_id, pubkey_id)
+                        VALUES (?, ?)""", (multisig_id, pubkey_id))
             return multisig_id
 
         if script_type == Chain.SCRIPT_TYPE_BURN:
