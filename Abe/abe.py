@@ -574,6 +574,7 @@ class Abe:
         txs = {}
         block_out = 0
         block_in = 0
+        # XXX need to handle multisig and p2sh
         for row in abe.store.selectall("""
             SELECT tx_id, tx_hash, tx_size, txout_value, pubkey_hash
               FROM txout_detail
@@ -601,6 +602,7 @@ class Abe:
                     "value": txout_value,
                     "pubkey_hash": pubkey_hash,
                     })
+        # XXX need to handle multisig and p2sh
         for row in abe.store.selectall("""
             SELECT tx_id, txin_value, pubkey_hash
               FROM txin_detail
@@ -845,8 +847,13 @@ class Abe:
                 '<td>']
             if row['binaddr'] is None:
                 body += ['Unknown']
+            elif isinstance(row['binaddr'], list):
+                # Multisig.
+                body += ['Escrow ', row['required_signatures'], ' of']
+                for binaddr in row['binaddr']:
+                    body += [' ', hash_to_address_link(row['address_version'], binaddr, '../', 10)]
             else:
-                body += hash_to_address_link(chain.address_version,
+                body += hash_to_address_link(row['address_version'],
                                              row['binaddr'], '../')
             body += ['</td>\n']
             if row['binscript'] is not None:
@@ -1999,13 +2006,14 @@ def format_difficulty(diff):
         idiff = idiff / 1000
     return str(idiff) + ret
 
-def hash_to_address_link(version, hash, dotdot):
+def hash_to_address_link(version, hash, dotdot, truncate_to=None):
     if hash == DataStore.NULL_PUBKEY_HASH:
         return 'Destroyed'
     if hash is None:
         return 'UNKNOWN'
     addr = util.hash_to_address(version, hash)
-    return ['<a href="', dotdot, 'address/', addr, '">', addr, '</a>']
+    visible = addr if truncate_to is None else addr[:truncate_to] + '...'
+    return ['<a href="', dotdot, 'address/', addr, '">', visible, '</a>']
 
 def decode_script(script):
     if script is None:

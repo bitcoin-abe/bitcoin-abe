@@ -2502,30 +2502,35 @@ store._ddl['txout_approx'],
             scriptPubKey = store.binout(row[5]) if len(row) >5 else script
             script_type, data = chain.parse_txout_script(scriptPubKey)
 
-            if script_type == Chain.SCRIPT_TYPE_PUBKEY:
-                address_version = chain.address_version
-                binaddr = chain.pubkey_hash(data)
-            elif script_type == Chain.SCRIPT_TYPE_ADDRESS:
-                address_version = chain.address_version
-                binaddr = data
-            elif script_type == Chain.SCRIPT_TYPE_P2SH:
-                address_version = chain.script_addr_vers
-                binaddr = data
-            else:
-                # TODO: SCRIPT_TYPE_MULTISIG
-                address_version = None
-                binaddr = None
-
-            return {
+            ret = {
                 "pos": int(pos),
                 "binscript": script,
                 "value": None if value is None else int(value),
                 "o_hash": store.hashout_hex(o_hash),
                 "o_pos": None if o_pos is None else int(o_pos),
-                "binaddr": binaddr,
                 "script_type": script_type,
-                "address_version": address_version
+                "address_version": chain.address_version,
                 }
+
+            if script_type == Chain.SCRIPT_TYPE_PUBKEY:
+                ret['binaddr'] = chain.pubkey_hash(data)
+            elif script_type == Chain.SCRIPT_TYPE_ADDRESS:
+                ret['binaddr'] = data
+            elif script_type == Chain.SCRIPT_TYPE_P2SH:
+                ret['address_version'] = chain.script_addr_vers
+                ret['binaddr'] = data
+            elif script_type == Chain.SCRIPT_TYPE_MULTISIG:
+                ret['required_signatures'] = data['m']
+                ret['binaddr'] = [
+                    chain.pubkey_hash(pubkey)
+                    for pubkey in data['pubkeys']
+                    ]
+            elif script_type == Chain.SCRIPT_TYPE_BURN:
+                ret['binaddr'] = NULL_PUBKEY_HASH
+            else:
+                ret['binaddr'] = None
+
+            return ret
 
         # XXX Unneeded outer join.
         tx['in'] = map(parse_row, store.selectall("""

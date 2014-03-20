@@ -56,12 +56,15 @@ class Gen(object):
     def pubkey_scriptPubKey(gen, pubkey):
         return encode_script(pubkey, opcodes.OP_CHECKSIG)
 
+    def op_smallint(gen, n):
+        if n == 0:
+            return opcodes.OP_0
+        if 1 <= n <= 16:
+            return n + opcodes.OP_1 - 1
+        raise ValueError(n)
+
     def multisig_scriptPubKey(gen, m, pubkeys):
-        ops = [ m + opcodes.OP_1 - 1 ]
-        for pubkey in pubkeys:
-            ops.append(len(pubkey))
-            ops.append(pubkey)
-        ops.append(len(pubkeys) + opcodes.OP_1 - 1)
+        ops = [ gen.op_smallint(m) ] + pubkeys + [ gen.op_smallint(len(pubkeys)), opcodes.OP_CHECKMULTISIG ]
         return encode_script(*ops)
 
     def p2sh_scriptPubKey(gen, hash):

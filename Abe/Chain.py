@@ -192,7 +192,7 @@ class Chain(object):
         elif len(decoded) >= 4 and decoded[-1][0] == opcodes.OP_CHECKMULTISIG:
             # cf. bitcoin/src/script.cpp:Solver
             n = decoded[-2][0] + 1 - opcodes.OP_1
-            m = decoded[-2][0] + 1 - opcodes.OP_1
+            m = decoded[0][0] + 1 - opcodes.OP_1
             if 1 <= m <= n <= MAX_MULTISIG_KEYS and len(decoded) == 3 + n and \
                     all([ decoded[i][0] <= opcodes.OP_PUSHDATA4 for i in range(1, 1+n) ]):
                 return SCRIPT_TYPE_MULTISIG, \

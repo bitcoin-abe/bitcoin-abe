@@ -16,6 +16,7 @@
 # License along with this program.  If not, see
 # <http://www.gnu.org/licenses/agpl.html>.
 
+import os
 import Abe.util
 
 def create():
@@ -25,6 +26,6 @@ class SqliteMemoryDB(object):
     def new_store(db):
         cmdline = Abe.util.CmdLine([
                 '--dbtype', 'sqlite3',
-                '--connect-args', ':memory:'])
+                '--connect-args', os.environ.get('ABE_TEST_DB', ':memory:')])
         store, argv = cmdline.init()
         return store
