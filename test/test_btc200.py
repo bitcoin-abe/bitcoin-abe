@@ -82,7 +82,7 @@ def test_coinbase_ver(coinbase_200):
 def b182t1(btc200):
     return btc200.export_tx(
         tx_hash = '591e91f809d716912ca1d4a9295e70c3e78bab077683f79350f101da64588073',
-        format = 'detail')
+        format = 'browser')
 
 def test_tx_hash(b182t1):
     assert b182t1['hash'] == '591e91f809d716912ca1d4a9295e70c3e78bab077683f79350f101da64588073'
@@ -100,7 +100,7 @@ def test_tx_cc(b182t1):
     assert len(b182t1['chain_candidates']) == 1
 
 def test_tx_chain_name(b182t1):
-    assert b182t1['chain_candidates'][0]['chain_name'] == 'Bitcoin'
+    assert b182t1['chain_candidates'][0]['chain'].name == 'Bitcoin'
 
 def test_tx_in_longest(b182t1):
     assert b182t1['chain_candidates'][0]['in_longest']

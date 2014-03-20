@@ -811,6 +811,10 @@ class DataStore(object):
     def get_chain_by_name(store, name):
         return store.chains_by.name.get(name, None)
 
+    def get_default_chain(store):
+        store.log.debug("Falling back to default (Bitcoin) policy.")
+        return Chain.create(None)
+
     def _new_id_update(store, key):
         """
         Allocate a synthetic identifier by updating a table.
@@ -1010,6 +1014,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
     NULL txin_scriptSig,
     NULL txin_sequence""") + """,
     prevout.txout_value txin_value,
+    prevout.txout_scriptPubKey txin_scriptPubKey,
     pubkey.pubkey_id,
     pubkey.pubkey_hash,
     pubkey.pubkey
@@ -2198,6 +2203,281 @@ store._ddl['txout_approx'],
             if pair and pair[1] > ret[chain_id][1]:
                 ret[chain_id] = pair
 
+    def _export_scriptPubKey(store, out, chain, scriptPubKey):
+        """In out, set script_type, address_version, binaddr, and for multisig, required_signatures."""
+        script_type, data = chain.parse_txout_script(scriptPubKey)
+        out['script_type'] = script_type
+        out['address_version'] = chain.address_version
+
+        if script_type == Chain.SCRIPT_TYPE_PUBKEY:
+            out['binaddr'] = chain.pubkey_hash(data)
+        elif script_type == Chain.SCRIPT_TYPE_ADDRESS:
+            out['binaddr'] = data
+        elif script_type == Chain.SCRIPT_TYPE_P2SH:
+            out['address_version'] = chain.script_addr_vers
+            out['binaddr'] = data
+        elif script_type == Chain.SCRIPT_TYPE_MULTISIG:
+            out['required_signatures'] = data['m']
+            out['binaddr'] = [
+                chain.pubkey_hash(pubkey)
+                for pubkey in data['pubkeys']
+                ]
+        elif script_type == Chain.SCRIPT_TYPE_BURN:
+            out['binaddr'] = NULL_PUBKEY_HASH
+        else:
+            out['binaddr'] = None
+
+    def export_block(store, chain=None, block_hash=None, block_number=None):
+        """
+        Return a dict with the following:
+
+        * chain_candidates[]
+            * chain
+            * in_longest
+        * chain_satoshis
+        * chain_satoshi_seconds
+        * chain_work
+        * fees
+        * generated
+        * hash
+        * hashMerkleRoot
+        * hashPrev
+        * height
+        * nBits
+        * next_block_hashes
+        * nNonce
+        * nTime
+        * satoshis_destroyed
+        * satoshi_seconds
+        * transactions[]
+            * fees
+            * hash
+            * in[]
+                * address_version
+                * binaddr
+                * value
+            * out[]
+                * address_version
+                * binaddr
+                * value
+            * size
+        * value_out
+        * version
+
+        For multisig inputs and outputs, instead of binaddr:
+
+        * binaddr[]
+            * binaddr
+        * required_signatures
+
+        Additionally, for proof-of-stake chains:
+
+        * is_proof_of_stake
+        * proof_of_stake_generated
+        """
+
+        if block_number is None and block_hash is None:
+            raise ValueError("export_block requires either block_hash or block_number")
+
+        where = []
+        bind = []
+
+        if chain is not None:
+            where.append('chain_id = ?')
+            bind.append(chain.id)
+
+        if block_hash is not None:
+            where.append('block_hash = ?')
+            bind.append(store.hashin_hex(block_hash))
+
+        if block_number is not None:
+            where.append('block_height = ? AND in_longest = 1')
+            bind.append(block_number)
+
+        sql = """
+            SELECT
+                chain_id,
+                in_longest,
+                block_id,
+                block_hash,
+                block_version,
+                block_hashMerkleRoot,
+                block_nTime,
+                block_nBits,
+                block_nNonce,
+                block_height,
+                prev_block_hash,
+                block_chain_work,
+                block_value_in,
+                block_value_out,
+                block_total_satoshis,
+                block_total_seconds,
+                block_satoshi_seconds,
+                block_total_ss,
+                block_ss_destroyed,
+                block_num_tx
+              FROM chain_summary
+             WHERE """ + ' AND '.join(where) + """
+             ORDER BY
+                in_longest DESC,
+                chain_id DESC"""
+        rows = store.selectall(sql, bind)
+
+        if len(rows) == 0:
+            return None
+
+        row = rows[0][2:]
+        def parse_cc(row):
+            chain_id, in_longest = row[:2]
+            return { "chain": store.get_chain_by_id(chain_id), "in_longest": in_longest }
+
+        # Absent the chain argument, default to highest chain_id, preferring to avoid side chains.
+        cc = map(parse_cc, rows)
+
+        # "chain" may be None, but "found_chain" will not.
+        found_chain = chain
+        if found_chain is None:
+            if len(cc) > 0:
+                found_chain = cc[0]['chain']
+            else:
+                # Should not normally get here.
+                found_chain = store.get_default_chain()
+
+        (block_id, block_hash, block_version, hashMerkleRoot,
+         nTime, nBits, nNonce, height,
+         prev_block_hash, block_chain_work, value_in, value_out,
+         satoshis, seconds, ss, total_ss, destroyed, num_tx) = (
+            row[0], store.hashout_hex(row[1]), row[2],
+            store.hashout_hex(row[3]), row[4], int(row[5]), row[6],
+            row[7], store.hashout_hex(row[8]),
+            store.binout_int(row[9]), int(row[10]), int(row[11]),
+            None if row[12] is None else int(row[12]),
+            None if row[13] is None else int(row[13]),
+            None if row[14] is None else int(row[14]),
+            None if row[15] is None else int(row[15]),
+            None if row[16] is None else int(row[16]),
+            int(row[17]),
+            )
+
+        next_hashes = [
+            store.hashout_hex(row[0]) for row in
+            store.selectall("""
+            SELECT DISTINCT n.block_hash
+              FROM block_next bn
+              JOIN block n ON (bn.next_block_id = n.block_id)
+              JOIN chain_candidate cc ON (n.block_id = cc.block_id)
+             WHERE bn.block_id = ?
+             ORDER BY cc.in_longest DESC""",
+                            (block_id,)) ]
+
+        tx_ids = []
+        txs = {}
+        block_out = 0
+        block_in = 0
+
+        for row in store.selectall("""
+            SELECT tx_id, tx_hash, tx_size, txout_value, txout_scriptPubKey
+              FROM txout_detail
+             WHERE block_id = ?
+             ORDER BY tx_pos, txout_pos
+        """, (block_id,)):
+            tx_id, tx_hash, tx_size, txout_value, scriptPubKey = (
+                row[0], row[1], row[2], int(row[3]), store.binout(row[4]))
+            tx = txs.get(tx_id)
+            if tx is None:
+                tx_ids.append(tx_id)
+                txs[tx_id] = {
+                    "hash": store.hashout_hex(tx_hash),
+                    "total_out": 0,
+                    "total_in": 0,
+                    "out": [],
+                    "in": [],
+                    "size": int(tx_size),
+                    }
+                tx = txs[tx_id]
+            tx['total_out'] += txout_value
+            block_out += txout_value
+
+            txout = { 'value': txout_value }
+            store._export_scriptPubKey(txout, found_chain, scriptPubKey)
+            tx['out'].append(txout)
+
+        for row in store.selectall("""
+            SELECT tx_id, txin_value, txin_scriptPubKey
+              FROM txin_detail
+             WHERE block_id = ?
+             ORDER BY tx_pos, txin_pos
+        """, (block_id,)):
+            tx_id, txin_value, scriptPubKey = (
+                row[0], 0 if row[1] is None else int(row[1]),
+                store.binout(row[2]))
+            tx = txs.get(tx_id)
+            if tx is None:
+                # Strange, inputs but no outputs?
+                tx_ids.append(tx_id)
+                tx_hash, tx_size = store.selectrow("""
+                    SELECT tx_hash, tx_size FROM tx WHERE tx_id = ?""",
+                                           (tx_id,))
+                txs[tx_id] = {
+                    "hash": store.hashout_hex(tx_hash),
+                    "total_out": 0,
+                    "total_in": 0,
+                    "out": [],
+                    "in": [],
+                    "size": int(tx_size),
+                    }
+                tx = txs[tx_id]
+            tx['total_in'] += txin_value
+            block_in += txin_value
+
+            txin = { 'value': txin_value }
+            store._export_scriptPubKey(txin, found_chain, scriptPubKey)
+            tx['in'].append(txin)
+
+        generated = block_out - block_in
+        coinbase_tx = txs[tx_ids[0]]
+        coinbase_tx['fees'] = 0
+        block_fees = coinbase_tx['total_out'] - generated
+
+        b = {
+            'chain_candidates':      cc,
+            'chain_satoshis':        satoshis,
+            'chain_satoshi_seconds': total_ss,
+            'chain_work':            block_chain_work,
+            'fees':                  block_fees,
+            'generated':             generated,
+            'hash':                  block_hash,
+            'hashMerkleRoot':        hashMerkleRoot,
+            'hashPrev':              prev_block_hash,
+            'height':                height,
+            'nBits':                 nBits,
+            'next_block_hashes':     next_hashes,
+            'nNonce':                nNonce,
+            'nTime':                 nTime,
+            'satoshis_destroyed':    destroyed,
+            'satoshi_seconds':       ss,
+            'transactions':          [txs[tx_id] for tx_id in tx_ids],
+            'value_out':             block_out,
+            'version':               block_version,
+            }
+
+        is_stake_chain = chain is not None and chain.has_feature('nvc_proof_of_stake')
+        if is_stake_chain:
+            # Proof-of-stake display based loosely on CryptoManiac/novacoin and
+            # http://nvc.cryptocoinexplorer.com.
+            b['is_proof_of_stake'] = len(tx_ids) > 1 and coinbase_tx['total_out'] == 0
+
+        for tx_id in tx_ids[1:]:
+            tx = txs[tx_id]
+            tx['fees'] = tx['total_in'] - tx['total_out']
+
+        if is_stake_chain and b['is_proof_of_stake']:
+            b['proof_of_stake_generated'] = -txs[tx_ids[1]]['fees']
+            txs[tx_ids[1]]['fees'] = 0
+            b['fees'] += b['proof_of_stake_generated']
+
+        return b
+
     def tx_find_id_and_value(store, tx, is_coinbase):
         row = store.selectrow("""
             SELECT tx.tx_id, SUM(txout.txout_value), SUM(
@@ -2327,7 +2607,7 @@ store._ddl['txout_approx'],
 
     def maybe_import_binary_tx(store, chain_name, binary_tx):
         if chain_name is None:
-            chain = Chain.create(None)  # XXX default to BTC tx format
+            chain = store.get_default_chain()
         else:
             chain = store.chains_by.name(chain_name)
 
@@ -2347,7 +2627,7 @@ store._ddl['txout_approx'],
         """Return a dict as seen by /rawtx or None if not found."""
 
         # TODO: merge _export_tx_detail with export_tx.
-        if format == 'detail':
+        if format == 'browser':
             return store._export_tx_detail(tx_hash, chain=chain)
 
         tx = {}
@@ -2468,7 +2748,7 @@ store._ddl['txout_approx'],
 
         def parse_tx_cc(row):
             return {
-                'chain_name': row[0],
+                'chain': store.get_chain_by_id(row[0]),
                 'in_longest': int(row[1]),
                 'block_nTime': int(row[2]),
                 'block_height': None if row[3] is None else int(row[3]),
@@ -2477,28 +2757,26 @@ store._ddl['txout_approx'],
                 }
 
         tx['chain_candidates'] = map(parse_tx_cc, store.selectall("""
-            SELECT c.chain_name, cc.in_longest,
+            SELECT cc.chain_id, cc.in_longest,
                    b.block_nTime, b.block_height, b.block_hash,
                    block_tx.tx_pos
-              FROM chain c
-              JOIN chain_candidate cc ON (cc.chain_id = c.chain_id)
+              FROM chain_candidate cc
               JOIN block b ON (b.block_id = cc.block_id)
               JOIN block_tx ON (block_tx.block_id = b.block_id)
              WHERE block_tx.tx_id = ?
-             ORDER BY c.chain_id, cc.in_longest DESC, b.block_hash
+             ORDER BY cc.chain_id, cc.in_longest DESC, b.block_hash
         """, (tx_id,)))
 
         if chain is None:
             if len(tx['chain_candidates']) > 0:
-                chain = store.get_chain_by_name(tx['chain_candidates'][0]['chain_name'])
+                chain = tx['chain_candidates'][0]['chain']
             else:
-                chain = Chain.create(None)  # XXX default to BTC tx format
+                chain = store.get_default_chain()
 
         def parse_row(row):
             pos, script, value, o_hash, o_pos = row[:5]
             script = store.binout(script)
             scriptPubKey = store.binout(row[5]) if len(row) >5 else script
-            script_type, data = chain.parse_txout_script(scriptPubKey)
 
             ret = {
                 "pos": int(pos),
@@ -2506,27 +2784,8 @@ store._ddl['txout_approx'],
                 "value": None if value is None else int(value),
                 "o_hash": store.hashout_hex(o_hash),
                 "o_pos": None if o_pos is None else int(o_pos),
-                "script_type": script_type,
-                "address_version": chain.address_version,
                 }
-
-            if script_type == Chain.SCRIPT_TYPE_PUBKEY:
-                ret['binaddr'] = chain.pubkey_hash(data)
-            elif script_type == Chain.SCRIPT_TYPE_ADDRESS:
-                ret['binaddr'] = data
-            elif script_type == Chain.SCRIPT_TYPE_P2SH:
-                ret['address_version'] = chain.script_addr_vers
-                ret['binaddr'] = data
-            elif script_type == Chain.SCRIPT_TYPE_MULTISIG:
-                ret['required_signatures'] = data['m']
-                ret['binaddr'] = [
-                    chain.pubkey_hash(pubkey)
-                    for pubkey in data['pubkeys']
-                    ]
-            elif script_type == Chain.SCRIPT_TYPE_BURN:
-                ret['binaddr'] = NULL_PUBKEY_HASH
-            else:
-                ret['binaddr'] = None
+            store._export_scriptPubKey(ret, chain, scriptPubKey)
 
             return ret
 

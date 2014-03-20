@@ -68,7 +68,7 @@ def chain():
         store.import_block(block, chain = chain)
     store.commit()
 
-    tx = store.export_tx(tx_hash=blocks[-1]['transactions'][1]['hash'][::-1].encode('hex'), format='detail')
+    tx = store.export_tx(tx_hash=blocks[-1]['transactions'][1]['hash'][::-1].encode('hex'), format='browser')
     assert tx['out'][0]['binaddr'] == 'deb1f1ffbef6061a0b8f6d23b4e72164b4678253'.decode('hex')
 
     return store
