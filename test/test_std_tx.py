@@ -22,33 +22,36 @@ import db, datagen
 from Abe.deserialize import opcodes
 
 @pytest.fixture(scope="module")
-def chain():
+def gen():
     store = db.create().new_store()
     chain = store.get_chain_by_name('Testnet')
-    gen = datagen.Gen(chain = chain)
+    blocks = []
+    gen = datagen.Gen(chain=chain, store=store, blocks=blocks)
 
+    # Satoshi's pubkey.
     pubkey_0 = '04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f'.decode('hex')
+
+    # Testnet Block 1 pubkey.
     pubkey_1 = '021aeaf2f8638a129a3156fbe7e5ef635226b0bafd495ff03afe2c843d7e3a4b51'.decode('hex')
 
-    block_0_hash = '000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943'.decode('hex')[::-1]
-    block_1_hash = '00000000b873e79784647a6c82962c70d228557d24a747ea4d1b8bbe878e1206'.decode('hex')[::-1]
-
+    # The Bitcoin/Testnet genesis transaction.
     genesis_coinbase = gen.coinbase(
         scriptSig=gen.encode_script(
             '\xff\xff\x00\x1d', '\x04', 'The Times 03/Jan/2009 Chancellor on brink of second bailout for banks'),
         txOut=[gen.txout(pubkey=pubkey_0, value=50*10**8)])
 
-    blocks = [ gen.block(transactions=[genesis_coinbase], nTime=1296688602, nNonce=414098458) ]
-    assert blocks[0]['hash'] == block_0_hash
+    # Testnet Blocks 0 and 1.
+    blocks.append(gen.block(transactions=[genesis_coinbase], nTime=1296688602, nNonce=414098458))
 
     blocks.append( gen.block(prev=blocks[-1], nTime=1296688928, nNonce=1924588547,
                              transactions=[gen.coinbase(scriptSig='0420e7494d017f062f503253482f'.decode('hex'),
                                                         txOut=[gen.txout(pubkey=pubkey_1, value=50*10**8)])]) )
-    assert blocks[1]['hash'] == block_1_hash
 
+    # Test blocks with coinbase output to random pubkeys.
     for i in xrange(12):
         blocks.append( gen.block(prev=blocks[-1]) )
 
+    # Test block with an interesting transaction.
     blocks.append( gen.block(prev=blocks[-1],
                              transactions=[gen.coinbase(),
                                            gen.tx(txIn=[gen.txin(prevout=blocks[1]['transactions'][0]['txOut'][0],
@@ -68,10 +71,18 @@ def chain():
         store.import_block(block, chain = chain)
     store.commit()
 
-    tx = store.export_tx(tx_hash=blocks[-1]['transactions'][1]['hash'][::-1].encode('hex'), format='browser')
+    return gen
+
+def test_b0_hash(gen):
+    # Testnet Block 0 hash.
+    block_0_hash = '000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943'.decode('hex')[::-1]
+    assert gen.blocks[0]['hash'] == block_0_hash
+
+def test_b1_hash(gen):
+    # Testnet Block 1 hash.
+    block_1_hash = '00000000b873e79784647a6c82962c70d228557d24a747ea4d1b8bbe878e1206'.decode('hex')[::-1]
+    assert gen.blocks[1]['hash'] == block_1_hash
+
+def test_b14t1o0_binaddr(gen):
+    tx = gen.store.export_tx(tx_hash=gen.blocks[14]['transactions'][1]['hash'][::-1].encode('hex'), format='browser')
     assert tx['out'][0]['binaddr'] == 'deb1f1ffbef6061a0b8f6d23b4e72164b4678253'.decode('hex')
-
-    return store
-
-def test_test(chain):
-    pass
