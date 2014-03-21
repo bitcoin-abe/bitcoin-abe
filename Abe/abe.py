@@ -247,7 +247,7 @@ class Abe:
             handler(page)
         except PageNotFound:
             status = '404 Not Found'
-            page["body"] = ['<p class="error">Sorry, ', env['SCRIPT_NAME'],
+            page['body'] = ['<p class="error">Sorry, ', env['SCRIPT_NAME'],
                             env['PATH_INFO'],
                             ' does not exist on this server.</p>']
         except NoSuchChainError, e:
@@ -795,113 +795,27 @@ class Abe:
 
         body = page['body']
         page['title'] = 'Address ' + escape(address)
-        version, binaddr = util.decode_check_address(address)
-        if binaddr is None:
+
+        try:
+            history = abe.store.export_address_history(
+                address, chain=page['chain'], max_rows=abe.address_history_rows_max)
+        except ValueError:
             body += ['<p>Not a valid address.</p>']
             return
 
-        dbhash = abe.store.binin(binaddr)
-
-        balance = {}
-        received = {}
-        sent = {}
-        count = [0, 0]
-        chains = []
-        def adj_balance(txpoint):
-            chain_id = txpoint['chain_id']
-            value = txpoint['value']
-            if chain_id not in balance:
-                chain = abe.store.get_chain_by_id(chain_id)
-                chains.append(chain)
-                balance[chain_id] = 0
-                received[chain_id] = 0
-                sent[chain_id] = 0
-            balance[chain_id] += value
-            if value > 0:
-                received[chain_id] += value
-            else:
-                sent[chain_id] -= value
-            count[txpoint['is_in']] += 1
-
-        txpoints = []
-        max_rows = abe.address_history_rows_max
-        in_rows = abe.store.selectall("""
-            SELECT
-                b.block_nTime,
-                cc.chain_id,
-                b.block_height,
-                1,
-                b.block_hash,
-                tx.tx_hash,
-                txin.txin_pos,
-                -prevout.txout_value
-              FROM chain_candidate cc
-              JOIN block b ON (b.block_id = cc.block_id)
-              JOIN block_tx ON (block_tx.block_id = b.block_id)
-              JOIN tx ON (tx.tx_id = block_tx.tx_id)
-              JOIN txin ON (txin.tx_id = tx.tx_id)
-              JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
-              JOIN pubkey ON (pubkey.pubkey_id = prevout.pubkey_id)
-             WHERE pubkey.pubkey_hash = ?
-               AND cc.in_longest = 1""" + ("" if max_rows < 0 else """
-             LIMIT ?"""),
-                      (dbhash,)
-                      if max_rows < 0 else
-                      (dbhash, max_rows + 1))
-
-        too_many = False
-        if max_rows >= 0 and len(in_rows) > max_rows:
-            too_many = True
-
-        if not too_many:
-            out_rows = abe.store.selectall("""
-                SELECT
-                    b.block_nTime,
-                    cc.chain_id,
-                    b.block_height,
-                    0,
-                    b.block_hash,
-                    tx.tx_hash,
-                    txout.txout_pos,
-                    txout.txout_value
-                  FROM chain_candidate cc
-                  JOIN block b ON (b.block_id = cc.block_id)
-                  JOIN block_tx ON (block_tx.block_id = b.block_id)
-                  JOIN tx ON (tx.tx_id = block_tx.tx_id)
-                  JOIN txout ON (txout.tx_id = tx.tx_id)
-                  JOIN pubkey ON (pubkey.pubkey_id = txout.pubkey_id)
-                 WHERE pubkey.pubkey_hash = ?
-                   AND cc.in_longest = 1""" + ("" if max_rows < 0 else """
-                 LIMIT ?"""),
-                          (dbhash, max_rows + 1)
-                          if max_rows >= 0 else
-                          (dbhash,))
-            if max_rows >= 0 and len(out_rows) > max_rows:
-                too_many = True
-
-        if too_many:
+        if history is None:
             body += ["<p>I'm sorry, this address has too many records"
                      " to display.</p>"]
             return
 
-        rows = []
-        rows += in_rows
-        rows += out_rows
-        rows.sort()
-        for row in rows:
-            nTime, chain_id, height, is_in, blk_hash, tx_hash, pos, value = row
-            txpoint = {
-                    "nTime":    int(nTime),
-                    "chain_id": int(chain_id),
-                    "height":   int(height),
-                    "is_in":    int(is_in),
-                    "blk_hash": abe.store.hashout_hex(blk_hash),
-                    "tx_hash":  abe.store.hashout_hex(tx_hash),
-                    "pos":      int(pos),
-                    "value":    int(value),
-                    }
-            adj_balance(txpoint)
-            txpoints.append(txpoint)
+        binaddr  = history['binaddr']
+        version  = history['version']
+        chains   = history['chains']
+        txpoints = history['txpoints']
+        balance  = history['balance']
+        sent     = history['sent']
+        received = history['received']
+        counts   = history['counts']
 
         if (not chains):
             body += ['<p>Address not seen on the network.</p>']
@@ -912,11 +826,13 @@ class Abe:
             for chain in chains:
                 if ret:
                     ret += [', ']
-                ret += [format_satoshis(amounts[chain_id], chain),
+                ret += [format_satoshis(amounts[chain.id], chain),
                         ' ', escape(chain.code3)]
                 if link:
-                    other = util.hash_to_address(
-                        chain.address_version, binaddr)
+                    vers = chain.address_version
+                    if page['chain'] is not None and version == page['chain'].script_addr_vers:
+                        vers = chain.script_addr_vers or vers
+                    other = util.hash_to_address(vers, binaddr)
                     if other != address:
                         ret[-1] = ['<a href="', page['dotdot'],
                                    'address/', other,
@@ -925,8 +841,8 @@ class Abe:
 
         if abe.shortlink_type == "firstbits":
             link = abe.store.get_firstbits(
-                address_version=version, db_pubkey_hash=dbhash,
-                chain_id = (page['chain'] and page['chain']['id']))
+                address_version=version, db_pubkey_hash=abe.store.binin(binaddr),
+                chain_id = (page['chain'] and page['chain'].id))
             if link:
                 link = link.replace('l', 'L')
             else:
@@ -941,9 +857,9 @@ class Abe:
             balance[chain.id] = 0  # Reset for history traversal.
 
         body += ['<br />\n',
-                 'Transactions in: ', count[0], '<br />\n',
+                 'Transactions in: ', counts[0], '<br />\n',
                  'Received: ', format_amounts(received, False), '<br />\n',
-                 'Transactions out: ', count[1], '<br />\n',
+                 'Transactions out: ', counts[1], '<br />\n',
                  'Sent: ', format_amounts(sent, False), '<br />\n']
 
         body += ['</p>\n'
@@ -953,8 +869,8 @@ class Abe:
                  '<th>Currency</th></tr>\n']
 
         for elt in txpoints:
-            chain = abe.store.get_chain_by_id(elt['chain_id'])
-            balance[elt['chain_id']] += elt['value']
+            chain = elt['chain']
+            balance[chain.id] += elt['value']
             body += ['<tr><td><a href="../tx/', elt['tx_hash'],
                      '#', 'i' if elt['is_in'] else 'o', elt['pos'],
                      '">', elt['tx_hash'][:10], '...</a>',
@@ -966,7 +882,7 @@ class Abe:
             else:
                 body += [format_satoshis(elt['value'], chain)]
             body += ['</td><td>',
-                     format_satoshis(balance[elt['chain_id']], chain),
+                     format_satoshis(balance[chain.id], chain),
                      '</td><td>', escape(chain.code3),
                      '</td></tr>\n']
         body += ['</table>\n']
@@ -1203,7 +1119,7 @@ class Abe:
                 abe._found_address,
                 abe.store.firstbits_to_addresses(
                     arg.lower(),
-                    chain_id = page['chain'] and page['chain']['id']))
+                    chain_id = page['chain'] and page['chain'].id))
         else:
             addrs = abe.search_address_prefix(arg)
         abe.show_search_results(page, addrs)

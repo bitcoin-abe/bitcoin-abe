@@ -806,7 +806,7 @@ class DataStore(object):
             store.chains_by.magic[chain.magic] = chain
 
     def get_chain_by_id(store, chain_id):
-        return store.chains_by.id[chain_id]
+        return store.chains_by.id[int(chain_id)]
 
     def get_chain_by_name(store, name):
         return store.chains_by.name.get(name, None)
@@ -2834,6 +2834,117 @@ store._ddl['txout_approx'],
         tx['value_out'] = sum_values(tx['out'])
 
         return tx
+
+    def export_address_history(store, address, chain=None, max_rows=-1):
+        version, binaddr = util.decode_check_address(address)
+        if binaddr is None:
+            raise ValueError("Invalid address")
+
+        balance = {}
+        received = {}
+        sent = {}
+        counts = [0, 0]
+        chains = []
+        def adj_balance(txpoint):
+            chain = txpoint['chain']
+            value = txpoint['value']
+            if chain.id not in balance:
+                chains.append(chain)
+                balance[chain.id] = 0
+                received[chain.id] = 0
+                sent[chain.id] = 0
+            balance[chain.id] += value
+            if txpoint['is_in']:
+                sent[chain.id] -= value
+            else:
+                received[chain.id] += value
+            counts[txpoint['is_in']] += 1
+
+        dbhash = store.binin(binaddr)
+
+        txpoints = []
+        in_rows = store.selectall("""
+            SELECT
+                b.block_nTime,
+                cc.chain_id,
+                b.block_height,
+                1,
+                b.block_hash,
+                tx.tx_hash,
+                txin.txin_pos,
+                -prevout.txout_value
+              FROM chain_candidate cc
+              JOIN block b ON (b.block_id = cc.block_id)
+              JOIN block_tx ON (block_tx.block_id = b.block_id)
+              JOIN tx ON (tx.tx_id = block_tx.tx_id)
+              JOIN txin ON (txin.tx_id = tx.tx_id)
+              JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
+              JOIN pubkey ON (pubkey.pubkey_id = prevout.pubkey_id)
+             WHERE pubkey.pubkey_hash = ?
+               AND cc.in_longest = 1""" + ("" if max_rows < 0 else """
+             LIMIT ?"""),
+                      (dbhash,)
+                      if max_rows < 0 else
+                      (dbhash, max_rows + 1))
+
+        if max_rows >= 0 and len(in_rows) > max_rows:
+            return None
+
+        out_rows = store.selectall("""
+            SELECT
+                b.block_nTime,
+                cc.chain_id,
+                b.block_height,
+                0,
+                b.block_hash,
+                tx.tx_hash,
+                txout.txout_pos,
+                txout.txout_value
+              FROM chain_candidate cc
+              JOIN block b ON (b.block_id = cc.block_id)
+              JOIN block_tx ON (block_tx.block_id = b.block_id)
+              JOIN tx ON (tx.tx_id = block_tx.tx_id)
+              JOIN txout ON (txout.tx_id = tx.tx_id)
+              JOIN pubkey ON (pubkey.pubkey_id = txout.pubkey_id)
+             WHERE pubkey.pubkey_hash = ?
+               AND cc.in_longest = 1""" + ("" if max_rows < 0 else """
+             LIMIT ?"""),
+                      (dbhash, max_rows + 1)
+                      if max_rows >= 0 else
+                      (dbhash,))
+        if max_rows >= 0 and len(out_rows) > max_rows:
+            return None
+
+        rows = []
+        rows += in_rows
+        rows += out_rows
+        rows.sort()
+        for row in rows:
+            nTime, chain_id, height, is_in, blk_hash, tx_hash, pos, value = row
+            txpoint = {
+                    "nTime":    int(nTime),
+                    "chain":    store.get_chain_by_id(chain_id),
+                    "height":   int(height),
+                    "is_in":    int(is_in),
+                    "blk_hash": store.hashout_hex(blk_hash),
+                    "tx_hash":  store.hashout_hex(tx_hash),
+                    "pos":      int(pos),
+                    "value":    int(value),
+                    }
+            adj_balance(txpoint)
+            txpoints.append(txpoint)
+
+        return {
+            'binaddr':  binaddr,
+            'version':  version,
+            'chains':   chains,
+            'txpoints': txpoints,
+            'balance':  balance,
+            'sent':     sent,
+            'received': received,
+            'counts':   counts
+            }
+
 
     # Called to indicate that the given block has the correct magic
     # number and policy for the given chains.  Updates CHAIN_CANDIDATE
