@@ -23,15 +23,18 @@ import Abe.util
 from Abe.deserialize import opcodes
 
 class Gen(object):
-    def __init__(gen, rng=None, chain=None):
-        if rng is None:
+    def __init__(gen, rng=1, chain=None, **kwargs):
+        if not hasattr(rng, 'randrange'):
             import random
-            rng = random.Random(1)
+            rng = random.Random(rng)
         if chain is None:
             chain = Abe.Chain.create("Testnet")
 
         gen._rng = rng
         gen.chain = chain
+
+        for attr, val in kwargs.items():
+            setattr(gen, attr, val)
 
     def random_bytes(gen, num_bytes):
         return ''.join(chr(gen._rng.randrange(256)) for _ in xrange(num_bytes))
