@@ -209,7 +209,7 @@ class DataStore(object):
         store.use_firstbits = (store.config['use_firstbits'] == "true")
 
         for hex_tx in args.import_tx:
-            chain = None
+            chain_name = None
             if isinstance(hex_tx, dict):
                 chain_name = hex_tx.get("chain")
                 hex_tx = hex_tx.get("tx")
