@@ -2835,7 +2835,7 @@ store._ddl['txout_approx'],
 
         return tx
 
-    def export_address_history(store, address, chain=None, max_rows=-1):
+    def export_address_history(store, address, chain=None, max_rows=-1, types=frozenset(['direct', 'escrow'])):
         version, binaddr = util.decode_check_address(address)
         if binaddr is None:
             raise ValueError("Invalid address")
@@ -2845,6 +2845,7 @@ store._ddl['txout_approx'],
         sent = {}
         counts = [0, 0]
         chains = []
+
         def adj_balance(txpoint):
             chain = txpoint['chain']
             value = txpoint['value']
@@ -2861,78 +2862,109 @@ store._ddl['txout_approx'],
             counts[txpoint['is_in']] += 1
 
         dbhash = store.binin(binaddr)
-
         txpoints = []
-        in_rows = store.selectall("""
-            SELECT
-                b.block_nTime,
-                cc.chain_id,
-                b.block_height,
-                1,
-                b.block_hash,
-                tx.tx_hash,
-                txin.txin_pos,
-                -prevout.txout_value
-              FROM chain_candidate cc
-              JOIN block b ON (b.block_id = cc.block_id)
-              JOIN block_tx ON (block_tx.block_id = b.block_id)
-              JOIN tx ON (tx.tx_id = block_tx.tx_id)
-              JOIN txin ON (txin.tx_id = tx.tx_id)
-              JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
-              JOIN pubkey ON (pubkey.pubkey_id = prevout.pubkey_id)
-             WHERE pubkey.pubkey_hash = ?
-               AND cc.in_longest = 1""" + ("" if max_rows < 0 else """
-             LIMIT ?"""),
-                      (dbhash,)
-                      if max_rows < 0 else
-                      (dbhash, max_rows + 1))
 
-        if max_rows >= 0 and len(in_rows) > max_rows:
-            return None
-
-        out_rows = store.selectall("""
-            SELECT
-                b.block_nTime,
-                cc.chain_id,
-                b.block_height,
-                0,
-                b.block_hash,
-                tx.tx_hash,
-                txout.txout_pos,
-                txout.txout_value
-              FROM chain_candidate cc
-              JOIN block b ON (b.block_id = cc.block_id)
-              JOIN block_tx ON (block_tx.block_id = b.block_id)
-              JOIN tx ON (tx.tx_id = block_tx.tx_id)
-              JOIN txout ON (txout.tx_id = tx.tx_id)
-              JOIN pubkey ON (pubkey.pubkey_id = txout.pubkey_id)
-             WHERE pubkey.pubkey_hash = ?
-               AND cc.in_longest = 1""" + ("" if max_rows < 0 else """
-             LIMIT ?"""),
-                      (dbhash, max_rows + 1)
-                      if max_rows >= 0 else
-                      (dbhash,))
-        if max_rows >= 0 and len(out_rows) > max_rows:
-            return None
-
-        rows = []
-        rows += in_rows
-        rows += out_rows
-        rows.sort()
-        for row in rows:
+        def parse_row(row, is_in, row_type):
             nTime, chain_id, height, is_in, blk_hash, tx_hash, pos, value = row
-            txpoint = {
-                    "nTime":    int(nTime),
-                    "chain":    store.get_chain_by_id(chain_id),
-                    "height":   int(height),
-                    "is_in":    int(is_in),
-                    "blk_hash": store.hashout_hex(blk_hash),
-                    "tx_hash":  store.hashout_hex(tx_hash),
-                    "pos":      int(pos),
-                    "value":    int(value),
-                    }
+            return {
+                'type':     row_type,
+                'is_in':    int(is_in),
+                'nTime':    int(nTime),
+                'chain':    store.get_chain_by_id(chain_id),
+                'height':   int(height),
+                'blk_hash': store.hashout_hex(blk_hash),
+                'tx_hash':  store.hashout_hex(tx_hash),
+                'pos':      int(pos),
+                'value':    int(value),
+                }
+
+        def parse_direct_in(row):  return parse_row(row, True, 'direct')
+        def parse_direct_out(row): return parse_row(row, False, 'direct')
+        def parse_escrow_in(row):  return parse_row(row, True, 'escrow')
+        def parse_escrow_out(row): return parse_row(row, False, 'escrow')
+
+        def get_sent(escrow):
+            return store.selectall("""
+                SELECT
+                    b.block_nTime,
+                    cc.chain_id,
+                    b.block_height,
+                    1,
+                    b.block_hash,
+                    tx.tx_hash,
+                    txin.txin_pos,
+                    -prevout.txout_value
+                  FROM chain_candidate cc
+                  JOIN block b ON (b.block_id = cc.block_id)
+                  JOIN block_tx ON (block_tx.block_id = b.block_id)
+                  JOIN tx ON (tx.tx_id = block_tx.tx_id)
+                  JOIN txin ON (txin.tx_id = tx.tx_id)
+                  JOIN txout prevout ON (txin.txout_id = prevout.txout_id)""" + ("""
+                  JOIN multisig_pubkey mp ON (mp.multisig_id = prevout.txout_id)""" if escrow else "") + """
+                  JOIN pubkey ON (pubkey.pubkey_id = """ + ("mp" if escrow else "prevout") + """.pubkey_id)
+                 WHERE pubkey.pubkey_hash = ?
+                   AND cc.in_longest = 1""" + ("" if max_rows < 0 else """
+                 LIMIT ?"""),
+                          (dbhash,)
+                          if max_rows < 0 else
+                          (dbhash, max_rows + 1))
+
+        def get_received(escrow):
+            return store.selectall("""
+                SELECT
+                    b.block_nTime,
+                    cc.chain_id,
+                    b.block_height,
+                    0,
+                    b.block_hash,
+                    tx.tx_hash,
+                    txout.txout_pos,
+                    txout.txout_value
+                  FROM chain_candidate cc
+                  JOIN block b ON (b.block_id = cc.block_id)
+                  JOIN block_tx ON (block_tx.block_id = b.block_id)
+                  JOIN tx ON (tx.tx_id = block_tx.tx_id)
+                  JOIN txout ON (txout.tx_id = tx.tx_id)""" + ("""
+                  JOIN multisig_pubkey mp ON (mp.multisig_id = txout.txout_id)""" if escrow else "") + """
+                  JOIN pubkey ON (pubkey.pubkey_id = """ + ("mp" if escrow else "txout") + """.pubkey_id)
+                 WHERE pubkey.pubkey_hash = ?
+                   AND cc.in_longest = 1""" + ("" if max_rows < 0 else """
+                 LIMIT ?"""),
+                          (dbhash, max_rows + 1)
+                          if max_rows >= 0 else
+                          (dbhash,))
+
+        if 'direct' in types:
+            in_rows = get_sent(False)
+            if len(in_rows) > max_rows >= 0:
+                return None
+            txpoints += map(parse_direct_in, in_rows)
+
+            out_rows = get_received(False)
+            if len(out_rows) > max_rows >= 0:
+                return None
+            txpoints += map(parse_direct_out, out_rows)
+
+        if 'escrow' in types:
+            in_rows = get_sent(True)
+            if len(in_rows) > max_rows >= 0:
+                return None
+            txpoints += map(parse_direct_in, in_rows)
+
+            out_rows = get_received(True)
+            if len(out_rows) > max_rows >= 0:
+                return None
+            txpoints += map(parse_direct_out, out_rows)
+
+        def cmp_txpoint(p1, p2):
+            return cmp(p1['nTime'], p2['nTime']) \
+                or cmp(p1['height'], p2['height']) \
+                or cmp(p1['chain'].name, p2['chain'].name)
+
+        txpoints.sort(cmp_txpoint)
+
+        for txpoint in txpoints:
             adj_balance(txpoint)
-            txpoints.append(txpoint)
 
         return {
             'binaddr':  binaddr,
@@ -2944,7 +2976,6 @@ store._ddl['txout_approx'],
             'received': received,
             'counts':   counts
             }
-
 
     # Called to indicate that the given block has the correct magic
     # number and policy for the given chains.  Updates CHAIN_CANDIDATE
