@@ -2320,7 +2320,7 @@ store._ddl['txout_approx'],
         if chain_name is None:
             chain = Chain.create(None)  # default to BTC tx format
         else:
-            chain = store.chains_by.name(chain_name)
+            chain = store.get_chain_by_name(chain_name)
 
         tx_hash = chain.transaction_hash(binary_tx)
 
