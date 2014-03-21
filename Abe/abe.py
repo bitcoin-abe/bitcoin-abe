@@ -1903,7 +1903,7 @@ def process_is_alive(pid):
             return False # no such process.
         raise
 
-def main(argv):
+def create_conf():
     conf = {
         "port":                     None,
         "host":                     None,
@@ -1936,8 +1936,10 @@ def main(argv):
             },
         }
     conf.update(DataStore.CONFIG_DEFAULTS)
+    return conf
 
-    args, argv = readconf.parse_argv(argv, conf)
+def main(argv):
+    args, argv = readconf.parse_argv(argv, create_conf())
 
     if (args.no_serve and args.no_load):
         sys.stderr.write(
