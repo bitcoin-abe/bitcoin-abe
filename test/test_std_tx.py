@@ -22,6 +22,20 @@ import os
 import db, datagen
 from Abe.deserialize import opcodes
 
+PUBKEYS = [
+    x.decode('hex') for x in [
+        # Satoshi's genesis pubkey.
+        '04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f',
+
+        # Testnet Block 1 pubkey.
+        '021aeaf2f8638a129a3156fbe7e5ef635226b0bafd495ff03afe2c843d7e3a4b51',
+
+        # Some test pubkeys.
+        '0269184483e5494727d2dec54da85db9b18bee827bb3d1eee23b122edf810b8262',
+        '0217819b778f0bcfee53bbed495ca20fdc828f40ffd6d9481fe4c0d091b1486f69',
+        '022820a6eb4e6817bf68301856e0803e05d19f54714006f2088e74103be396eb5a',
+        ]]
+
 @pytest.fixture(scope="module")
 def gen():
     mydb = db.create()
@@ -30,44 +44,33 @@ def gen():
     blocks = []
     gen = datagen.Gen(chain=chain, db=mydb, store=store, blocks=blocks)
 
-    # Satoshi's pubkey.
-    pubkey_0 = '04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f'.decode('hex')
-
-    # Testnet Block 1 pubkey.
-    pubkey_1 = '021aeaf2f8638a129a3156fbe7e5ef635226b0bafd495ff03afe2c843d7e3a4b51'.decode('hex')
-
     # The Bitcoin/Testnet genesis transaction.
     genesis_coinbase = gen.coinbase(
         scriptSig=gen.encode_script(
             '\xff\xff\x00\x1d', '\x04', 'The Times 03/Jan/2009 Chancellor on brink of second bailout for banks'),
-        txOut=[gen.txout(pubkey=pubkey_0, value=50*10**8)])
+        txOut=[gen.txout(pubkey=PUBKEYS[0], value=50*10**8)])
 
     # Testnet Blocks 0 and 1.
     blocks.append(gen.block(transactions=[genesis_coinbase], nTime=1296688602, nNonce=414098458))
 
     blocks.append( gen.block(prev=blocks[-1], nTime=1296688928, nNonce=1924588547,
                              transactions=[gen.coinbase(scriptSig='0420e7494d017f062f503253482f'.decode('hex'),
-                                                        txOut=[gen.txout(pubkey=pubkey_1, value=50*10**8)])]) )
+                                                        txOut=[gen.txout(pubkey=PUBKEYS[1], value=50*10**8)])]) )
 
-    # Test blocks with coinbase output to random pubkeys.
+    # Test blocks with random coinbase addresses and bogus proof-of-work.
     for i in xrange(12):
         blocks.append( gen.block(prev=blocks[-1]) )
 
     # Test block with an interesting transaction.
-    blocks.append( gen.block(prev=blocks[-1],
-                             transactions=[gen.coinbase(),
-                                           gen.tx(txIn=[gen.txin(prevout=blocks[1]['transactions'][0]['txOut'][0],
-                                                                 scriptSig='XXX')],
-                                                  txOut=[gen.txout(addr='n1pTUVnjZ6GHxujaoJ62P9NBMNjLr5N2EQ',
-                                                                   value=999000000),
-                                                         gen.txout(addr='2NFTctsgcAmrgtiboLJUx9q8qu5H1qVpcAb',
-                                                                   value=2000000000),
-                                                         gen.txout(multisig={"m":2, "pubkeys":[
-                                    '0269184483e5494727d2dec54da85db9b18bee827bb3d1eee23b122edf810b8262'.decode('hex'),
-                                    '0217819b778f0bcfee53bbed495ca20fdc828f40ffd6d9481fe4c0d091b1486f69'.decode('hex'),
-                                    '022820a6eb4e6817bf68301856e0803e05d19f54714006f2088e74103be396eb5a'.decode('hex'),
-                                    ]},
-                                                                   value=2000000000)])]) )
+    blocks.append(
+        gen.block(
+            prev=blocks[-1],
+            transactions=[
+                gen.coinbase(),
+                gen.tx(txIn=[gen.txin(prevout=blocks[1]['transactions'][0]['txOut'][0], scriptSig='XXX')],
+                       txOut=[gen.txout(addr='n1pTUVnjZ6GHxujaoJ62P9NBMNjLr5N2EQ', value=9.99e8),
+                              gen.txout(addr='2NFTctsgcAmrgtiboLJUx9q8qu5H1qVpcAb', value=20e8),
+                              gen.txout(multisig={"m":2, "pubkeys":PUBKEYS[2:5]}, value=20e8)])]) )
 
     for block in blocks:
         store.import_block(block, chain = chain)
@@ -96,6 +99,12 @@ def test_b1_hash(gen):
     block_1_hash = '00000000b873e79784647a6c82962c70d228557d24a747ea4d1b8bbe878e1206'.decode('hex')[::-1]
     assert gen.blocks[1]['hash'] == block_1_hash
 
-def test_b14t1o0_binaddr(gen):
-    tx = gen.store.export_tx(tx_hash=gen.blocks[14]['transactions'][1]['hash'][::-1].encode('hex'), format='browser')
-    assert tx['out'][0]['binaddr'] == 'deb1f1ffbef6061a0b8f6d23b4e72164b4678253'.decode('hex')
+def bt(gen, b, t):
+    return gen.store.export_tx(tx_hash=gen.blocks[b]['transactions'][t]['hash'][::-1].encode('hex'), format='browser')
+
+@pytest.fixture(scope="module")
+def b14t1(gen):
+    return bt(gen, 14, 1)
+
+def test_b14t1o0_binaddr(b14t1):
+    assert b14t1['out'][0]['binaddr'] == 'deb1f1ffbef6061a0b8f6d23b4e72164b4678253'.decode('hex')
