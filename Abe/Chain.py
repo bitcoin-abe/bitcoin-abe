@@ -16,6 +16,7 @@
 
 import deserialize
 from deserialize import opcodes
+import BCDataStream
 import util
 
 def create(policy, **kwargs):
@@ -91,7 +92,7 @@ class Chain(object):
         chain.ds_serialize_block_header(ds, block)
         ds.write_compact_size(len(block['transactions']))
         for tx in block['transactions']:
-            chain.ds_serialize_transaction(tx)
+            chain.ds_serialize_transaction(ds, tx)
 
     def ds_serialize_block_header(chain, ds, block):
         ds.write_int32(block['version'])
@@ -121,14 +122,17 @@ class Chain(object):
         ds.write_int64(txout['value'])
         ds.write_string(txout['scriptPubKey'])
 
+    def serialize_block(chain, block):
+        ds = BCDataStream.BCDataStream()
+        chain.ds_serialize_block(ds, block)
+        return ds.input
+
     def serialize_block_header(chain, block):
-        import BCDataStream
         ds = BCDataStream.BCDataStream()
         chain.ds_serialize_block_header(ds, block)
         return ds.input
 
     def serialize_transaction(chain, tx):
-        import BCDataStream
         ds = BCDataStream.BCDataStream()
         chain.ds_serialize_transaction(ds, tx)
         return ds.input

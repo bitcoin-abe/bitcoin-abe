@@ -167,3 +167,12 @@ class Gen(object):
         block['hash'] = chain.block_header_hash(chain.serialize_block_header(block))
 
         return block
+
+    def save_blkfile(gen, blkfile, blocks):
+        import struct
+        with open(blkfile, 'wb') as f:
+            for bobj in blocks:
+                f.write(gen.chain.magic)
+                bstr = gen.chain.serialize_block(bobj)
+                f.write(struct.pack('<i', len(bstr)))
+                f.write(bstr)

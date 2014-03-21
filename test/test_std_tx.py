@@ -73,6 +73,9 @@ def gen():
                               gen.txout(addr='2NFTctsgcAmrgtiboLJUx9q8qu5H1qVpcAb', value=20e8),
                               gen.txout(multisig={"m":2, "pubkeys":PUBKEYS[2:5]}, value=20e8)])]) )
 
+    if 'ABE_TEST_SAVE_BLKFILE' in os.environ:
+        gen.save_blkfile(os.environ['ABE_TEST_SAVE_BLKFILE'], blocks)
+
     for block in blocks:
         store.import_block(block, chain = chain)
     store.commit()
@@ -140,3 +143,6 @@ def test_b14t1o2_required_signatures(b14t1):
 
 def test_b14t1o2_binaddr(b14t1, gen):
     assert b14t1['out'][2]['binaddr'] == [ gen.chain.pubkey_hash(pubkey) for pubkey in PUBKEYS[2:5] ]
+
+def test_b14t1o2_value(b14t1):
+    assert b14t1['out'][2]['value'] == 20e8

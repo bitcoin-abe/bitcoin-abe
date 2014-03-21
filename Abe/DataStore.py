@@ -35,7 +35,7 @@ import util
 import logging
 import base58
 
-SCHEMA_VERSION = "Abe37"
+SCHEMA_VERSION = "AbeMultisig1"
 
 CONFIG_DEFAULTS = {
     "dbtype":             None,
@@ -195,7 +195,7 @@ class DataStore(object):
         store.use_firstbits = (store.config['use_firstbits'] == "true")
 
         for hex_tx in args.import_tx:
-            chain = None
+            chain_name = None
             if isinstance(hex_tx, dict):
                 chain_name = hex_tx.get("chain")
                 hex_tx = hex_tx.get("tx")
@@ -1187,7 +1187,7 @@ store._ddl['configvar'],
     FOREIGN KEY (multisig_id) REFERENCES pubkey (pubkey_id),
     FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id)
 )""",
-"""CREATE INDEX x_multisig_pubkey_multisig ON multisig_pubkey (pubkey_id)""",
+"""CREATE INDEX x_multisig_pubkey_pubkey ON multisig_pubkey (pubkey_id)""",
 
 # A transaction out-point.
 """CREATE TABLE txout (
@@ -2608,7 +2608,7 @@ store._ddl['txout_approx'],
         if chain_name is None:
             chain = store.get_default_chain()
         else:
-            chain = store.chains_by.name(chain_name)
+            chain = store.get_chain_by_name(chain_name)
 
         tx_hash = chain.transaction_hash(binary_tx)
 
