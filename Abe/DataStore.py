@@ -2267,7 +2267,6 @@ store._ddl['txout_approx'],
         For multisig inputs and outputs, instead of binaddr:
 
         * binaddr[]
-            * binaddr
         * required_signatures
 
         Additionally, for proof-of-stake chains:
