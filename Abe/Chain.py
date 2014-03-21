@@ -87,6 +87,12 @@ class Chain(object):
             d['transactions'].append(chain.ds_parse_transaction(ds))
         return d
 
+    def ds_serialize_block(chain, ds, block):
+        chain.ds_serialize_block_header(ds, block)
+        ds.write_compact_size(len(block['transactions']))
+        for tx in block['transactions']:
+            chain.ds_serialize_transaction(tx)
+
     def ds_serialize_block_header(chain, ds, block):
         ds.write_int32(block['version'])
         ds.write(block['hashPrev'])
