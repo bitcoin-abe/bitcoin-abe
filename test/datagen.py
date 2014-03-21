@@ -22,17 +22,6 @@ import Abe.util
 
 from Abe.deserialize import opcodes
 
-def encode_script(*ops):
-    ds = Abe.BCDataStream.BCDataStream()
-    for op in ops:
-        if isinstance(op, int):
-            ds.write(chr(op))
-        elif isinstance(op, str):
-            ds.write_string(op)
-        else:
-            ds.write(op)
-    return ds.input
-
 class Gen(object):
     def __init__(gen, rng=None, chain=None):
         if rng is None:
@@ -50,11 +39,16 @@ class Gen(object):
     def random_addr_hash(gen):
         return gen.random_bytes(20)
 
-    def address_scriptPubKey(gen, hash):
-        return encode_script(opcodes.OP_DUP, opcodes.OP_HASH160, hash, opcodes.OP_EQUALVERIFY, opcodes.OP_CHECKSIG)
-
-    def pubkey_scriptPubKey(gen, pubkey):
-        return encode_script(pubkey, opcodes.OP_CHECKSIG)
+    def encode_script(gen, *ops):
+        ds = Abe.BCDataStream.BCDataStream()
+        for op in ops:
+            if isinstance(op, int):
+                ds.write(chr(op))
+            elif isinstance(op, str):
+                ds.write_string(op)
+            else:
+                ds.write(op)
+        return ds.input
 
     def op_smallint(gen, n):
         if n == 0:
@@ -63,12 +57,18 @@ class Gen(object):
             return n + opcodes.OP_1 - 1
         raise ValueError(n)
 
+    def address_scriptPubKey(gen, hash):
+        return gen.encode_script(opcodes.OP_DUP, opcodes.OP_HASH160, hash, opcodes.OP_EQUALVERIFY, opcodes.OP_CHECKSIG)
+
+    def pubkey_scriptPubKey(gen, pubkey):
+        return gen.encode_script(pubkey, opcodes.OP_CHECKSIG)
+
     def multisig_scriptPubKey(gen, m, pubkeys):
         ops = [ gen.op_smallint(m) ] + pubkeys + [ gen.op_smallint(len(pubkeys)), opcodes.OP_CHECKMULTISIG ]
-        return encode_script(*ops)
+        return gen.encode_script(*ops)
 
     def p2sh_scriptPubKey(gen, hash):
-        return encode_script(opcodes.OP_HASH160, hash, opcodes.OP_EQUAL)
+        return gen.encode_script(opcodes.OP_HASH160, hash, opcodes.OP_EQUAL)
 
     def txin(gen, **kwargs):
         txin = { 'sequence': 0xffffffff, 'pos': 0 }

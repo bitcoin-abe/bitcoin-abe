@@ -34,7 +34,7 @@ def chain():
     block_1_hash = '00000000b873e79784647a6c82962c70d228557d24a747ea4d1b8bbe878e1206'.decode('hex')[::-1]
 
     genesis_coinbase = gen.coinbase(
-        scriptSig=datagen.encode_script(
+        scriptSig=gen.encode_script(
             '\xff\xff\x00\x1d', '\x04', 'The Times 03/Jan/2009 Chancellor on brink of second bailout for banks'),
         txOut=[gen.txout(pubkey=pubkey_0, value=50*10**8)])
 
