@@ -20,6 +20,7 @@ import pytest
 
 import os
 import db, datagen
+import Abe.Chain
 from Abe.deserialize import opcodes
 
 PUBKEYS = [
@@ -106,5 +107,36 @@ def bt(gen, b, t):
 def b14t1(gen):
     return bt(gen, 14, 1)
 
+def test_b14t1o0_script_type(b14t1):
+    assert b14t1['out'][0]['script_type'] == Abe.Chain.SCRIPT_TYPE_ADDRESS
+
 def test_b14t1o0_binaddr(b14t1):
+    assert b14t1['out'][0]['binaddr'] == Abe.util.decode_address('n1pTUVnjZ6GHxujaoJ62P9NBMNjLr5N2EQ')[1]
     assert b14t1['out'][0]['binaddr'] == 'deb1f1ffbef6061a0b8f6d23b4e72164b4678253'.decode('hex')
+
+def test_b14t1o0_value(b14t1):
+    assert b14t1['out'][0]['value'] == 9.99e8
+
+"""
+                       txOut=[gen.txout(addr='n1pTUVnjZ6GHxujaoJ62P9NBMNjLr5N2EQ', value=),
+                              gen.txout(addr='2NFTctsgcAmrgtiboLJUx9q8qu5H1qVpcAb', value=20e8),
+                              gen.txout(multisig={"m":2, "pubkeys":PUBKEYS[2:5]}, value=20e8)])]) )
+"""
+
+def test_b14t1o1_script_type(b14t1):
+    assert b14t1['out'][1]['script_type'] == Abe.Chain.SCRIPT_TYPE_P2SH
+
+def test_b14t1o1_binaddr(b14t1):
+    assert b14t1['out'][1]['binaddr'] == Abe.util.decode_address('2NFTctsgcAmrgtiboLJUx9q8qu5H1qVpcAb')[1]
+
+def test_b14t1o1_value(b14t1):
+    assert b14t1['out'][1]['value'] == 20e8
+
+def test_b14t1o2_script_type(b14t1):
+    assert b14t1['out'][2]['script_type'] == Abe.Chain.SCRIPT_TYPE_MULTISIG
+
+def test_b14t1o2_required_signatures(b14t1):
+    assert b14t1['out'][2]['required_signatures'] == 2
+
+def test_b14t1o2_binaddr(b14t1, gen):
+    assert b14t1['out'][2]['binaddr'] == [ gen.chain.pubkey_hash(pubkey) for pubkey in PUBKEYS[2:5] ]
