@@ -23,9 +23,10 @@ def create():
     return SqliteMemoryDB()
 
 class SqliteMemoryDB(object):
+    cmdline = [
+        '--dbtype', 'sqlite3',
+        '--connect-args', os.environ.get('ABE_TEST_DB', ':memory:')]
+
     def new_store(db):
-        cmdline = Abe.util.CmdLine([
-                '--dbtype', 'sqlite3',
-                '--connect-args', os.environ.get('ABE_TEST_DB', ':memory:')])
-        store, argv = cmdline.init()
+        store, argv = Abe.util.CmdLine(db.cmdline).init()
         return store

@@ -18,15 +18,17 @@
 
 import pytest
 
+import os
 import db, datagen
 from Abe.deserialize import opcodes
 
 @pytest.fixture(scope="module")
 def gen():
-    store = db.create().new_store()
+    mydb = db.create()
+    store = mydb.new_store()
     chain = store.get_chain_by_name('Testnet')
     blocks = []
-    gen = datagen.Gen(chain=chain, store=store, blocks=blocks)
+    gen = datagen.Gen(chain=chain, db=mydb, store=store, blocks=blocks)
 
     # Satoshi's pubkey.
     pubkey_0 = '04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f'.decode('hex')
@@ -72,6 +74,17 @@ def gen():
     store.commit()
 
     return gen
+
+# XXX This must require some pytest trickery.
+"""
+def test_serve(gen):
+    import Abe.abe
+    import Abe.readconf
+    argv = ['--port=2750'] + gen.db.cmdline
+    args, argv = Abe.readconf.parse_argv(argv, Abe.abe.create_conf())
+    gen.store.args = args
+    Abe.abe.serve(gen.store)
+"""
 
 def test_b0_hash(gen):
     # Testnet Block 0 hash.
