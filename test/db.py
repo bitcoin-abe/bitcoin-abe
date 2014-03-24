@@ -96,6 +96,14 @@ class ServerDB(DB):
     def install_server(db):
         pass
 
+    @contextlib.contextmanager
+    def root(db):
+        conn = db.connect_as_root()
+        cur = conn.cursor()
+        yield cur
+        cur.close()
+        conn.close()
+
     def delete(db):
         try:
             db.shutdown()
@@ -134,14 +142,10 @@ class MysqlDB(ServerDB):
             cur.execute("CREATE USER 'abe'@'localhost' IDENTIFIED BY 'Bitcoin'")
         return server
 
-    @contextlib.contextmanager
-    def root(db):
+    def connect_as_root(db):
         MySQLdb = pytest.importorskip('MySQLdb')
         conn = MySQLdb.connect(unix_socket=db.socket, user='root')
-        cur = conn.cursor()
-        yield cur
-        cur.close()
-        conn.close()
+        return conn
 
     def createdb(db):
         with db.root() as cur:
