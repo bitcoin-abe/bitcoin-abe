@@ -79,39 +79,61 @@ class SqliteMemoryDB(SqliteDB):
     def delete(db):
         DB.delete(db)
 
-class MysqlDB(DB):
-    def __init__(db):
+class ServerDB(DB):
+    def __init__(db, dbtype):
         import tempfile
-        db.tmpdir = py.path.local(tempfile.mkdtemp(prefix='abe-test'))
-        print("Created temporary directory %s" % db.tmpdir)
+        db.installation_dir = py.path.local(tempfile.mkdtemp(prefix='abe-test'))
+        print("Created temporary directory %s" % db.installation_dir)
         try:
-            db._install_mysql()
+            db.server = db.install_server()
         except Exception as e:
             #print("EXCEPTION %s" % e)
             db._delete_tmpdir()
             raise
-        DB.__init__(db, 'MySQLdb', {'user': 'abe', 'passwd': 'Bitcoin', 'db': 'abe', 'unix_socket': db.socket})
+        DB.__init__(db, dbtype, db.get_connect_args())
 
-    def _install_mysql(db):
-        db.tmpdir.ensure_dir('tmp')
-        db.socket = str(db.tmpdir.join('mysql.sock'))
-        mycnf = db.tmpdir.join('my.cnf')
+    def install_server(db):
+        pass
+
+    def delete(db):
+        try:
+            db.shutdown()
+            db.server.wait()
+        finally:
+            db._delete_tmpdir()
+
+    def _delete_tmpdir(db):
+        db.installation_dir.remove()
+        print("Deleted temporary directory %s" % db.installation_dir)
+
+class MysqlDB(ServerDB):
+    def __init__(db):
+        ServerDB.__init__(db, 'MySQLdb')
+
+    def get_connect_args(db):
+        return {'user': 'abe', 'passwd': 'Bitcoin', 'db': 'abe', 'unix_socket': db.socket}
+
+    def install_server(db):
+        db.socket = str(db.installation_dir.join('mysql.sock'))
+        db.installation_dir.ensure_dir('tmp')
+        mycnf = db.installation_dir.join('my.cnf')
         mycnf.write('[mysqld]\n'
-                    'datadir=%(tmpdir)s\n'
+                    'datadir=%(installation_dir)s\n'
                     #'log\n'
                     #'log-error\n'
                     'skip-networking\n'
                     'socket=mysql.sock\n'
                     'pid-file=mysqld.pid\n'
-                    'tmpdir=tmp\n' % { 'tmpdir': db.tmpdir })
+                    'tmpdir=tmp\n' % { 'installation_dir': db.installation_dir })
         subprocess.check_call(['mysql_install_db', '--defaults-file=' + str(mycnf)])
-        db.server = subprocess.Popen(['mysqld', '--defaults-file=' + str(mycnf)])
+        server = subprocess.Popen(['mysqld', '--defaults-file=' + str(mycnf)])
         import time
         time.sleep(5)
         conn = db._connect_root()
         cur = conn.cursor()
         cur.execute("CREATE USER 'abe'@'localhost' IDENTIFIED BY 'Bitcoin'")
         conn.close()
+        return server
 
     def _connect_root(db):
         MySQLdb = pytest.importorskip('MySQLdb')
@@ -132,17 +154,8 @@ class MysqlDB(DB):
         cur.execute('DROP DATABASE abe')
         conn.close()
 
-    def _delete_tmpdir(db):
-        db.tmpdir.remove()
-        print("Deleted temporary directory %s" % db.tmpdir)
-
-    def delete(db):
-        DB.delete(db)
-        try:
-            subprocess.check_call(['mysqladmin', '-S', db.socket, '-u', 'root', 'shutdown'])
-            db.server.wait()
-        finally:
-            db._delete_tmpdir()
+    def shutdown(db):
+        subprocess.check_call(['mysqladmin', '-S', db.socket, '-u', 'root', 'shutdown'])
 
 class PostgresDB(DB):
     def __init__(db):
