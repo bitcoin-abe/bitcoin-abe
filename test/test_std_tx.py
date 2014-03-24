@@ -103,6 +103,183 @@ def test_b1_hash(gen):
     block_1_hash = '00000000b873e79784647a6c82962c70d228557d24a747ea4d1b8bbe878e1206'.decode('hex')[::-1]
     assert gen.blocks[1]['hash'] == block_1_hash
 
+def ah(gen, addr):
+    return gen.store.export_address_history(addr, chain=gen.chain)
+
+@pytest.fixture(scope="module")
+def ahn1p(gen):
+    return ah(gen, 'n1pTUVnjZ6GHxujaoJ62P9NBMNjLr5N2EQ')
+
+def test_ahn1p_binaddr(ahn1p):
+    assert ahn1p['binaddr'] == 'deb1f1ffbef6061a0b8f6d23b4e72164b4678253'.decode('hex')
+
+def test_ahn1p_version(ahn1p):
+    assert ahn1p['version'] == '\x6f'
+
+def test_ahn1p_chains(ahn1p):
+    assert len(ahn1p['chains']) == 1
+
+def test_ahn1p_c0_name(ahn1p):
+    assert ahn1p['chains'][0].name == 'Testnet'
+
+def test_ahn1p_balance(ahn1p, gen):
+    assert ahn1p['balance'] == { gen.chain.id: 9.99e8 }
+
+def test_ahn1p_txpoints(ahn1p):
+    assert len(ahn1p['txpoints']) == 1
+
+def test_ahn1p_p0_type(ahn1p):
+    assert ahn1p['txpoints'][0]['type'] == 'direct'
+
+def test_ahn1p_p0_is_in(ahn1p):
+    assert not ahn1p['txpoints'][0]['is_in']
+
+def test_ahn1p_p0_nTime(ahn1p):
+    assert ahn1p['txpoints'][0]['nTime'] == 1231006506
+
+def test_ahn1p_p0_chain(ahn1p):
+    assert ahn1p['txpoints'][0]['chain'].name == 'Testnet'
+
+def test_ahn1p_p0_height(ahn1p):
+    assert ahn1p['txpoints'][0]['height'] == 14
+
+def test_ahn1p_p0_blk_hash(ahn1p):
+    assert ahn1p['txpoints'][0]['blk_hash'] == '0c2d2879773626a081d74e73b3dcb9276e2a366e4571b2de6d90c2a67295382e'
+
+def test_ahn1p_p0_tx_hash(ahn1p):
+    assert ahn1p['txpoints'][0]['tx_hash'] == 'dd5e827c88eb24502cb74670fa58430e8c51fa6a514c46451829c1896438ce52'
+
+def test_ahn1p_p0_pos(ahn1p):
+    assert ahn1p['txpoints'][0]['pos'] == 0
+
+def test_ahn1p_p0_value(ahn1p):
+    assert ahn1p['txpoints'][0]['value'] == 9.99e8
+
+def test_ahn1p_sent(ahn1p, gen):
+    assert ahn1p['sent'] == { gen.chain.id: 0 }
+
+def test_ahn1p_received(ahn1p, gen):
+    assert ahn1p['received'] == { gen.chain.id: 9.99e8 }
+
+def test_ahn1p_counts(ahn1p):
+    assert ahn1p['counts'] == [1, 0]
+
+@pytest.fixture(scope="module")
+def a2NFT(gen):
+    return ah(gen, '2NFTctsgcAmrgtiboLJUx9q8qu5H1qVpcAb')
+
+def test_a2NFT_binaddr(a2NFT):
+    assert a2NFT['binaddr'] == 'f3aae15f9b92a094bb4e01afe99f99ab4135f362'.decode('hex')
+
+def test_a2NFT_version(a2NFT):
+    assert a2NFT['version'] == '\xc4'
+
+def test_a2NFT_chains(a2NFT):
+    assert len(a2NFT['chains']) == 1
+
+def test_a2NFT_c0_name(a2NFT):
+    assert a2NFT['chains'][0].name == 'Testnet'
+
+def test_a2NFT_balance(a2NFT, gen):
+    assert a2NFT['balance'] == { gen.chain.id: 20e8 }
+
+def test_a2NFT_txpoints(a2NFT):
+    assert len(a2NFT['txpoints']) == 1
+
+def test_a2NFT_p0_type(a2NFT):
+    assert a2NFT['txpoints'][0]['type'] == 'direct'
+
+def test_a2NFT_p0_is_in(a2NFT):
+    assert not a2NFT['txpoints'][0]['is_in']
+
+def test_a2NFT_p0_nTime(a2NFT):
+    assert a2NFT['txpoints'][0]['nTime'] == 1231006506
+
+def test_a2NFT_p0_chain(a2NFT):
+    assert a2NFT['txpoints'][0]['chain'].name == 'Testnet'
+
+def test_a2NFT_p0_height(a2NFT):
+    assert a2NFT['txpoints'][0]['height'] == 14
+
+def test_a2NFT_p0_blk_hash(a2NFT):
+    assert a2NFT['txpoints'][0]['blk_hash'] == '0c2d2879773626a081d74e73b3dcb9276e2a366e4571b2de6d90c2a67295382e'
+
+def test_a2NFT_p0_tx_hash(a2NFT):
+    assert a2NFT['txpoints'][0]['tx_hash'] == 'dd5e827c88eb24502cb74670fa58430e8c51fa6a514c46451829c1896438ce52'
+
+def test_a2NFT_p0_pos(a2NFT):
+    assert a2NFT['txpoints'][0]['pos'] == 1
+
+def test_a2NFT_p0_value(a2NFT):
+    assert a2NFT['txpoints'][0]['value'] == 20e8
+
+def test_a2NFT_sent(a2NFT, gen):
+    assert a2NFT['sent'] == { gen.chain.id: 0 }
+
+def test_a2NFT_received(a2NFT, gen):
+    assert a2NFT['received'] == { gen.chain.id: 20e8 }
+
+def test_a2NFT_counts(a2NFT):
+    assert a2NFT['counts'] == [1, 0]
+
+@pytest.fixture(scope="module")
+def an3j4(gen):
+    return ah(gen, 'n3j41Rkn51bdfh3NgyaA7x2JKEsfuvq888')
+
+def test_an3j4_binaddr(an3j4, gen):
+    assert an3j4['binaddr'] == gen.chain.pubkey_hash(PUBKEYS[3])
+
+def test_an3j4_version(an3j4):
+    assert an3j4['version'] == '\x6f'
+
+def test_an3j4_chains(an3j4):
+    assert len(an3j4['chains']) == 1
+
+def test_an3j4_c0_name(an3j4):
+    assert an3j4['chains'][0].name == 'Testnet'
+
+def test_an3j4_balance(an3j4, gen):
+    assert an3j4['balance'] == { gen.chain.id: 20e8 }
+
+def test_an3j4_txpoints(an3j4):
+    assert len(an3j4['txpoints']) == 1
+
+def test_an3j4_p0_type(an3j4):
+    assert an3j4['txpoints'][0]['type'] == 'escrow'
+
+def test_an3j4_p0_is_in(an3j4):
+    assert not an3j4['txpoints'][0]['is_in']
+
+def test_an3j4_p0_nTime(an3j4):
+    assert an3j4['txpoints'][0]['nTime'] == 1231006506
+
+def test_an3j4_p0_chain(an3j4):
+    assert an3j4['txpoints'][0]['chain'].name == 'Testnet'
+
+def test_an3j4_p0_height(an3j4):
+    assert an3j4['txpoints'][0]['height'] == 14
+
+def test_an3j4_p0_blk_hash(an3j4):
+    assert an3j4['txpoints'][0]['blk_hash'] == '0c2d2879773626a081d74e73b3dcb9276e2a366e4571b2de6d90c2a67295382e'
+
+def test_an3j4_p0_tx_hash(an3j4):
+    assert an3j4['txpoints'][0]['tx_hash'] == 'dd5e827c88eb24502cb74670fa58430e8c51fa6a514c46451829c1896438ce52'
+
+def test_an3j4_p0_pos(an3j4):
+    assert an3j4['txpoints'][0]['pos'] == 2
+
+def test_an3j4_p0_value(an3j4):
+    assert an3j4['txpoints'][0]['value'] == 20e8
+
+def test_an3j4_sent(an3j4, gen):
+    assert an3j4['sent'] == { gen.chain.id: 0 }
+
+def test_an3j4_received(an3j4, gen):
+    assert an3j4['received'] == { gen.chain.id: 20e8 }
+
+def test_an3j4_counts(an3j4):
+    assert an3j4['counts'] == [1, 0]
+
 def b(gen, b):
     return gen.store.export_block(chain=gen.chain, block_number=b)
 
@@ -253,12 +430,6 @@ def test_b14t1o0_binaddr(b14t1):
 
 def test_b14t1o0_value(b14t1):
     assert b14t1['out'][0]['value'] == 9.99e8
-
-"""
-                       txOut=[gen.txout(addr='n1pTUVnjZ6GHxujaoJ62P9NBMNjLr5N2EQ', value=),
-                              gen.txout(addr='2NFTctsgcAmrgtiboLJUx9q8qu5H1qVpcAb', value=20e8),
-                              gen.txout(multisig={"m":2, "pubkeys":PUBKEYS[2:5]}, value=20e8)])]) )
-"""
 
 def test_b14t1o1_script_type(b14t1):
     assert b14t1['out'][1]['script_type'] == Abe.Chain.SCRIPT_TYPE_P2SH
