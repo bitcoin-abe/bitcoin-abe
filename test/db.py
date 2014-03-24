@@ -20,6 +20,7 @@ from __future__ import print_function
 import pytest
 import py.path
 import json
+import contextlib
 import os
 import subprocess
 import Abe.util
@@ -129,30 +130,29 @@ class MysqlDB(ServerDB):
         server = subprocess.Popen(['mysqld', '--defaults-file=' + str(mycnf)])
         import time
         time.sleep(5)
-        conn = db._connect_root()
-        cur = conn.cursor()
-        cur.execute("CREATE USER 'abe'@'localhost' IDENTIFIED BY 'Bitcoin'")
-        conn.close()
+        with db.root() as cur:
+            cur.execute("CREATE USER 'abe'@'localhost' IDENTIFIED BY 'Bitcoin'")
         return server
 
-    def _connect_root(db):
+    @contextlib.contextmanager
+    def root(db):
         MySQLdb = pytest.importorskip('MySQLdb')
-        return MySQLdb.connect(unix_socket=db.socket, user='root')
+        conn = MySQLdb.connect(unix_socket=db.socket, user='root')
+        cur = conn.cursor()
+        yield cur
+        cur.close()
+        conn.close()
 
     def createdb(db):
-        conn = db._connect_root()
-        cur = conn.cursor()
-        cur.execute('CREATE DATABASE abe')
-        cur.execute("GRANT ALL ON abe.* TO 'abe'@'localhost'")
-        conn.close()
+        with db.root() as cur:
+            cur.execute('CREATE DATABASE abe')
+            cur.execute("GRANT ALL ON abe.* TO 'abe'@'localhost'")
         DB.createdb(db)
 
     def dropdb(db):
         DB.dropdb(db)
-        conn = db._connect_root()
-        cur = conn.cursor()
-        cur.execute('DROP DATABASE abe')
-        conn.close()
+        with db.root() as cur:
+            cur.execute('DROP DATABASE abe')
 
     def shutdown(db):
         subprocess.check_call(['mysqladmin', '-S', db.socket, '-u', 'root', 'shutdown'])
