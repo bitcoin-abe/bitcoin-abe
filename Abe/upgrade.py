@@ -993,6 +993,7 @@ def create_x_multisig_pubkey_multisig(store):
     store.ddl("CREATE INDEX x_multisig_pubkey_pubkey ON multisig_pubkey (pubkey_id)")
 
 def populate_multisig_pubkey(store):
+    store.init_chains()
     store.log.info("Finding multisig addresses.")
     count = 0
     last = 0
@@ -1110,10 +1111,9 @@ upgrades = [
     ('Abe37',   txin_detail_multisig),   # Fast
     ('AbeMultisig0.1', add_chain_script_addr_vers), # Fast
     ('AbeMultisig0.2', populate_chain_script_addr_vers), # Fast
-    ('AbeMultisig0.3', insert_chain_novacoin),  # Fast
-    ('AbeMultisig0.4', create_multisig_pubkey), # Fast
-    ('AbeMultisig0.5', create_x_multisig_pubkey_multisig), # Fast
-    ('AbeMultisig0.6', populate_multisig_pubkey), # Minutes?
+    ('AbeMultisig0.3', create_multisig_pubkey), # Fast
+    ('AbeMultisig0.4', create_x_multisig_pubkey_multisig), # Fast
+    ('AbeMultisig0.5', populate_multisig_pubkey), # Minutes?
     ('AbeMultisig1', None)
 ]
 

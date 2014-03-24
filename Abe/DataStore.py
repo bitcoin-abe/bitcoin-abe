@@ -183,7 +183,7 @@ class DataStore(object):
             store.sql("UPDATE datadir SET blkfile_number=1, blkfile_offset=0")
 
         store._init_datadirs()
-        store._init_chains()
+        store.init_chains()
 
         store.commit_bytes = args.commit_bytes
         if store.commit_bytes is None:
@@ -767,7 +767,7 @@ class DataStore(object):
                 }
             store.datadirs.append(d)
 
-    def _init_chains(store):
+    def init_chains(store):
         store.chains_by = lambda: 0
         store.chains_by.id = {}
         store.chains_by.name = {}
