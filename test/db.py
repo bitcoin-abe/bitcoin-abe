@@ -19,6 +19,7 @@
 from __future__ import print_function
 import pytest
 import py.path
+import json
 import os
 import subprocess
 import Abe.util
@@ -50,19 +51,25 @@ class DB(object):
     def __init__(db, dbtype, connect_args):
         db.dbtype = dbtype
         db.connect_args = connect_args
-        import json
         db.cmdline = ['--dbtype', dbtype, '--connect-args', json.dumps(connect_args)]
+        db.createdb()
+
+    def createdb(db):
         store, argv = Abe.util.CmdLine(db.cmdline).init()
         db.store = store
 
+    def dropdb(db):
+        db.store.close()
+
     def delete(db):
-        pass
+        db.dropdb()
 
 class SqliteDB(DB):
     def __init__(db, connect_args):
         DB.__init__(db, 'sqlite3', connect_args)
 
     def delete(db):
+        DB.delete(db)
         os.unlink(db.connect_args)
 
 class SqliteMemoryDB(SqliteDB):
@@ -70,7 +77,7 @@ class SqliteMemoryDB(SqliteDB):
         SqliteDB.__init__(db, ':memory:')
 
     def delete(db):
-        pass
+        DB.delete(db)
 
 class MysqlDB(DB):
     def __init__(db):
@@ -80,13 +87,14 @@ class MysqlDB(DB):
         try:
             db._install_mysql()
         except Exception as e:
-            print("EXCEPTION %s" % e)
-            #db._delete_tmpdir()
+            #print("EXCEPTION %s" % e)
+            db._delete_tmpdir()
             raise
+        DB.__init__(db, 'MySQLdb', {'user': 'abe', 'passwd': 'Bitcoin', 'db': 'abe', 'unix_socket': db.socket})
 
     def _install_mysql(db):
-        MySQLdb = pytest.importorskip('MySQLdb')
         db.tmpdir.ensure_dir('tmp')
+        db.socket = str(db.tmpdir.join('mysql.sock'))
         mycnf = db.tmpdir.join('my.cnf')
         mycnf.write('[mysqld]\n'
                     'datadir=%(tmpdir)s\n'
@@ -100,20 +108,36 @@ class MysqlDB(DB):
         db.server = subprocess.Popen(['mysqld', '--defaults-file=' + str(mycnf)])
         import time
         time.sleep(5)
-        db.socket = str(db.tmpdir.join('mysql.sock'))
-        conn = MySQLdb.connect(unix_socket=db.socket, user='root')
+        conn = db._connect_root()
+        cur = conn.cursor()
+        cur.execute("CREATE USER 'abe'@'localhost' IDENTIFIED BY 'Bitcoin'")
+        conn.close()
+
+    def _connect_root(db):
+        MySQLdb = pytest.importorskip('MySQLdb')
+        return MySQLdb.connect(unix_socket=db.socket, user='root')
+
+    def createdb(db):
+        conn = db._connect_root()
         cur = conn.cursor()
         cur.execute('CREATE DATABASE abe')
-        cur.execute("CREATE USER 'abe'@'localhost' IDENTIFIED BY 'Bitcoin'")
         cur.execute("GRANT ALL ON abe.* TO 'abe'@'localhost'")
         conn.close()
-        DB.__init__(db, 'MySQLdb', {'user': 'abe', 'passwd': 'Bitcoin', 'db': 'abe', 'unix_socket': db.socket})
+        DB.createdb(db)
+
+    def dropdb(db):
+        DB.dropdb(db)
+        conn = db._connect_root()
+        cur = conn.cursor()
+        cur.execute('DROP DATABASE abe')
+        conn.close()
 
     def _delete_tmpdir(db):
         db.tmpdir.remove()
         print("Deleted temporary directory %s" % db.tmpdir)
 
     def delete(db):
+        DB.delete(db)
         try:
             subprocess.check_call(['mysqladmin', '-S', db.socket, '-u', 'root', 'shutdown'])
             db.server.wait()
