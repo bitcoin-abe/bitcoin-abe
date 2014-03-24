@@ -2948,12 +2948,12 @@ store._ddl['txout_approx'],
             in_rows = get_sent(True)
             if len(in_rows) > max_rows >= 0:
                 return None
-            txpoints += map(parse_direct_in, in_rows)
+            txpoints += map(parse_escrow_in, in_rows)
 
             out_rows = get_received(True)
             if len(out_rows) > max_rows >= 0:
                 return None
-            txpoints += map(parse_direct_out, out_rows)
+            txpoints += map(parse_escrow_out, out_rows)
 
         def cmp_txpoint(p1, p2):
             return cmp(p1['nTime'], p2['nTime']) \
