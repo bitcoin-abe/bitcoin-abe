@@ -82,6 +82,7 @@ class SqliteMemoryDB(SqliteDB):
 
 class ServerDB(DB):
     def __init__(db, dbtype):
+        pytest.importorskip(dbtype)
         import tempfile
         db.installation_dir = py.path.local(tempfile.mkdtemp(prefix='abe-test'))
         print("Created temporary directory %s" % db.installation_dir)
@@ -100,9 +101,14 @@ class ServerDB(DB):
     def root(db):
         conn = db.connect_as_root()
         cur = conn.cursor()
-        yield cur
-        cur.close()
-        conn.close()
+        try:
+            yield cur
+        except:
+            conn.rollback()
+            raise
+        finally:
+            cur.close()
+            conn.close()
 
     def delete(db):
         try:
@@ -110,6 +116,7 @@ class ServerDB(DB):
             db.server.wait()
         finally:
             db._delete_tmpdir()
+            pass
 
     def _delete_tmpdir(db):
         db.installation_dir.remove()
@@ -136,14 +143,21 @@ class MysqlDB(ServerDB):
                     'tmpdir=tmp\n' % { 'installation_dir': db.installation_dir })
         subprocess.check_call(['mysql_install_db', '--defaults-file=' + str(mycnf)])
         server = subprocess.Popen(['mysqld', '--defaults-file=' + str(mycnf)])
-        import time
-        time.sleep(5)
-        with db.root() as cur:
-            cur.execute("CREATE USER 'abe'@'localhost' IDENTIFIED BY 'Bitcoin'")
-        return server
+        import time, MySQLdb
+        tries = 30
+        for t in range(tries):
+            try:
+                with db.root() as cur:
+                    cur.execute("CREATE USER 'abe'@'localhost' IDENTIFIED BY 'Bitcoin'")
+                    return server
+            except MySQLdb.OperationalError as e:
+                print(repr(e))
+                if t+1 == tries:
+                    raise e
+            time.sleep(1)
 
     def connect_as_root(db):
-        MySQLdb = pytest.importorskip('MySQLdb')
+        import MySQLdb
         conn = MySQLdb.connect(unix_socket=db.socket, user='root')
         return conn
 
@@ -161,6 +175,62 @@ class MysqlDB(ServerDB):
     def shutdown(db):
         subprocess.check_call(['mysqladmin', '-S', db.socket, '-u', 'root', 'shutdown'])
 
-class PostgresDB(DB):
+class PostgresDB(ServerDB):
     def __init__(db):
-        pytest.skip("not implemented")
+        ServerDB.__init__(db, 'psycopg2')
+
+    def get_connect_args(db):
+        return {'user': 'abe', 'password': 'Bitcoin', 'database': 'abe', 'host': str(db.installation_dir)}
+
+    def install_server(db):
+        db.bindir = subprocess.Popen(['pg_config', '--bindir'], stdout=subprocess.PIPE).communicate()[0].rstrip()
+        subprocess.check_call([
+                os.path.join(db.bindir, 'initdb'),
+                '-D', str(db.installation_dir),
+                '-U', 'postgres'])
+        server = subprocess.Popen([
+                os.path.join(db.bindir, 'postgres'),
+                '-D', str(db.installation_dir),
+                '-c', 'listen_addresses=',
+                '-c', 'unix_socket_directory=.'])
+
+        import time, psycopg2
+        tries = 30
+        for t in range(tries):
+            try:
+                with db.root() as cur:
+                    cur.execute("COMMIT")  # XXX
+                    cur.execute("CREATE USER abe UNENCRYPTED PASSWORD 'Bitcoin'")
+                    cur.execute("COMMIT")
+                return server
+            except psycopg2.OperationalError as e:
+                #print(repr(e))
+                if t+1 == tries:
+                    raise e
+            time.sleep(1)
+
+    def connect_as_root(db):
+        import psycopg2
+        conn = psycopg2.connect(host=str(db.installation_dir), user='postgres')
+        return conn
+
+    def createdb(db):
+        with db.root() as cur:
+            cur.execute("COMMIT")  # XXX
+            cur.execute('CREATE DATABASE abe')
+            cur.execute("GRANT ALL ON DATABASE abe TO abe")
+            cur.execute("COMMIT")
+        DB.createdb(db)
+
+    def dropdb(db):
+        DB.dropdb(db)
+        with db.root() as cur:
+            cur.execute("COMMIT")  # XXX
+            cur.execute('DROP DATABASE abe')
+            cur.execute("COMMIT")
+
+    def shutdown(db):
+        subprocess.check_call([
+                os.path.join(db.bindir, 'pg_ctl'), 'stop',
+                '-D', str(db.installation_dir),
+                '-m', 'immediate'])
