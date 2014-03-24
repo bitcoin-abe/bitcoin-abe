@@ -67,7 +67,7 @@ def gen(testdb):
         gen.block(
             prev=blocks[-1],
             transactions=[
-                gen.coinbase(),
+                gen.coinbase(value=50.01e8),
                 gen.tx(txIn=[gen.txin(prevout=blocks[1]['transactions'][0]['txOut'][0], scriptSig='XXX')],
                        txOut=[gen.txout(addr='n1pTUVnjZ6GHxujaoJ62P9NBMNjLr5N2EQ', value=9.99e8),
                               gen.txout(addr='2NFTctsgcAmrgtiboLJUx9q8qu5H1qVpcAb', value=20e8),
@@ -102,6 +102,140 @@ def test_b1_hash(gen):
     # Testnet Block 1 hash.
     block_1_hash = '00000000b873e79784647a6c82962c70d228557d24a747ea4d1b8bbe878e1206'.decode('hex')[::-1]
     assert gen.blocks[1]['hash'] == block_1_hash
+
+def b(gen, b):
+    return gen.store.export_block(chain=gen.chain, block_number=b)
+
+@pytest.fixture(scope="module")
+def b14(gen):
+    return b(gen, 14)
+
+def test_b14_chain_candidates(b14):
+    assert len(b14['chain_candidates']) == 1
+
+def test_b14cc0_chain_name(b14):
+    assert b14['chain_candidates'][0]['chain'].name == 'Testnet'
+
+def test_b14cc0_in_longest(b14):
+    assert b14['chain_candidates'][0]['in_longest']
+
+def test_b14_chain_satoshis(b14):
+    assert b14['chain_satoshis'] == 750*10**8
+
+def test_b14_chain_satoshi_seconds(b14):
+    assert b14['chain_satoshi_seconds'] == -656822590000000000
+
+def test_b14_chain_work(b14):
+    assert b14['chain_work'] == 64425492495
+
+def test_b14_fees(b14):
+    assert b14['fees'] == 0.01e8
+
+def test_b14_generated(b14):
+    assert b14['generated'] == 50e8
+
+def test_b14_hash(b14):
+    assert b14['hash'] == '0c2d2879773626a081d74e73b3dcb9276e2a366e4571b2de6d90c2a67295382e'
+
+def test_b14_hashMerkleRoot(b14):
+    assert b14['hashMerkleRoot'] == '93f17b59330df6c97f8d305572b0b98608b34a2f4fa235e6ff69bbe343e3a764'
+
+def test_b14_hashPrev(b14):
+    assert b14['hashPrev'] == '2155786533653694385a772e33d9547848c809b1d1bce3500a377fe37ad3d250'
+
+def test_b14_height(b14):
+    assert b14['height'] == 14
+
+def test_b14_nBits(b14):
+    assert b14['nBits'] == 0x1d00ffff
+
+def test_b14_next_block_hashes(b14):
+    assert b14['next_block_hashes'] == []
+
+def test_b14_nNonce(b14):
+    assert b14['nNonce'] == 253
+
+def test_b14_nTime(b14):
+    assert b14['nTime'] == 1231006506
+
+@pytest.mark.xfail
+def test_b14_satoshis_destroyed(b14):
+    # XXX Is this value right?
+    assert b14['satoshis_destroyed'] == -328412110000000000
+
+@pytest.mark.xfail
+def test_b14_satoshi_seconds(b14):
+    # XXX Is this value right?
+    assert b14['satoshi_seconds'] == -328410480000000000
+
+def test_b14_transactions(b14):
+    assert len(b14['transactions']) == 2
+
+def test_b14_t1_fees(b14):
+    assert b14['transactions'][1]['fees'] == 0.01e8
+
+def test_b14_t1_hash(b14):
+    assert b14['transactions'][1]['hash'] == 'dd5e827c88eb24502cb74670fa58430e8c51fa6a514c46451829c1896438ce52'
+
+def test_b14_t1_in(b14):
+    assert len(b14['transactions'][1]['in']) == 1
+
+def test_b14_t1i0_address_version(b14):
+    assert b14['transactions'][1]['in'][0]['address_version'] == '\x6f'
+
+def test_b14_t1i0_binaddr(b14, gen):
+    assert b14['transactions'][1]['in'][0]['binaddr'] == gen.chain.pubkey_hash(PUBKEYS[1])
+
+def test_b14_t1i0_value(b14):
+    assert b14['transactions'][1]['in'][0]['value'] == 50e8
+
+def test_b14_t1_out(b14):
+    assert len(b14['transactions'][1]['out']) == 3
+
+def test_b14_t1o0_address_version(b14):
+    assert b14['transactions'][1]['out'][0]['address_version'] == '\x6f'
+
+def test_b14_t1o0_binaddr(b14, gen):
+    assert b14['transactions'][1]['out'][0]['binaddr'] == 'deb1f1ffbef6061a0b8f6d23b4e72164b4678253'.decode('hex')
+
+def test_b14_t1o0_value(b14):
+    assert b14['transactions'][1]['out'][0]['value'] == 9.99e8
+
+def test_b14_t1o1_address_version(b14):
+    assert b14['transactions'][1]['out'][1]['address_version'] == '\xc4'
+
+def test_b14_t1o1_binaddr(b14, gen):
+    assert b14['transactions'][1]['out'][1]['binaddr'] == 'f3aae15f9b92a094bb4e01afe99f99ab4135f362'.decode('hex')
+
+def test_b14_t1o1_value(b14):
+    assert b14['transactions'][1]['out'][1]['value'] == 20e8
+
+def test_b14_t1o2_address_version(b14):
+    assert b14['transactions'][1]['out'][2]['address_version'] == '\x6f'
+
+def test_b14_t1o2_binaddr(b14, gen):
+    assert len(b14['transactions'][1]['out'][2]['binaddr']) == 3
+
+def test_b14_t1o2k0(b14, gen):
+    assert b14['transactions'][1]['out'][2]['binaddr'][0] == gen.chain.pubkey_hash(PUBKEYS[2])
+
+def test_b14_t1o2k1(b14, gen):
+    assert b14['transactions'][1]['out'][2]['binaddr'][1] == gen.chain.pubkey_hash(PUBKEYS[3])
+
+def test_b14_t1o2k2(b14, gen):
+    assert b14['transactions'][1]['out'][2]['binaddr'][2] == gen.chain.pubkey_hash(PUBKEYS[4])
+
+def test_b14_t1o2_required_signatures(b14):
+    assert b14['transactions'][1]['out'][2]['required_signatures'] == 2
+
+def test_b14_t1o2_value(b14):
+    assert b14['transactions'][1]['out'][2]['value'] == 20e8
+
+def test_b14_value_out(b14):
+    assert b14['value_out'] == 100e8
+
+def test_b14_version(b14):
+    assert b14['version'] == 1
 
 def bt(gen, b, t):
     return gen.store.export_tx(tx_hash=gen.blocks[b]['transactions'][t]['hash'][::-1].encode('hex'), format='browser')

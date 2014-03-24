@@ -139,9 +139,9 @@ class Gen(object):
 
         return tx
 
-    def coinbase(gen, txOut=None, **kwargs):
+    def coinbase(gen, txOut=None, value=50e8, **kwargs):
         if txOut is None:
-            txOut = [ gen.txout(value=50*10**8) ]  # 50BTC
+            txOut = [ gen.txout(value=value) ]
         return gen.tx([ gen.coinbase_txin(**kwargs) ], txOut, **kwargs)
 
     def block(gen, prev=None, transactions=None, version=1, nTime=1231006506, nBits=0x1d00ffff, nNonce=253):
