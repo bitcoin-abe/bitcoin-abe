@@ -2359,9 +2359,9 @@ store._ddl['txout_approx'],
             )
 
         next_hashes = [
-            store.hashout_hex(row[0]) for row in
+            store.hashout_hex(hash) for hash, il in
             store.selectall("""
-            SELECT DISTINCT n.block_hash
+            SELECT DISTINCT n.block_hash, cc.in_longest
               FROM block_next bn
               JOIN block n ON (bn.next_block_id = n.block_id)
               JOIN chain_candidate cc ON (n.block_id = cc.block_id)
