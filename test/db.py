@@ -16,17 +16,36 @@
 # License along with this program.  If not, see
 # <http://www.gnu.org/licenses/agpl.html>.
 
+import pytest
 import os
 import Abe.util
 
-def create():
-    return SqliteMemoryDB()
+def testdb_params():
+    return [None]
 
-class SqliteMemoryDB(object):
-    cmdline = [
-        '--dbtype', 'sqlite3',
-        '--connect-args', os.environ.get('ABE_TEST_DB', ':memory:')]
+@pytest.fixture(scope="module", params=testdb_params())
+def testdb(request):
+    db = create(request.param)
+    request.addfinalizer(db.delete)
+    return db
 
-    def new_store(db):
-        store, argv = Abe.util.CmdLine(db.cmdline).init()
-        return store
+def create(dbtype=None):
+    return SqliteDB()
+
+class DB(object):
+    def __init__(db, cmdline):
+        store, argv = Abe.util.CmdLine(cmdline).init()
+        db.store = store
+
+    def delete(db):
+        pass
+
+class SqliteDB(DB):
+    def __init__(db):
+        db.connect_args = os.environ.get('ABE_TEST_DB', ':memory:')
+        db.cmdline = ['--dbtype', 'sqlite3', '--connect-args', db.connect_args]
+        DB.__init__(db, db.cmdline)
+
+    def delete(db):
+        if db.connect_args != ':memory:':
+            os.unlink(db.connect_args)

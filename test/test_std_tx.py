@@ -19,7 +19,8 @@
 import pytest
 
 import os
-import db, datagen
+from db import testdb
+import datagen
 import Abe.Chain
 from Abe.deserialize import opcodes
 
@@ -38,12 +39,11 @@ PUBKEYS = [
         ]]
 
 @pytest.fixture(scope="module")
-def gen():
-    mydb = db.create()
-    store = mydb.new_store()
+def gen(testdb):
+    store = testdb.store
     chain = store.get_chain_by_name('Testnet')
     blocks = []
-    gen = datagen.Gen(chain=chain, db=mydb, store=store, blocks=blocks)
+    gen = datagen.Gen(chain=chain, db=testdb, store=store, blocks=blocks)
 
     # The Bitcoin/Testnet genesis transaction.
     genesis_coinbase = gen.coinbase(

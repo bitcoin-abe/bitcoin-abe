@@ -18,16 +18,16 @@
 
 import pytest
 
-import db
-from Abe import util
+from db import testdb
+import Abe.util
 
 @pytest.fixture(scope="module")
-def btc200():
-    store = db.create().new_store()
+def btc200(testdb):
+    store = testdb.store
     btc_chain = store.get_chain_by_name('Bitcoin')
 
     for hex in _blocks():
-        ds = util.str_to_ds(hex.decode('hex'))
+        ds = Abe.util.str_to_ds(hex.decode('hex'))
         hash = btc_chain.ds_block_header_hash(ds)
         b = btc_chain.ds_parse_block(ds)
         b['hash'] = hash
