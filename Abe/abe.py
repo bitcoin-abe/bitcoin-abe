@@ -1941,12 +1941,7 @@ def create_conf():
 def main(argv):
     args, argv = readconf.parse_argv(argv, create_conf())
 
-    if (args.no_serve and args.no_load):
-        sys.stderr.write(
-            "Error: You told me not to serve nor to load blocks (--no-serve and --no-load)\n"
-            "Nothing to do, have a good day...\n")
-        return 1
-    elif not argv:
+    if not argv:
         pass
     elif argv[0] in ('-h', '--help'):
         print ("""Usage: python -m Abe.abe [-h] [--config=FILE] [--CONFIGVAR=VALUE]...
