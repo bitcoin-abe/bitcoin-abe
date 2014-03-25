@@ -2867,7 +2867,7 @@ store._ddl['txout_approx'],
         txpoints = []
 
         def parse_row(row, is_in, row_type):
-            nTime, chain_id, height, is_in, blk_hash, tx_hash, pos, value = row
+            nTime, chain_id, height, blk_hash, tx_hash, pos, value = row
             return {
                 'type':     row_type,
                 'is_in':    int(is_in),
@@ -2891,7 +2891,6 @@ store._ddl['txout_approx'],
                     b.block_nTime,
                     cc.chain_id,
                     b.block_height,
-                    1,
                     b.block_hash,
                     tx.tx_hash,
                     txin.txin_pos,
@@ -2917,7 +2916,6 @@ store._ddl['txout_approx'],
                     b.block_nTime,
                     cc.chain_id,
                     b.block_height,
-                    0,
                     b.block_hash,
                     tx.tx_hash,
                     txout.txout_pos,
