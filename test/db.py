@@ -30,8 +30,8 @@ def testdb_params():
     if dbs is not None:
         return dbs.split()
     if os.environ.get('ABE_TEST') == 'quick':
-        return ['sqlite3']
-    return ['sqlite3', 'mysql', 'postgres']
+        return ['sqlite']
+    return ['sqlite', 'mysql', 'postgres']
 
 @pytest.fixture(scope="module")
 def testdb(request, db_server):
@@ -87,7 +87,7 @@ class ServerDB(DB):
     def __init__(db, dbtype):
         pytest.importorskip(dbtype)
         import tempfile
-        db.installation_dir = py.path.local(tempfile.mkdtemp(prefix='abe-test'))
+        db.installation_dir = py.path.local(tempfile.mkdtemp(prefix='abe-test-'))
         print("Created temporary directory %s" % db.installation_dir)
         try:
             db.server = db.install_server()
