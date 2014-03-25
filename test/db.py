@@ -25,6 +25,8 @@ import os
 import subprocess
 import Abe.util
 
+__all__ = ['testdb']
+
 def testdb_params():
     dbs = os.environ.get('ABE_TEST_DB')
     if dbs is not None:
@@ -33,10 +35,32 @@ def testdb_params():
         return ['sqlite3']
     return ['sqlite3', 'mysql', 'postgres']
 
+_server_cache = {}
+
+def cleanup(bla):
+    #print("cleanup()")
+    for db in _server_cache.values():
+        db.delete()
+    _server_cache.clear()
+
+#@pytest.fixture(scope="session", autouse=True)
+def server():
+    #print("server()")
+    #request.addfinalizer(cleanup)
+    return 'bla'
+
 @pytest.fixture(scope="module", params=testdb_params())
 def testdb(request):
-    db = create(request.param)
-    request.addfinalizer(db.delete)
+    param = request.param
+    if param in _server_cache:
+        db = _server_cache[param]
+    else:
+        db = create(request.param)
+        #request.addfinalizer(db.delete)
+        _server_cache[param] = db
+        request.cached_setup(server, cleanup, 'session')
+    db.createdb()
+    request.addfinalizer(db.dropdb)
     return db
 
 def create(dbtype=None):
@@ -53,17 +77,18 @@ class DB(object):
         db.dbtype = dbtype
         db.connect_args = connect_args
         db.cmdline = ['--dbtype', dbtype, '--connect-args', json.dumps(connect_args)]
-        db.createdb()
 
     def createdb(db):
+        #print('DB.createdb()')
         store, argv = Abe.util.CmdLine(db.cmdline).init()
         db.store = store
 
     def dropdb(db):
         db.store.close()
+        #print('DB.dropdb()')
 
     def delete(db):
-        db.dropdb()
+        pass
 
 class SqliteDB(DB):
     def __init__(db, connect_args):
@@ -75,10 +100,12 @@ class SqliteDB(DB):
 
 class SqliteMemoryDB(SqliteDB):
     def __init__(db):
+        #print("SqliteMemoryDB.__init__")
         SqliteDB.__init__(db, ':memory:')
 
     def delete(db):
         DB.delete(db)
+        #print("SqliteMemoryDB.delete")
 
 class ServerDB(DB):
     def __init__(db, dbtype):
@@ -91,6 +118,7 @@ class ServerDB(DB):
         except Exception as e:
             #print("EXCEPTION %s" % e)
             db._delete_tmpdir()
+            pytest.skip(e)
             raise
         DB.__init__(db, dbtype, db.get_connect_args())
 
@@ -119,8 +147,9 @@ class ServerDB(DB):
             pass
 
     def _delete_tmpdir(db):
-        db.installation_dir.remove()
-        print("Deleted temporary directory %s" % db.installation_dir)
+        if os.environ.get('ABE_TEST_KEEP_TMPDIR', '') == '':
+            db.installation_dir.remove()
+            print("Deleted temporary directory %s" % db.installation_dir)
 
 class MysqlDB(ServerDB):
     def __init__(db):
@@ -151,7 +180,6 @@ class MysqlDB(ServerDB):
                     cur.execute("CREATE USER 'abe'@'localhost' IDENTIFIED BY 'Bitcoin'")
                     return server
             except MySQLdb.OperationalError as e:
-                print(repr(e))
                 if t+1 == tries:
                     raise e
             time.sleep(1)
@@ -204,7 +232,6 @@ class PostgresDB(ServerDB):
                     cur.execute("COMMIT")
                 return server
             except psycopg2.OperationalError as e:
-                #print(repr(e))
                 if t+1 == tries:
                     raise e
             time.sleep(1)
