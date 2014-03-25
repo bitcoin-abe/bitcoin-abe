@@ -373,14 +373,14 @@ class Abe:
     def get_default_chain(abe):
         return abe.store.get_default_chain()
 
-    # XXX Should probably require chain.
-    def format_addresses(abe, data, dotdot):
+    def format_addresses(abe, data, dotdot, chain):
         if data['binaddr'] is None:
             return 'Unknown'
-        if isinstance(data['binaddr'], list):
-            # Multisig.
-            ret = ['Escrow ', data['required_signatures'], ' of']
-            for binaddr in data['binaddr']:
+        if 'subbinaddr' in data:
+            # Multisig or known P2SH.
+            ret = [hash_to_address_link(chain.script_addr_vers, data['binaddr'], dotdot, text='Escrow'),
+                   ' ', data['required_signatures'], ' of']
+            for binaddr in data['subbinaddr']:
                 ret += [' ', hash_to_address_link(data['address_version'], binaddr, dotdot, 10)]
             return ret
         return hash_to_address_link(data['address_version'], data['binaddr'], dotdot)
@@ -532,7 +532,7 @@ class Abe:
 
         try:
             b = abe.store.export_block(chain, **kwargs)
-        except TypeError:
+        except DataStore.MalformedHash:
             body += ['<p class="error">Not in correct format.</p>']
             return
 
@@ -633,7 +633,7 @@ class Abe:
                     format_satoshis(b['fees'], chain), ' total fees']
             else:
                 for txin in tx['in']:
-                    body += [abe.format_addresses(txin, page['dotdot']), ': ',
+                    body += [abe.format_addresses(txin, page['dotdot'], chain), ': ',
                              format_satoshis(txin['value'], chain), '<br />']
 
             body += ['</td><td>']
@@ -649,7 +649,7 @@ class Abe:
                     if txout['value'] == 0:
                         continue
 
-                body += [abe.format_addresses(txout, page['dotdot']), ': ',
+                body += [abe.format_addresses(txout, page['dotdot'], chain), ': ',
                          format_satoshis(txout['value'], chain), '<br />']
 
             body += ['</td></tr>\n']
@@ -685,7 +685,7 @@ class Abe:
         try:
             # XXX Should pass chain to export_tx to help parse scripts.
             tx = abe.store.export_tx(tx_hash = tx_hash, format = 'browser')
-        except TypeError:
+        except DataStore.MalformedHash:
             body += ['<p class="error">Not in correct format.</p>']
             return
 
@@ -713,7 +713,7 @@ class Abe:
             body += [
                 '</td>\n',
                 '<td>', format_satoshis(row['value'], chain), '</td>\n',
-                '<td>', abe.format_addresses(row, '../'), '</td>\n']
+                '<td>', abe.format_addresses(row, '../', chain), '</td>\n']
             if row['binscript'] is not None:
                 body += ['<td>', escape(decode_script(row['binscript'])), '</td>\n']
             body += ['</tr>\n']
@@ -799,7 +799,7 @@ class Abe:
         try:
             history = abe.store.export_address_history(
                 address, chain=page['chain'], max_rows=abe.address_history_rows_max)
-        except ValueError:
+        except DataStore.MalformedAddress:
             body += ['<p>Not a valid address.</p>']
             return
 
@@ -876,16 +876,21 @@ class Abe:
                 balance[chain.id] += elt['value']
 
             body += ['<tr class="', type, '"><td class="tx"><a href="../tx/', elt['tx_hash'],
-                     '#', 'i' if elt['is_in'] else 'o', elt['pos'],
+                     '#', 'i' if elt['is_out'] else 'o', elt['pos'],
                      '">', elt['tx_hash'][:10], '...</a>',
                      '</td><td class="block"><a href="../block/', elt['blk_hash'],
                      '">', elt['height'], '</a></td><td class="time">',
                      format_time(elt['nTime']), '</td><td class="amount">']
+
             if elt['value'] < 0:
-                body += ['(', format_satoshis(-elt['value'], chain), ')']
+                value = '(', format_satoshis(-elt['value'], chain), ')'
             else:
-                body += [format_satoshis(elt['value'], chain)]
-            body += ['</td><td class="balance">',
+                value = format_satoshis(elt['value'], chain)
+
+            if 'binaddr' in elt:
+                value = hash_to_address_link(chain.script_addr_vers, elt['binaddr'], page['dotdot'], text=value)
+
+            body += [value, '</td><td class="balance">',
                      format_satoshis(balance[chain.id], chain),
                      '</td><td class="currency">', escape(chain.code3),
                      '</td></tr>\n']
@@ -1779,13 +1784,20 @@ def format_difficulty(diff):
         idiff = idiff / 1000
     return str(idiff) + ret
 
-def hash_to_address_link(version, hash, dotdot, truncate_to=None):
+def hash_to_address_link(version, hash, dotdot, truncate_to=None, text=None):
     if hash == DataStore.NULL_PUBKEY_HASH:
         return 'Destroyed'
     if hash is None:
         return 'UNKNOWN'
     addr = util.hash_to_address(version, hash)
-    visible = addr if truncate_to is None else addr[:truncate_to] + '...'
+
+    if text is not None:
+        visible = text
+    elif truncate_to is None:
+        visible = addr
+    else:
+        visible = addr[:truncate_to] + '...'
+
     return ['<a href="', dotdot, 'address/', addr, '">', visible, '</a>']
 
 def decode_script(script):

@@ -101,6 +101,12 @@ class MerkleRootMismatch(InvalidBlock):
         return 'Block header Merkle root does not match its transactions. ' \
             'block hash=%s' % (ex.block_hash[::-1].encode('hex'),)
 
+class MalformedHash(ValueError):
+    pass
+
+class MalformedAddress(ValueError):
+    pass
+
 class DataStore(object):
 
     """
@@ -2221,7 +2227,8 @@ store._ddl['txout_approx'],
             txout['binaddr'] = data
         elif script_type == Chain.SCRIPT_TYPE_MULTISIG:
             txout['required_signatures'] = data['m']
-            txout['binaddr'] = [
+            txout['binaddr'] = chain.pubkey_hash(scriptPubKey)
+            txout['subbinaddr'] = [
                 chain.pubkey_hash(pubkey)
                 for pubkey in data['pubkeys']
                 ]
@@ -2267,9 +2274,9 @@ store._ddl['txout_approx'],
         * value_out
         * version
 
-        For multisig inputs and outputs, instead of binaddr:
+        Additionally, for multisig inputs and outputs:
 
-        * binaddr[]
+        * subbinaddr[]
         * required_signatures
 
         Additionally, for proof-of-stake chains:
@@ -2732,11 +2739,16 @@ store._ddl['txout_approx'],
         return tx
 
     def _export_tx_detail(store, tx_hash, chain):
+        try:
+            dbhash = store.hashin_hex(tx_hash)
+        except TypeError:
+            raise MalformedHash()
+
         row = store.selectrow("""
             SELECT tx_id, tx_version, tx_lockTime, tx_size
               FROM tx
              WHERE tx_hash = ?
-        """, (store.hashin_hex(tx_hash),))
+        """, (dbhash,))
         if row is None:
             return None
 
@@ -2840,7 +2852,7 @@ store._ddl['txout_approx'],
     def export_address_history(store, address, chain=None, max_rows=-1, types=frozenset(['direct', 'escrow'])):
         version, binaddr = util.decode_check_address(address)
         if binaddr is None:
-            raise ValueError("Invalid address")
+            raise MalformedAddress("Invalid address")
 
         balance = {}
         received = {}
@@ -2860,35 +2872,39 @@ store._ddl['txout_approx'],
             if txpoint['type'] == 'direct':
                 value = txpoint['value']
                 balance[chain.id] += value
-                if txpoint['is_in']:
+                if txpoint['is_out']:
                     sent[chain.id] -= value
                 else:
                     received[chain.id] += value
-                counts[txpoint['is_in']] += 1
+                counts[txpoint['is_out']] += 1
 
         dbhash = store.binin(binaddr)
         txpoints = []
 
-        def parse_row(row, is_in, row_type):
-            nTime, chain_id, height, blk_hash, tx_hash, pos, value = row
-            return {
+        def parse_row(is_out, row_type, nTime, chain_id, height, blk_hash, tx_hash, pos, value, script=None):
+            chain = store.get_chain_by_id(chain_id)
+            txpoint = {
                 'type':     row_type,
-                'is_in':    int(is_in),
+                'is_out':   int(is_out),
                 'nTime':    int(nTime),
-                'chain':    store.get_chain_by_id(chain_id),
+                'chain':    chain,
                 'height':   int(height),
                 'blk_hash': store.hashout_hex(blk_hash),
                 'tx_hash':  store.hashout_hex(tx_hash),
                 'pos':      int(pos),
                 'value':    int(value),
                 }
+            if script is not None:
+                store._export_scriptPubKey(txpoint, chain, script)
 
-        def parse_direct_in(row):  return parse_row(row, True, 'direct')
-        def parse_direct_out(row): return parse_row(row, False, 'direct')
-        def parse_escrow_in(row):  return parse_row(row, True, 'escrow')
-        def parse_escrow_out(row): return parse_row(row, False, 'escrow')
+            return txpoint
 
-        def get_sent(escrow):
+        def parse_direct_in(row):  return parse_row(True, 'direct', *row)
+        def parse_direct_out(row): return parse_row(False, 'direct', *row)
+        def parse_escrow_in(row):  return parse_row(True, 'escrow', *row)
+        def parse_escrow_out(row): return parse_row(False, 'escrow', *row)
+
+        def get_received(escrow):
             return store.selectall("""
                 SELECT
                     b.block_nTime,
@@ -2897,7 +2913,8 @@ store._ddl['txout_approx'],
                     b.block_hash,
                     tx.tx_hash,
                     txin.txin_pos,
-                    -prevout.txout_value
+                    -prevout.txout_value""" + (""",
+                    prevout.txout_scriptPubKey""" if escrow else "") + """
                   FROM chain_candidate cc
                   JOIN block b ON (b.block_id = cc.block_id)
                   JOIN block_tx ON (block_tx.block_id = b.block_id)
@@ -2913,7 +2930,7 @@ store._ddl['txout_approx'],
                           if max_rows < 0 else
                           (dbhash, max_rows + 1))
 
-        def get_received(escrow):
+        def get_sent(escrow):
             return store.selectall("""
                 SELECT
                     b.block_nTime,
@@ -2922,7 +2939,8 @@ store._ddl['txout_approx'],
                     b.block_hash,
                     tx.tx_hash,
                     txout.txout_pos,
-                    txout.txout_value
+                    txout.txout_value""" + (""",
+                    txout.txout_scriptPubKey""" if escrow else "") + """
                   FROM chain_candidate cc
                   JOIN block b ON (b.block_id = cc.block_id)
                   JOIN block_tx ON (block_tx.block_id = b.block_id)
@@ -2938,29 +2956,30 @@ store._ddl['txout_approx'],
                           (dbhash,))
 
         if 'direct' in types:
-            in_rows = get_sent(False)
+            in_rows = get_received(False)
             if len(in_rows) > max_rows >= 0:
                 return None
             txpoints += map(parse_direct_in, in_rows)
 
-            out_rows = get_received(False)
+            out_rows = get_sent(False)
             if len(out_rows) > max_rows >= 0:
                 return None
             txpoints += map(parse_direct_out, out_rows)
 
         if 'escrow' in types:
-            in_rows = get_sent(True)
+            in_rows = get_received(True)
             if len(in_rows) > max_rows >= 0:
                 return None
             txpoints += map(parse_escrow_in, in_rows)
 
-            out_rows = get_received(True)
+            out_rows = get_sent(True)
             if len(out_rows) > max_rows >= 0:
                 return None
             txpoints += map(parse_escrow_out, out_rows)
 
         def cmp_txpoint(p1, p2):
             return cmp(p1['nTime'], p2['nTime']) \
+                or cmp(p1['is_out'], p2['is_out']) \
                 or cmp(p1['height'], p2['height']) \
                 or cmp(p1['chain'].name, p2['chain'].name)
 
