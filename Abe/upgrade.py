@@ -994,29 +994,23 @@ def create_x_multisig_pubkey_multisig(store):
 
 def populate_multisig_pubkey(store):
     store.init_chains()
-    store.log.info("Finding multisig addresses.")
+    store.log.info("Finding new address types.")
+
+    rows = store.selectall("""
+        SELECT txout_id, chain_id, txout_scriptPubKey
+          FROM txout_detail
+         WHERE pubkey_id IS NULL""")
+
     count = 0
-    last = 0
-    while True:
-        rows = store.selectall("""
-            SELECT txout_id, chain_id, txout_scriptPubKey
-              FROM txout_detail
-             WHERE pubkey_id IS NULL
-               AND txout_id >= ?
-             ORDER BY txout_id
-             LIMIT 3000""",
-                               (last,))
-        if not rows:
-            break
-        for txout_id, chain_id, db_script in rows:
-            last = txout_id
-            script = store.binout(db_script)
-            pubkey_id = store.script_to_pubkey_id(store.get_chain_by_id(chain_id), script)
-            if pubkey_id > 0:
-                store.sql("UPDATE txout SET pubkey_id = ? WHERE txout_id = ?",
-                          (pubkey_id, txout_id))
-                count += 1
-        store.log.info("Found %d", count)
+    for txout_id, chain_id, db_script in rows:
+        script = store.binout(db_script)
+        pubkey_id = store.script_to_pubkey_id(store.get_chain_by_id(chain_id), script)
+        if pubkey_id > 0:
+            store.sql("UPDATE txout SET pubkey_id = ? WHERE txout_id = ?",
+                      (pubkey_id, txout_id))
+            count += 1
+    store.commit()
+    store.log.info("Found %d", count)
 
 upgrades = [
     ('6',    add_block_value_in),
@@ -1113,7 +1107,7 @@ upgrades = [
     ('AbeMultisig0.2', populate_chain_script_addr_vers), # Fast
     ('AbeMultisig0.3', create_multisig_pubkey), # Fast
     ('AbeMultisig0.4', create_x_multisig_pubkey_multisig), # Fast
-    ('AbeMultisig0.5', populate_multisig_pubkey), # Minutes?
+    ('AbeMultisig0.5', populate_multisig_pubkey), # Minutes-hours
     ('AbeMultisig1', None)
 ]
 
