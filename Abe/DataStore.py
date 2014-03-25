@@ -85,6 +85,7 @@ NULL_PUBKEY_ID = 0
 PUBKEY_ID_NETWORK_FEE = NULL_PUBKEY_ID
 
 # Size of the script and pubkey columns in bytes.
+# XXX Should be configurable.
 MAX_SCRIPT = 1000000
 MAX_PUBKEY = 65
 
@@ -1183,7 +1184,7 @@ store._ddl['configvar'],
 """CREATE TABLE pubkey (
     pubkey_id     NUMERIC(26) NOT NULL PRIMARY KEY,
     pubkey_hash   BIT(160)    UNIQUE NOT NULL,
-   pubkey        BIT(""" + str(8 * MAX_PUBKEY) + """)    NULL
+    pubkey        BIT(""" + str(8 * MAX_PUBKEY) + """)    NULL
 )""",
 
 """CREATE TABLE multisig_pubkey (
@@ -2536,7 +2537,7 @@ store._ddl['txout_approx'],
             tx['value_out'] += txout['value']
             txout_id = store.new_id("txout")
 
-            pubkey_id = store.script_to_pubkey_id(chain, txout['scriptPubKey'])
+            pubkey_id = store.import_scriptPubKey(chain, txout['scriptPubKey'])
             if pubkey_id is not None and pubkey_id <= 0:
                 tx['value_destroyed'] += txout['value']
 
@@ -2568,12 +2569,16 @@ store._ddl['txout_approx'],
             if is_coinbase:
                 txout_id = None
             else:
-                txout_id, value = store.lookup_txout(
+                txout_id, value, pubkey_id, pubkey = store.lookup_txout(
                     txin['prevout_hash'], txin['prevout_n'])
+
                 if value is None:
                     tx['value_in'] = None
                 elif tx['value_in'] is not None:
                     tx['value_in'] += value
+
+                if pubkey is None:
+                    store._import_scriptSig(chain, txin['scriptSig'], pubkey_id)
 
             store.sql("""
                 INSERT INTO txin (
@@ -3176,15 +3181,25 @@ store._ddl['txout_approx'],
 
     def lookup_txout(store, tx_hash, txout_pos):
         row = store.selectrow("""
-            SELECT txout.txout_id, txout.txout_value
+            SELECT txout.txout_id,
+                   txout.txout_value,
+                   txout.pubkey_id,
+                   pubkey.pubkey
               FROM txout, tx
+              LEFT JOIN pubkey ON (txout.pubkey_id = pubkey.pubkey_id)
              WHERE txout.tx_id = tx.tx_id
                AND tx.tx_hash = ?
                AND txout.txout_pos = ?""",
                   (store.hashin(tx_hash), txout_pos))
-        return (None, None) if row is None else (row[0], int(row[1]))
+        if row is None:
+            return (None, None, None, None)
+        return (row[0], int(row[1]), row[2], store.binout(row[3]))
 
-    def script_to_pubkey_id(store, chain, script):
+    def _import_scriptSig(store, chain, script, pubkey_id):
+        """Extract addresses from transaction input script."""
+        script_type, data = chain.parse_txin_script(script)
+
+    def import_scriptPubKey(store, chain, script):
         """Extract address and script type from transaction output script."""
         script_type, data = chain.parse_txout_script(script)
 
@@ -3229,13 +3244,16 @@ store._ddl['txout_approx'],
         pubkey_id = store.new_id("pubkey")
 
         if pubkey is not None and len(pubkey) > MAX_PUBKEY:
-            pubkey = None
+            pubkey = pubkey[:MAX_PUBKEY]
 
+        store._insert_pubkey(pubkey_id, dbhash, pubkey)
+        return pubkey_id
+
+    def _insert_pubkey(store, pubkey_id, dbhash, pubkey):
         store.sql("""
             INSERT INTO pubkey (pubkey_id, pubkey_hash, pubkey)
             VALUES (?, ?, ?)""",
                   (pubkey_id, dbhash, store.binin(pubkey)))
-        return pubkey_id
 
     def flush(store):
         if store.bytes_since_commit > 0:
