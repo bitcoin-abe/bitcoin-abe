@@ -864,26 +864,30 @@ class Abe:
 
         body += ['</p>\n'
                  '<h3>Transactions</h3>\n'
-                 '<table>\n<tr><th>Transaction</th><th>Block</th>'
+                 '<table class="addrhist">\n<tr><th>Transaction</th><th>Block</th>'
                  '<th>Approx. Time</th><th>Amount</th><th>Balance</th>'
                  '<th>Currency</th></tr>\n']
 
         for elt in txpoints:
             chain = elt['chain']
-            balance[chain.id] += elt['value']
-            body += ['<tr><td><a href="../tx/', elt['tx_hash'],
+            type = elt['type']
+
+            if type == 'direct':
+                balance[chain.id] += elt['value']
+
+            body += ['<tr class="', type, '"><td class="tx"><a href="../tx/', elt['tx_hash'],
                      '#', 'i' if elt['is_in'] else 'o', elt['pos'],
                      '">', elt['tx_hash'][:10], '...</a>',
-                     '</td><td><a href="../block/', elt['blk_hash'],
-                     '">', elt['height'], '</a></td><td>',
-                     format_time(elt['nTime']), '</td><td>']
+                     '</td><td class="block"><a href="../block/', elt['blk_hash'],
+                     '">', elt['height'], '</a></td><td class="time">',
+                     format_time(elt['nTime']), '</td><td class="amount">']
             if elt['value'] < 0:
                 body += ['(', format_satoshis(-elt['value'], chain), ')']
             else:
                 body += [format_satoshis(elt['value'], chain)]
-            body += ['</td><td>',
+            body += ['</td><td class="balance">',
                      format_satoshis(balance[chain.id], chain),
-                     '</td><td>', escape(chain.code3),
+                     '</td><td class="currency">', escape(chain.code3),
                      '</td></tr>\n']
         body += ['</table>\n']
 

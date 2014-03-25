@@ -30,3 +30,7 @@ table {
 .shortlink {
     font-size: smaller;
 }
+.addrhist .escrow .balance {
+    opacity: 0.5; /* standard */
+    filter: alpha(opacity = 50); /* MSIE */
+}

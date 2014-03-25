@@ -239,7 +239,7 @@ def test_an3j4_c0_name(an3j4):
     assert an3j4['chains'][0].name == 'Testnet'
 
 def test_an3j4_balance(an3j4, gen):
-    assert an3j4['balance'] == { gen.chain.id: 20e8 }
+    assert an3j4['balance'] == { gen.chain.id: 0 }
 
 def test_an3j4_txpoints(an3j4):
     assert len(an3j4['txpoints']) == 1
@@ -275,10 +275,10 @@ def test_an3j4_sent(an3j4, gen):
     assert an3j4['sent'] == { gen.chain.id: 0 }
 
 def test_an3j4_received(an3j4, gen):
-    assert an3j4['received'] == { gen.chain.id: 20e8 }
+    assert an3j4['received'] == { gen.chain.id: 0 }
 
 def test_an3j4_counts(an3j4):
-    assert an3j4['counts'] == [1, 0]
+    assert an3j4['counts'] == [0, 0]
 
 def b(gen, b):
     return gen.store.export_block(chain=gen.chain, block_number=b)

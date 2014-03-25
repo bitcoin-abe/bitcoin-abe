@@ -2850,18 +2850,21 @@ store._ddl['txout_approx'],
 
         def adj_balance(txpoint):
             chain = txpoint['chain']
-            value = txpoint['value']
+
             if chain.id not in balance:
                 chains.append(chain)
                 balance[chain.id] = 0
                 received[chain.id] = 0
                 sent[chain.id] = 0
-            balance[chain.id] += value
-            if txpoint['is_in']:
-                sent[chain.id] -= value
-            else:
-                received[chain.id] += value
-            counts[txpoint['is_in']] += 1
+
+            if txpoint['type'] == 'direct':
+                value = txpoint['value']
+                balance[chain.id] += value
+                if txpoint['is_in']:
+                    sent[chain.id] -= value
+                else:
+                    received[chain.id] += value
+                counts[txpoint['is_in']] += 1
 
         dbhash = store.binin(binaddr)
         txpoints = []
