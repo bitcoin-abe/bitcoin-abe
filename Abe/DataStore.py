@@ -2206,29 +2206,29 @@ store._ddl['txout_approx'],
             if pair and pair[1] > ret[chain_id][1]:
                 ret[chain_id] = pair
 
-    def _export_scriptPubKey(store, out, chain, scriptPubKey):
-        """In out, set script_type, address_version, binaddr, and for multisig, required_signatures."""
+    def _export_scriptPubKey(store, txout, chain, scriptPubKey):
+        """In txout, set script_type, address_version, binaddr, and for multisig, required_signatures."""
         script_type, data = chain.parse_txout_script(scriptPubKey)
-        out['script_type'] = script_type
-        out['address_version'] = chain.address_version
+        txout['script_type'] = script_type
+        txout['address_version'] = chain.address_version
 
         if script_type == Chain.SCRIPT_TYPE_PUBKEY:
-            out['binaddr'] = chain.pubkey_hash(data)
+            txout['binaddr'] = chain.pubkey_hash(data)
         elif script_type == Chain.SCRIPT_TYPE_ADDRESS:
-            out['binaddr'] = data
+            txout['binaddr'] = data
         elif script_type == Chain.SCRIPT_TYPE_P2SH:
-            out['address_version'] = chain.script_addr_vers
-            out['binaddr'] = data
+            txout['address_version'] = chain.script_addr_vers
+            txout['binaddr'] = data
         elif script_type == Chain.SCRIPT_TYPE_MULTISIG:
-            out['required_signatures'] = data['m']
-            out['binaddr'] = [
+            txout['required_signatures'] = data['m']
+            txout['binaddr'] = [
                 chain.pubkey_hash(pubkey)
                 for pubkey in data['pubkeys']
                 ]
         elif script_type == Chain.SCRIPT_TYPE_BURN:
-            out['binaddr'] = NULL_PUBKEY_HASH
+            txout['binaddr'] = NULL_PUBKEY_HASH
         else:
-            out['binaddr'] = None
+            txout['binaddr'] = None
 
     def export_block(store, chain=None, block_hash=None, block_number=None):
         """
