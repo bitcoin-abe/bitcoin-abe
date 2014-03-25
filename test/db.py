@@ -25,8 +25,6 @@ import os
 import subprocess
 import Abe.util
 
-__all__ = ['testdb']
-
 def testdb_params():
     dbs = os.environ.get('ABE_TEST_DB')
     if dbs is not None:
@@ -35,35 +33,13 @@ def testdb_params():
         return ['sqlite3']
     return ['sqlite3', 'mysql', 'postgres']
 
-_server_cache = {}
+@pytest.fixture(scope="module")
+def testdb(request, db_server):
+    db_server.createdb()
+    request.addfinalizer(db_server.dropdb)
+    return db_server
 
-def cleanup(bla):
-    #print("cleanup()")
-    for db in _server_cache.values():
-        db.delete()
-    _server_cache.clear()
-
-#@pytest.fixture(scope="session", autouse=True)
-def server():
-    #print("server()")
-    #request.addfinalizer(cleanup)
-    return 'bla'
-
-@pytest.fixture(scope="module", params=testdb_params())
-def testdb(request):
-    param = request.param
-    if param in _server_cache:
-        db = _server_cache[param]
-    else:
-        db = create(request.param)
-        #request.addfinalizer(db.delete)
-        _server_cache[param] = db
-        request.cached_setup(server, cleanup, 'session')
-    db.createdb()
-    request.addfinalizer(db.dropdb)
-    return db
-
-def create(dbtype=None):
+def create_server(dbtype=None):
     if dbtype in (None, 'sqlite3', 'sqlite'):
         return SqliteMemoryDB()
     if dbtype in ('mysql', 'MySQLdb'):
