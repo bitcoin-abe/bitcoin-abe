@@ -1343,9 +1343,12 @@ store._ddl['txout_approx'],
             conn.close()
 
     def version_below(store, vers):
-        sv = store.config['schema_version'].replace('Abe', '')
-        vers = vers.replace('Abe', '')
-        return float(sv) < float(vers)
+        try:
+            sv = float(store.config['schema_version'].replace('Abe', ''))
+        except ValueError:
+            return False
+        vers = float(vers.replace('Abe', ''))
+        return sv < vers
 
     def configure(store):
         store.config = {}
@@ -3162,7 +3165,7 @@ store._ddl['txout_approx'],
             multisig_id = store._pubkey_id(script_hash, script)
 
             if not store.selectrow("SELECT 1 FROM multisig_pubkey WHERE multisig_id = ?", (multisig_id,)):
-                for pubkey in data['pubkeys']:
+                for pubkey in set(data['pubkeys']):
                     pubkey_id = store.pubkey_to_id(chain, pubkey)
                     store.sql("""
                         INSERT INTO multisig_pubkey (multisig_id, pubkey_id)
