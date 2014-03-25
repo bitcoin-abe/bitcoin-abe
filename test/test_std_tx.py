@@ -113,6 +113,9 @@ def ahn1p(gen):
 def test_ahn1p_binaddr(ahn1p):
     assert ahn1p['binaddr'] == 'deb1f1ffbef6061a0b8f6d23b4e72164b4678253'.decode('hex')
 
+def test_ahn1p_subbinaddr(ahn1p):
+    assert 'subbinaddr' not in ahn1p
+
 def test_ahn1p_version(ahn1p):
     assert ahn1p['version'] == '\x6f'
 
@@ -131,8 +134,8 @@ def test_ahn1p_txpoints(ahn1p):
 def test_ahn1p_p0_type(ahn1p):
     assert ahn1p['txpoints'][0]['type'] == 'direct'
 
-def test_ahn1p_p0_is_in(ahn1p):
-    assert not ahn1p['txpoints'][0]['is_in']
+def test_ahn1p_p0_is_out(ahn1p):
+    assert not ahn1p['txpoints'][0]['is_out']
 
 def test_ahn1p_p0_nTime(ahn1p):
     assert ahn1p['txpoints'][0]['nTime'] == 1231006506
@@ -171,6 +174,9 @@ def a2NFT(gen):
 def test_a2NFT_binaddr(a2NFT):
     assert a2NFT['binaddr'] == 'f3aae15f9b92a094bb4e01afe99f99ab4135f362'.decode('hex')
 
+def test_a2NFT_subbinaddr(a2NFT):
+    assert 'subbinaddr' not in a2NFT
+
 def test_a2NFT_version(a2NFT):
     assert a2NFT['version'] == '\xc4'
 
@@ -189,8 +195,8 @@ def test_a2NFT_txpoints(a2NFT):
 def test_a2NFT_p0_type(a2NFT):
     assert a2NFT['txpoints'][0]['type'] == 'direct'
 
-def test_a2NFT_p0_is_in(a2NFT):
-    assert not a2NFT['txpoints'][0]['is_in']
+def test_a2NFT_p0_is_out(a2NFT):
+    assert not a2NFT['txpoints'][0]['is_out']
 
 def test_a2NFT_p0_nTime(a2NFT):
     assert a2NFT['txpoints'][0]['nTime'] == 1231006506
@@ -229,6 +235,9 @@ def an3j4(gen):
 def test_an3j4_binaddr(an3j4, gen):
     assert an3j4['binaddr'] == gen.chain.pubkey_hash(PUBKEYS[3])
 
+def test_an3j4_subbinaddr(an3j4, gen):
+    assert 'subbinaddr' not in an3j4
+
 def test_an3j4_version(an3j4):
     assert an3j4['version'] == '\x6f'
 
@@ -247,8 +256,8 @@ def test_an3j4_txpoints(an3j4):
 def test_an3j4_p0_type(an3j4):
     assert an3j4['txpoints'][0]['type'] == 'escrow'
 
-def test_an3j4_p0_is_in(an3j4):
-    assert not an3j4['txpoints'][0]['is_in']
+def test_an3j4_p0_is_out(an3j4):
+    assert not an3j4['txpoints'][0]['is_out']
 
 def test_an3j4_p0_nTime(an3j4):
     assert an3j4['txpoints'][0]['nTime'] == 1231006506
@@ -279,6 +288,9 @@ def test_an3j4_received(an3j4, gen):
 
 def test_an3j4_counts(an3j4):
     assert an3j4['counts'] == [0, 0]
+
+# TODO: look up multisig by its P2SH address, check subbinaddr.
+# TODO: test different types of redeemed outputs.
 
 def b(gen, b):
     return gen.store.export_block(chain=gen.chain, block_number=b)
@@ -391,16 +403,19 @@ def test_b14_t1o2_address_version(b14):
     assert b14['transactions'][1]['out'][2]['address_version'] == '\x6f'
 
 def test_b14_t1o2_binaddr(b14, gen):
-    assert len(b14['transactions'][1]['out'][2]['binaddr']) == 3
+    assert b14['transactions'][1]['out'][2]['binaddr'] == 'b8bcada90d0992bdc64188d6a0ac3f9fd200d1d1'.decode('hex')
+
+def test_b14_t1o2_subbinaddr(b14, gen):
+    assert len(b14['transactions'][1]['out'][2]['subbinaddr']) == 3
 
 def test_b14_t1o2k0(b14, gen):
-    assert b14['transactions'][1]['out'][2]['binaddr'][0] == gen.chain.pubkey_hash(PUBKEYS[2])
+    assert b14['transactions'][1]['out'][2]['subbinaddr'][0] == gen.chain.pubkey_hash(PUBKEYS[2])
 
 def test_b14_t1o2k1(b14, gen):
-    assert b14['transactions'][1]['out'][2]['binaddr'][1] == gen.chain.pubkey_hash(PUBKEYS[3])
+    assert b14['transactions'][1]['out'][2]['subbinaddr'][1] == gen.chain.pubkey_hash(PUBKEYS[3])
 
 def test_b14_t1o2k2(b14, gen):
-    assert b14['transactions'][1]['out'][2]['binaddr'][2] == gen.chain.pubkey_hash(PUBKEYS[4])
+    assert b14['transactions'][1]['out'][2]['subbinaddr'][2] == gen.chain.pubkey_hash(PUBKEYS[4])
 
 def test_b14_t1o2_required_signatures(b14):
     assert b14['transactions'][1]['out'][2]['required_signatures'] == 2
@@ -447,7 +462,10 @@ def test_b14t1o2_required_signatures(b14t1):
     assert b14t1['out'][2]['required_signatures'] == 2
 
 def test_b14t1o2_binaddr(b14t1, gen):
-    assert b14t1['out'][2]['binaddr'] == [ gen.chain.pubkey_hash(pubkey) for pubkey in PUBKEYS[2:5] ]
+    assert b14t1['out'][2]['binaddr'] == 'b8bcada90d0992bdc64188d6a0ac3f9fd200d1d1'.decode('hex')
+
+def test_b14t1o2_subbinaddr(b14t1, gen):
+    assert b14t1['out'][2]['subbinaddr'] == [ gen.chain.pubkey_hash(pubkey) for pubkey in PUBKEYS[2:5] ]
 
 def test_b14t1o2_value(b14t1):
     assert b14t1['out'][2]['value'] == 20e8

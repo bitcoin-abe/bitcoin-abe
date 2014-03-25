@@ -853,6 +853,21 @@ class Abe:
 
         body += ['<p>Balance: '] + format_amounts(balance, True)
 
+        if 'subbinaddr' in history:
+            chain = page['chain']
+
+            if chain is None:
+                for c in chains:
+                    if c.script_addr_vers == version:
+                        chain = c
+                        break
+                if chain is None:
+                    chain = chains[0]
+
+            body += ['<br />\nEscrow']
+            for subbinaddr in history['subbinaddr']:
+                body += [' ', hash_to_address_link(chain.address_version, subbinaddr, page['dotdot'], 10) ]
+
         for chain in chains:
             balance[chain.id] = 0  # Reset for history traversal.
 

@@ -2958,7 +2958,7 @@ store._ddl['txout_approx'],
         if 'direct' in types:
             in_rows = get_received(False)
             if len(in_rows) > max_rows >= 0:
-                return None
+                return None  # XXX Could still show address basic data.
             txpoints += map(parse_direct_in, in_rows)
 
             out_rows = get_sent(False)
@@ -2988,7 +2988,7 @@ store._ddl['txout_approx'],
         for txpoint in txpoints:
             adj_balance(txpoint)
 
-        return {
+        hist = {
             'binaddr':  binaddr,
             'version':  version,
             'chains':   chains,
@@ -2998,6 +2998,20 @@ store._ddl['txout_approx'],
             'received': received,
             'counts':   counts
             }
+
+        # Show P2SH address components, if known.
+        # XXX With some more work, we could find required_signatures.
+        for (subbinaddr,) in store.selectall("""
+            SELECT sub.pubkey_hash
+              FROM multisig_pubkey mp
+              JOIN pubkey top ON (mp.multisig_id = top.pubkey_id)
+              JOIN pubkey sub ON (mp.pubkey_id = sub.pubkey_id)
+             WHERE top.pubkey_hash = ?""", (dbhash,)):
+            if 'subbinaddr' not in hist:
+                hist['subbinaddr'] = []
+            hist['subbinaddr'].append(store.binout(subbinaddr))
+
+        return hist
 
     # Called to indicate that the given block has the correct magic
     # number and policy for the given chains.  Updates CHAIN_CANDIDATE
