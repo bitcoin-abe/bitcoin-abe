@@ -2901,7 +2901,7 @@ store._ddl['txout_approx'],
                   JOIN tx ON (tx.tx_id = block_tx.tx_id)
                   JOIN txin ON (txin.tx_id = tx.tx_id)
                   JOIN txout prevout ON (txin.txout_id = prevout.txout_id)""" + ("""
-                  JOIN multisig_pubkey mp ON (mp.multisig_id = prevout.txout_id)""" if escrow else "") + """
+                  JOIN multisig_pubkey mp ON (mp.multisig_id = prevout.pubkey_id)""" if escrow else "") + """
                   JOIN pubkey ON (pubkey.pubkey_id = """ + ("mp" if escrow else "prevout") + """.pubkey_id)
                  WHERE pubkey.pubkey_hash = ?
                    AND cc.in_longest = 1""" + ("" if max_rows < 0 else """
@@ -2925,7 +2925,7 @@ store._ddl['txout_approx'],
                   JOIN block_tx ON (block_tx.block_id = b.block_id)
                   JOIN tx ON (tx.tx_id = block_tx.tx_id)
                   JOIN txout ON (txout.tx_id = tx.tx_id)""" + ("""
-                  JOIN multisig_pubkey mp ON (mp.multisig_id = txout.txout_id)""" if escrow else "") + """
+                  JOIN multisig_pubkey mp ON (mp.multisig_id = txout.pubkey_id)""" if escrow else "") + """
                   JOIN pubkey ON (pubkey.pubkey_id = """ + ("mp" if escrow else "txout") + """.pubkey_id)
                  WHERE pubkey.pubkey_hash = ?
                    AND cc.in_longest = 1""" + ("" if max_rows < 0 else """
