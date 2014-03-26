@@ -58,12 +58,9 @@ CONFIG_DEFAULTS = {
 WORK_BITS = 304  # XXX more than necessary.
 
 CHAIN_CONFIG = [
-    {"chain":"Bitcoin",
-     "code3":"BTC", "address_version":"\x00", "magic":"\xf9\xbe\xb4\xd9", "script_addr_vers":"\x05"},
-    {"chain":"Testnet",
-     "code3":"BC0", "address_version":"\x6f", "magic":"\xfa\xbf\xb5\xda", "script_addr_vers":"\xc4"},
-    {"chain":"Namecoin",
-     "code3":"NMC", "address_version":"\x34", "magic":"\xf9\xbe\xb4\xfe"},
+    {"chain":"Bitcoin"},
+    {"chain":"Testnet"},
+    {"chain":"Namecoin"},
     {"chain":"Weeds", "network":"Weedsnet",
      "code3":"WDS", "address_version":"\xf3", "magic":"\xf8\xbf\xb5\xda"},
     {"chain":"BeerTokens",
