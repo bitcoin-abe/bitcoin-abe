@@ -992,9 +992,9 @@ def create_multisig_pubkey(store):
 def create_x_multisig_pubkey_multisig(store):
     store.ddl("CREATE INDEX x_multisig_pubkey_pubkey ON multisig_pubkey (pubkey_id)")
 
-def populate_multisig_pubkey(store):
+def populate_multisig_pubkey_1(store):
     store.init_chains()
-    store.log.info("Finding new address types.")
+    store.log.info("Finding new address types in output scripts.")
 
     rows = store.selectall("""
         SELECT txout_id, chain_id, txout_scriptPubKey
@@ -1011,6 +1011,36 @@ def populate_multisig_pubkey(store):
             count += 1
     store.commit()
     store.log.info("Found %d", count)
+
+def populate_multisig_pubkey_2(store):
+    store.init_chains()
+    store.log.info("Finding new address types in input scripts.")
+
+    rows = store.selectall("""
+        SELECT chain_id, txin_scriptSig, txin_scriptPubKey
+          FROM txin_detail
+         WHERE txin_scriptPubKey > ?
+           AND txin_scriptPubKey < ?""",
+                           (store.binin_hex('a9'), store.binin_hex('aa')))
+
+    import Chain
+    count = 0
+
+    for chain_id, db_scriptSig, db_scriptPubKey in rows:
+        scriptSig = store.binout(db_scriptSig)
+        try:
+            script = [ x for x in deserialize.script_GetOp(scriptSig) ][-1][1]
+        except Exception:
+            continue
+        scriptPubKey = store.binout(db_scriptPubKey)
+        chain = store.get_chain_by_id(chain_id)
+        script_type, script_hash = chain.parse_txout_script(scriptPubKey)
+        if script_type == Chain.SCRIPT_TYPE_P2SH and script_hash == chain.script_hash(script):
+            store.script_to_pubkey_id(chain, script)
+            count += 1
+
+    store.commit()
+    store.log.info("Processed %d scripts", count)
 
 upgrades = [
     ('6',    add_block_value_in),
@@ -1107,7 +1137,8 @@ upgrades = [
     ('AbeMultisig0.2', populate_chain_script_addr_vers), # Fast
     ('AbeMultisig0.3', create_multisig_pubkey), # Fast
     ('AbeMultisig0.4', create_x_multisig_pubkey_multisig), # Fast
-    ('AbeMultisig0.5', populate_multisig_pubkey), # Minutes-hours
+    ('AbeMultisig0.5', populate_multisig_pubkey_1), # Minutes-hours
+    ('AbeMultisig0.6', populate_multisig_pubkey_2), # Minutes-hours
     ('AbeMultisig1', None)
 ]
 
