@@ -263,11 +263,11 @@ class DataStore(object):
         store.log.info("Reconnecting to database.")
         try:
             store.cursor.close()
-        except:
+        except Exception:
             pass
         try:
             store.conn.close()
-        except:
+        except Exception:
             pass
         store.init_conn()
 
@@ -286,7 +286,7 @@ class DataStore(object):
         except store.module.DatabaseError:
             try:
                 store.rollback()
-            except:
+            except Exception:
                 pass
 
         # Read legacy table CONFIG if it exists.
@@ -298,10 +298,10 @@ class DataStore(object):
             row = store.cursor.fetchone()
             sv, btype = row
             return { 'schema_version': sv, 'binary_type': btype }
-        except:
+        except Exception:
             try:
                 store.rollback()
-            except:
+            except Exception:
                 pass
 
         # Return None to indicate no schema found.
@@ -495,7 +495,7 @@ class DataStore(object):
 
             try:
                 store.reconnect()
-            except:
+            except Exception:
                 store.log.exception("Failed to reconnect")
                 raise e
 
@@ -598,7 +598,7 @@ class DataStore(object):
         try:
             max_varchar = int(store.config['max_varchar'])
             clob_type = store.config['clob_type']
-        except:
+        except Exception:
             return stmt
 
         patt = re.compile("VARCHAR\\(([0-9]+)\\)")
@@ -852,7 +852,7 @@ class DataStore(object):
             store.rollback()
             try:
                 store.ddl(store._ddl['abe_sequences'])
-            except:
+            except Exception:
                 store.rollback()
                 raise e
             store.sql("INSERT INTO abe_sequences (sequence_key, nextid)"
@@ -1253,7 +1253,7 @@ store._ddl['txout_approx'],
 ):
             try:
                 store.ddl(stmt)
-            except:
+            except Exception:
                 store.log.error("Failed: %s", stmt)
                 raise
 
@@ -1330,7 +1330,7 @@ store._ddl['txout_approx'],
                 INSERT INTO configvar (configvar_name, configvar_value)
                 VALUES (?, ?)""",
                       ("upgrade-lock-" + letters, 'x'))
-        except:
+        except Exception:
             store.release_lock(conn)
             conn = None
 
@@ -1542,7 +1542,7 @@ store._ddl['txout_approx'],
             except Exception, e:
                 try:
                     store.rollback()
-                except:
+                except Exception:
                     # Fetching a CLOB really messes up Easysoft ODBC Oracle.
                     store.reconnect()
             finally:
@@ -3483,7 +3483,7 @@ store._ddl['txout_approx'],
 
             try:
                 blkfile['stream'].map_file(file, 0)
-            except:
+            except Exception:
                 # mmap can fail on an empty file, but empty files are okay.
                 file.seek(0, os.SEEK_END)
                 if file.tell() == 0:
@@ -3515,7 +3515,7 @@ store._ddl['txout_approx'],
 
             try:
                 store.import_blkdat(dircfg, ds, blkfile['name'])
-            except:
+            except Exception:
                 store.log.warning("Exception at %d" % ds.read_cursor)
                 try_close_file(ds)
                 raise
@@ -3643,7 +3643,7 @@ store._ddl['txout_approx'],
                     try:
                         store.log.debug("Chain %d genesis tx: %s", chain.id,
                                         b['transactions'][0]['__data__'].encode('hex'))
-                    except:
+                    except Exception:
                         pass
 
                 store.import_block(b, chain = chain)

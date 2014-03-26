@@ -98,7 +98,7 @@ def create_block_txin(store):
 def index_block_tx_tx(store):
     try:
         store.sql("DROP INDEX x_block_tx_tx")
-    except:
+    except Exception:
         store.rollback()
     store.sql("CREATE INDEX x_block_tx_tx ON block_tx (tx_id)")
 
@@ -345,14 +345,14 @@ def drop_block_ss_columns(store):
     for c in ['created', 'destroyed']:
         try:
             store.sql("ALTER TABLE block DROP COLUMN block_ss_" + c)
-        except:
+        except Exception:
             store.rollback()
 
 def add_constraint(store, table, name, constraint):
     try:
         store.sql("ALTER TABLE " + table + " ADD CONSTRAINT " + name +
                   " " + constraint)
-    except:
+    except Exception:
         store.log.exception(
             "Failed to create constraint on table " + table + ": " +
             constraint + "; ignoring error.")
@@ -417,7 +417,7 @@ def populate_abe_sequences(store):
                              key VARCHAR(100) NOT NULL PRIMARY KEY,
                              nextid NUMERIC(30)
                          )""")
-        except:
+        except Exception:
             store.rollback()
         for t in ['block', 'tx', 'txin', 'txout', 'pubkey',
                   'chain', 'magic', 'policy']:
@@ -605,7 +605,7 @@ def rename_abe_sequences_key(store):
         data = store.selectall("""
             SELECT DISTINCT key, nextid
               FROM abe_sequences""")
-    except:
+    except Exception:
         store.rollback()
         return
     store.log.info("copying sequence positions: %s", data)
@@ -631,7 +631,7 @@ def add_datadir_id(store):
           FROM abe_tmp_datadir""")
     try:
         store.ddl("DROP TABLE datadir")
-    except:
+    except Exception:
         store.rollback()  # Assume already dropped.
 
     store.ddl("""CREATE TABLE datadir (
@@ -930,7 +930,7 @@ def insert_chain_novacoin(store):
     import Chain
     try:
         store.insert_chain(Chain.create("NovaCoin"))
-    except:
+    except Exception:
         pass
 
 def txin_detail_multisig(store):

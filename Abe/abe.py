@@ -258,7 +258,7 @@ class Abe:
             return redirect(page)
         except Streamed:
             return ''
-        except:
+        except Exception:
             abe.store.rollback()
             raise
 
@@ -1023,7 +1023,7 @@ class Abe:
     def search_address(abe, address):
         try:
             binaddr = base58.bc_address_to_hash_160(address)
-        except:
+        except Exception:
             return abe.search_address_prefix(address)
         return [abe._found_address(address)]
 
@@ -1117,7 +1117,7 @@ class Abe:
             height = wsgiref.util.shift_path_info(page['env'])
             try:
                 height = int(height)
-            except:
+            except Exception:
                 raise PageNotFound()
             if height < 0 or page['env']['PATH_INFO'] != '':
                 raise PageNotFound()
@@ -1175,7 +1175,7 @@ class Abe:
                 hashes.append(abe.store.binin(
                         base58.bc_address_to_hash_160(address)))
                 good_addrs.append(address)
-            except:
+            except Exception:
                 pass
         addrs = good_addrs
         bind += hashes
@@ -1388,7 +1388,7 @@ class Abe:
         try:
             hash = hash.decode('hex')
             version = version.decode('hex')
-        except:
+        except Exception:
             return 'ERROR: Arguments must be hexadecimal strings of even length'
         return util.hash_to_address(version, hash)
 
@@ -1406,7 +1406,7 @@ class Abe:
                 "/q/hashpubkey/PUBKEY\n"
         try:
             pubkey = pubkey.decode('hex')
-        except:
+        except Exception:
             return 'ERROR: invalid hexadecimal byte string.'
         return util.pubkey_to_hash(pubkey).encode('hex').upper()
 
@@ -1826,7 +1826,7 @@ def decode_script(script):
 def b58hex(b58):
     try:
         return base58.b58decode(b58, None).encode('hex_codec')
-    except:
+    except Exception:
         raise PageNotFound()
 
 def hexb58(hex):
@@ -1845,7 +1845,7 @@ def block_shortlink(block_hash):
 def shortlink_block(link):
     try:
         data = base58.b58decode(link, None)
-    except:
+    except Exception:
         raise PageNotFound()
     return ('00' * ord(data[0])) + data[1:].encode('hex_codec')
 

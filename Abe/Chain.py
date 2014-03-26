@@ -179,7 +179,7 @@ class Chain(object):
         """
         try:
             decoded = [ x for x in deserialize.script_GetOp(script) ]
-        except:
+        except Exception:
             return SCRIPT_TYPE_INVALID, script
         return chain.parse_decoded_txout_script(decoded)
 

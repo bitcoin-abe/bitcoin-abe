@@ -25,7 +25,7 @@ import Crypto.Hash.SHA256 as SHA256
 
 try:
     import Crypto.Hash.RIPEMD160 as RIPEMD160
-except:
+except Exception:
     import ripemd_via_hashlib as RIPEMD160
 
 # This function comes from bitcointools, bct-LICENSE.txt.
