@@ -898,7 +898,7 @@ class Abe:
                      format_time(elt['nTime']), '</td><td class="amount">']
 
             if elt['value'] < 0:
-                value = '(', format_satoshis(-elt['value'], chain), ')'
+                value = '(' + format_satoshis(-elt['value'], chain) + ')'
             else:
                 value = format_satoshis(elt['value'], chain)
 
