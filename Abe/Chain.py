@@ -21,12 +21,12 @@ import util
 
 def create(policy, **kwargs):
     #print "create(%s, %r)" % (policy, kwargs)
-    if policy in [None, "Bitcoin", "Testnet", "LegacyNoBit8"]:
-        return Sha256Chain(**kwargs)
-    if policy == "NovaCoin":
-        return NovaCoin(**kwargs)
-    if policy == "CryptoCash":
-        return CryptoCash(**kwargs)
+    if policy in [None, "Bitcoin"]: return Bitcoin(**kwargs)
+    if policy == "Testnet":         return Testnet(**kwargs)
+    if policy == "Namecoin":        return Namecoin(**kwargs)
+    if policy == "LegacyNoBit8":    return Sha256Chain(**kwargs)
+    if policy == "NovaCoin":        return NovaCoin(**kwargs)
+    if policy == "CryptoCash":      return CryptoCash(**kwargs)
     return Sha256NmcAuxPowChain(**kwargs)
 
 
@@ -44,8 +44,8 @@ SCRIPT_PUBKEY_TEMPLATE = [ opcodes.OP_PUSHDATA4, opcodes.OP_CHECKSIG ]
 # Template to match a BIP16 pay-to-script-hash (P2SH) output script.
 SCRIPT_P2SH_TEMPLATE = [ opcodes.OP_HASH160, PUBKEY_HASH_LENGTH, opcodes.OP_EQUAL ]
 
-# Script that can never be redeemed, used in Namecoin.
-SCRIPT_BURN = chr(opcodes.OP_RETURN)
+# Template to match a script that can never be redeemed, used in Namecoin.
+SCRIPT_BURN_TEMPLATE = [ opcodes.OP_RETURN ]
 
 SCRIPT_TYPE_INVALID = 0
 SCRIPT_TYPE_UNKNOWN = 1
@@ -177,14 +177,13 @@ class Chain(object):
         * SCRIPT_TYPE_MULTISIG - DATA is {"m":M, "pubkeys":list_of_pubkeys}
         * SCRIPT_TYPE_P2SH     - DATA is the binary script hash
         """
-        if script == SCRIPT_BURN:
-            return SCRIPT_TYPE_BURN, None
-
         try:
             decoded = [ x for x in deserialize.script_GetOp(script) ]
         except:
             return SCRIPT_TYPE_INVALID, script
+        return chain.parse_decoded_txout_script(decoded)
 
+    def parse_decoded_txout_script(chain, decoded):
         if deserialize.match_decoded(decoded, SCRIPT_ADDRESS_TEMPLATE):
             pubkey_hash = decoded[2][1]
             if len(pubkey_hash) == PUBKEY_HASH_LENGTH:
@@ -199,6 +198,9 @@ class Chain(object):
             assert len(script_hash) == PUBKEY_HASH_LENGTH
             return SCRIPT_TYPE_P2SH, script_hash
 
+        elif deserialize.match_decoded(decoded, SCRIPT_BURN_TEMPLATE):
+            return SCRIPT_TYPE_BURN, None
+
         elif len(decoded) >= 4 and decoded[-1][0] == opcodes.OP_CHECKMULTISIG:
             # cf. bitcoin/src/script.cpp:Solver
             n = decoded[-2][0] + 1 - opcodes.OP_1
@@ -208,7 +210,7 @@ class Chain(object):
                 return SCRIPT_TYPE_MULTISIG, \
                     { "m": m, "pubkeys": [ decoded[i][1] for i in range(1, 1+n) ] }
 
-        # XXX Namecoin will have to override this to accept name operations.
+        # Namecoin overrides this to accept name operations.
         return SCRIPT_TYPE_UNKNOWN, decoded
 
     def pubkey_hash(chain, pubkey):
@@ -223,6 +225,28 @@ class Chain(object):
 class Sha256Chain(Chain):
     def block_header_hash(chain, header):
         return util.double_sha256(header)
+
+class Bitcoin(Sha256Chain):
+    def __init__(chain, **kwargs):
+        chain.name = 'Bitcoin'
+        chain.code3 = 'BTC'
+        chain.address_version = '\x00'
+        chain.script_addr_vers = '\x05'
+        chain.magic = '\xf9\xbe\xb4\xd9'
+        Chain.__init__(chain, **kwargs)
+
+class Testnet(Sha256Chain):
+    def __init__(chain, **kwargs):
+        chain.name = 'Testnet'
+        chain.code3 = 'BC0'
+        chain.address_version = '\x6f'
+        chain.script_addr_vers = '\xc4'
+        chain.magic = '\xfa\xbf\xb5\xda'
+        Chain.__init__(chain, **kwargs)
+
+    # XXX
+    #datadir_conf_file_name = "bitcoin.conf"
+    #datadir_rpcport = 8332
 
 class NmcAuxPowChain(Chain):
     def __init__(chain, **kwargs):
@@ -240,6 +264,50 @@ class NmcAuxPowChain(Chain):
 
 class Sha256NmcAuxPowChain(Sha256Chain, NmcAuxPowChain):
     pass
+
+class Namecoin(Sha256NmcAuxPowChain):
+    def __init__(chain, **kwargs):
+        chain.name = 'Namecoin'
+        chain.code3 = 'NMC'
+        chain.address_version = '\x34'
+        chain.magic = '\xf9\xbe\xb4\xfe'
+        Chain.__init__(chain, **kwargs)
+
+    def parse_decoded_txout_script(chain, decoded):
+        script_type, data = Chain.parse_decoded_txout_script(chain, decoded)
+
+        if script_type != SCRIPT_TYPE_UNKNOWN:
+            return script_type, data
+
+        start = 0
+        pushed = 0
+        drops = (opcodes.OP_NOP, opcodes.OP_DROP, opcodes.OP_2DROP)
+
+        # Tolerate (but ignore for now) name operations.
+        for i in xrange(len(decoded)):
+            opcode = decoded[i][0]
+
+            if decoded[i][1] is not None or \
+                    opcode == opcodes.OP_0 or \
+                    opcode == opcodes.OP_1NEGATE or \
+                    (opcode >= opcodes.OP_1 and opcode <= opcodes.OP_16):
+                pushed += 1
+            elif opcode in drops:
+                to_drop = drops.index(opcode)
+                if pushed < to_drop:
+                    break
+                pushed -= to_drop
+                start = i
+            elif start == 0:
+                break
+            else:
+                return chain.parse_decoded_txout_script(decoded[start:])
+
+        return SCRIPT_TYPE_UNKNOWN, decoded
+
+    datadir_conf_file_name = "namecoin.conf"
+    # XXX
+    #datadir_rpcport = 8332
 
 class LtcScryptChain(Chain):
     def block_header_hash(chain, header):
