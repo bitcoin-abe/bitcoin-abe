@@ -2892,7 +2892,7 @@ store._ddl['txout_approx'],
                 'value':    int(value),
                 }
             if script is not None:
-                store._export_scriptPubKey(txpoint, chain, script)
+                store._export_scriptPubKey(txpoint, chain, store.binout(script))
 
             return txpoint
 
