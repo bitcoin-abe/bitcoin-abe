@@ -40,10 +40,9 @@ PUBKEYS = [
 
 @pytest.fixture(scope="module")
 def gen(testdb):
-    store = testdb.store
-    chain = store.get_chain_by_name('Testnet')
+    chain = Abe.Chain.create('Testnet')
     blocks = []
-    gen = datagen.Gen(chain=chain, db=testdb, store=store, blocks=blocks)
+    gen = datagen.Gen(chain=chain, db=testdb, blocks=blocks)
 
     # The Bitcoin/Testnet genesis transaction.
     genesis_coinbase = gen.coinbase(
@@ -76,22 +75,13 @@ def gen(testdb):
     if 'ABE_TEST_SAVE_BLKFILE' in os.environ:
         gen.save_blkfile(os.environ['ABE_TEST_SAVE_BLKFILE'], blocks)
 
+    gen.store = testdb.store
+    gen.chain = gen.store.get_chain_by_name(chain.name)
     for block in blocks:
-        store.import_block(block, chain = chain)
-    store.commit()
+        gen.store.import_block(block, chain = gen.chain)
+    gen.store.commit()
 
     return gen
-
-# XXX This must require some pytest trickery.
-"""
-def test_serve(gen):
-    import Abe.abe
-    import Abe.readconf
-    argv = ['--port=2750'] + gen.db.cmdline
-    args, argv = Abe.readconf.parse_argv(argv, Abe.abe.create_conf())
-    gen.store.args = args
-    Abe.abe.serve(gen.store)
-"""
 
 def test_b0_hash(gen):
     # Testnet Block 0 hash.

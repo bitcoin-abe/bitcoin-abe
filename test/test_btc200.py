@@ -20,17 +20,24 @@ import pytest
 
 from db import testdb
 import Abe.util
+import Abe.Chain
 
 @pytest.fixture(scope="module")
 def btc200(testdb):
-    store = testdb.store
-    btc_chain = store.get_chain_by_name('Bitcoin')
+    btc_chain = Abe.Chain.create('Bitcoin')
 
+    blocks = []
     for hex in _blocks():
         ds = Abe.util.str_to_ds(hex.decode('hex'))
         hash = btc_chain.ds_block_header_hash(ds)
         b = btc_chain.ds_parse_block(ds)
         b['hash'] = hash
+        blocks.append(b)
+
+    store = testdb.store
+    btc_chain = store.get_chain_by_name(btc_chain.name)
+
+    for b in blocks:
         store.import_block(b, chain = btc_chain)
 
     return store
