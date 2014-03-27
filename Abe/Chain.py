@@ -273,15 +273,11 @@ class Namecoin(Sha256NmcAuxPowChain):
         chain.magic = '\xf9\xbe\xb4\xfe'
         Chain.__init__(chain, **kwargs)
 
+    _drops = (opcodes.OP_NOP, opcodes.OP_DROP, opcodes.OP_2DROP)
+
     def parse_decoded_txout_script(chain, decoded):
-        script_type, data = Chain.parse_decoded_txout_script(chain, decoded)
-
-        if script_type != SCRIPT_TYPE_UNKNOWN:
-            return script_type, data
-
         start = 0
         pushed = 0
-        drops = (opcodes.OP_NOP, opcodes.OP_DROP, opcodes.OP_2DROP)
 
         # Tolerate (but ignore for now) name operations.
         for i in xrange(len(decoded)):
@@ -292,22 +288,20 @@ class Namecoin(Sha256NmcAuxPowChain):
                     opcode == opcodes.OP_1NEGATE or \
                     (opcode >= opcodes.OP_1 and opcode <= opcodes.OP_16):
                 pushed += 1
-            elif opcode in drops:
-                to_drop = drops.index(opcode)
+            elif opcode in chain._drops:
+                to_drop = chain._drops.index(opcode)
                 if pushed < to_drop:
                     break
                 pushed -= to_drop
-                start = i
-            elif start == 0:
-                break
+                start = i + 1
             else:
-                return chain.parse_decoded_txout_script(decoded[start:])
+                return Chain.parse_decoded_txout_script(chain, decoded[start:])
 
         return SCRIPT_TYPE_UNKNOWN, decoded
 
+
     datadir_conf_file_name = "namecoin.conf"
-    # XXX
-    #datadir_rpcport = 8332
+    datadir_rpcport = 8336
 
 class LtcScryptChain(Chain):
     def block_header_hash(chain, header):
