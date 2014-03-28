@@ -141,6 +141,9 @@ def test_tx_in_prev_out(b182t1):
     assert b182t1['in'][0]['o_hash'] == 'a16f3ce4dd5deb92d98ef5cf8afeaf0775ebca408f708b2146c4fb42b41e14be'
     assert b182t1['in'][0]['o_pos'] == 1
 
+def test_tx_in_script_type(b182t1):
+    assert b182t1['in'][0]['script_type'] == Abe.Chain.SCRIPT_TYPE_PUBKEY
+
 def test_tx_in_binaddr(b182t1):
     assert b182t1['in'][0]['binaddr'] == '11b366edfc0a8b66feebae5c2e25a7b6a5d1cf31'.decode('hex')
 

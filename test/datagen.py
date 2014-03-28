@@ -50,14 +50,25 @@ class Gen(object):
             elif isinstance(op, str):
                 ds.write_string(op)
             else:
-                ds.write(op)
+                raise ValueError(op)
         return ds.input
 
-    def op_smallint(gen, n):
-        if n == 0:
-            return opcodes.OP_0
-        if 1 <= n <= 16:
-            return n + opcodes.OP_1 - 1
+    def op(gen, d):
+        if isinstance(d, int):
+            if d == 0:
+                return opcodes.OP_0
+            if d == -1 or 1 <= d <= 16:
+                return d + opcodes.OP_1 - 1
+            # Hmm, maybe time to switch to Python 3 with int.from_bytes?
+            h = "00%x" % (d if d >= 0 else -1-d)
+            if len(h) % 2:
+                h = h[1:]
+            elif h[2] < '8':
+                h = h[2:]
+            if d < 0:
+                import string
+                h = h.translate(string.maketrans('0123456789abcdef', 'fedcba9876543210'))
+            return h.decode('hex')
         raise ValueError(n)
 
     def address_scriptPubKey(gen, hash):
@@ -67,7 +78,7 @@ class Gen(object):
         return gen.encode_script(pubkey, opcodes.OP_CHECKSIG)
 
     def multisig_scriptPubKey(gen, m, pubkeys):
-        ops = [ gen.op_smallint(m) ] + pubkeys + [ gen.op_smallint(len(pubkeys)), opcodes.OP_CHECKMULTISIG ]
+        ops = [ gen.op(m) ] + pubkeys + [ gen.op(len(pubkeys)), opcodes.OP_CHECKMULTISIG ]
         return gen.encode_script(*ops)
 
     def p2sh_scriptPubKey(gen, hash):

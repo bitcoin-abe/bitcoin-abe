@@ -2211,6 +2211,11 @@ store._ddl['txout_approx'],
 
     def _export_scriptPubKey(store, txout, chain, scriptPubKey):
         """In txout, set script_type, address_version, binaddr, and for multisig, required_signatures."""
+
+        if scriptPubKey is None:
+            txout['script_type'] = None
+            return
+
         script_type, data = chain.parse_txout_script(scriptPubKey)
         txout['script_type'] = script_type
         txout['address_version'] = chain.address_version

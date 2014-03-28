@@ -272,6 +272,10 @@ def script_GetOp(bytes):
       else:
         vch = bytes[i:i+nSize]
         i += nSize
+    elif opcodes.OP_1 <= opcode <= opcodes.OP_16:
+      vch = chr(opcode - opcodes.OP_1 + 1)
+    elif opcode == opcodes.OP_1NEGATE:
+      vch = chr(255)
 
     yield (opcode, vch)
 
