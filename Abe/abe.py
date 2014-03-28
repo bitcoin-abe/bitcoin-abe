@@ -27,7 +27,6 @@ import calendar
 import math
 import logging
 import simplejson as json
-from pprint import pformat
 import version
 import DataStore
 import readconf
@@ -105,7 +104,7 @@ DEFAULT_TEMPLATE = """<!DOCTYPE html>
     <p style="font-size: smaller">
     
         <span style="font-style: italic">
-            Powered by <a href="%(ABE_URL)s">%(APPNAME)s</a> , BT theme by <a href="http://ancblockchain.com/address/ASAdJpndrVcuMzfA52XBGzQMhFRQfdCh7k">geekz( ANC )</a>
+            Powered by <a href="%(ABE_URL)s">%(APPNAME)s</a> , eXplorer theme by <a href="http://ancblockchain.com/static/support.php">geekz</a>
         </span>
         %(download)s
         Tips appreciated!
