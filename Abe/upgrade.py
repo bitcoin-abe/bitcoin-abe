@@ -1103,12 +1103,12 @@ upgrades = [
     ('Abe36',   add_chain_decimals),     # Fast
     ('Abe36.1', insert_chain_novacoin),  # Fast
     ('Abe37',   txin_detail_multisig),   # Fast
-    ('AbeMultisig0.1', add_chain_script_addr_vers), # Fast
-    ('AbeMultisig0.2', populate_chain_script_addr_vers), # Fast
-    ('AbeMultisig0.3', create_multisig_pubkey), # Fast
-    ('AbeMultisig0.4', create_x_multisig_pubkey_multisig), # Fast
-    ('AbeMultisig0.5', populate_multisig_pubkey), # Minutes-hours
-    ('AbeMultisig1', None)
+    ('Abe37.1', add_chain_script_addr_vers), # Fast
+    ('Abe37.2', populate_chain_script_addr_vers), # Fast
+    ('Abe37.3', create_multisig_pubkey), # Fast
+    ('Abe37.4', create_x_multisig_pubkey_multisig), # Fast
+    ('Abe37.5', populate_multisig_pubkey), # Minutes-hours
+    ('Abe38', None)
 ]
 
 def upgrade_schema(store):
