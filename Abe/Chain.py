@@ -190,7 +190,7 @@ class Chain(object):
                 return SCRIPT_TYPE_ADDRESS, pubkey_hash
 
         elif deserialize.match_decoded(decoded, SCRIPT_PUBKEY_TEMPLATE):
-            pubkey = decoded[0][1] or chr(decoded(0))
+            pubkey = decoded[0][1]  # Assume all pubkeys are multibyte.
             return SCRIPT_TYPE_PUBKEY, pubkey
 
         elif deserialize.match_decoded(decoded, SCRIPT_P2SH_TEMPLATE):
