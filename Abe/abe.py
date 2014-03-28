@@ -538,7 +538,7 @@ class Abe:
                  '</td><td>', '%8g' % total_ss] if extra else '',
                 '</td></tr>\n']
 
-                body += ['</tbody></table>\n']
+        body += ['</tbody></table>\n']
         body += ['</div><div class="col-lg-8"><h3>Search</h3><div class="well">',abe.search_form(page),'</div></div>']
         body += ['<div class="col-lg-4" style="padding:0; margin:0;"><h3>Latest Transactions</h3><table class="table table-striped table-condensed" id="txs"><thead><tr><th>Hash</th><th class="hidden">hash</th><th>size(in bytes)</th></tr></thead><tbody>']
         
@@ -581,7 +581,6 @@ class Abe:
         else:
             page['title'] = ['Block ', b['hash'][:4], '...', b['hash'][-10:]]
 
-        body += abe.short_link(page, 'b/' + block_shortlink(b['hash']))
 
         is_stake_chain = chain.has_feature('nvc_proof_of_stake')
         is_stake_block = is_stake_chain and b['is_proof_of_stake']
@@ -938,9 +937,8 @@ class Abe:
         body += ['</table>\n']
 
     def search_form(abe, page):
-     	  q = (page['params'].get('q') or [''])[0]
-        return [
-            '<p><i>Search by address, block number or hash, transaction or'
+        q = (page['params'].get('q') or [''])[0]
+        return ['<p><i>Search by address, block number or hash, transaction or'
             ' public key hash, or blockchain name:</i></p>\n'
             '<form class="form-inline" role="form" action="', page['dotdot'], 'search" id="searchform">\n'
             '<div class="form-group">'
