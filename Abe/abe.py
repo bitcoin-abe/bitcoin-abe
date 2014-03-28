@@ -119,7 +119,7 @@ DEFAULT_TEMPLATE = """<!DOCTYPE html>
 <script src="http://cdnjs.cloudflare.com/ajax/libs/jquery/2.1.0/jquery.min.js"></script>
 <script src="http://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.1.1/js/bootstrap.min.js"></script>
 <script src="http://cdnjs.cloudflare.com/ajax/libs/datatables/1.9.4/jquery.dataTables.min.js"></script>
-<script src="%(dotdot)s%(STATIC_PATH)sjs/nethash.js"></script>
+<script src="%(dotdot)s%(STATIC_PATH)sscripts.js"></script>
 </body>
 </html>"""
 
