@@ -26,7 +26,7 @@ import time
 import calendar
 import math
 import logging
-import json
+import simplejson as json
 
 import version
 import DataStore
@@ -1350,6 +1350,8 @@ class Abe:
                 '/chain/CHAIN/q/get_latest_blocks[/INTERVAL[/START[/STOP]]]\n'
         if 'sEcho' in post_data:
             sEcho_val = int( post_data['sEcho'] )
+        else:
+            sEcho_val = 1
 
         if 'iDisplayLength' in post_data:
             count = int(post_data['iDisplayLength'])
