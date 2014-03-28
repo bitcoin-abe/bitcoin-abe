@@ -948,14 +948,15 @@ class Abe:
         body += ['</table>\n']
 
     def search_form(abe, page):
-        q = (page['params'].get('q') or [''])[0]
+     	  q = (page['params'].get('q') or [''])[0]
         return [
-            '<p>Search by address, block number or hash, transaction or'
-            ' public key hash, or chain name:</p>\n'
-            '<form action="', page['dotdot'], 'search"><p>\n'
-            '<input name="q" size="64" value="', escape(q), '" />'
-            '<button type="submit">Search</button>\n'
-            '<br />Address or hash search requires at least the first ',
+            '<p><i>Search by address, block number or hash, transaction or'
+            ' public key hash, or blockchain name:</i></p>\n'
+            '<form class="form-inline" role="form" action="', page['dotdot'], 'search" id="searchform">\n'
+            '<div class="form-group">'
+            '<input type="text" name="q" class="form-control" size="64" value="', escape(q), '" id="search_field" placeholder="Search Address / block / hash" /></div>'
+            '<input type="submit" class="btn btn-primary search_button" value="Search" />\n'
+            '<p>Address or hash search requires at least the first ',
             HASH_PREFIX_MIN, ' characters.</p></form>\n']
 
     def handle_search(abe, page):
