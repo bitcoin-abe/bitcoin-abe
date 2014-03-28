@@ -1350,7 +1350,89 @@ class Abe:
             return 'Shows the greatest block height in CHAIN.\n' \
                 '/chain/CHAIN/q/getblockcount\n'
         return abe.get_max_block_height(chain)
+        
+    def q_get_blocks_data(abe, page, chain):
+        """shows the latest blocks data in json format for datatable in chain page"""
+        page['content_type'] = 'application/json'
+        latest_blocks = []
+        total_number_of_blocks = abe.get_max_block_height(chain)
+        post_data = get_post_data(page)
+        if chain is None:
+            return 'Shows latest blocks.\n' \
+                '/chain/CHAIN/q/get_latest_blocks[/INTERVAL[/START[/STOP]]]\n'
+        if 'sEcho' in post_data:
+            sEcho_val = int( post_data['sEcho'] )
 
+        if 'iDisplayLength' in post_data:
+            count = int(post_data['iDisplayLength'])
+        else:
+            count = 5
+        if 'iDisplayStart' in post_data:
+            hi = int(post_data['iDisplayStart'])
+        else:
+            hi = 0
+        hi = total_number_of_blocks - hi
+        orig_hi = hi
+        if sEcho_val is not None:
+            if hi is None:
+                row = abe.store.selectrow("""
+                    SELECT b.block_height
+                      FROM block b
+                      JOIN chain c ON (c.chain_last_block_id = b.block_id)
+                     WHERE c.chain_id = ?
+                """, (chain.id,))
+                if row:
+                    hi = row[0]
+            if hi is None:
+                if orig_hi is None and count > 0:
+                    return '<p>I have no blocks in this chain.</p>'
+                else:
+                    return '<p>The requested range contains no blocks.</p>'
+
+            rows = abe.store.selectall("""
+                SELECT b.block_hash, b.block_height, b.block_nTime, b.block_num_tx,
+                       b.block_nBits, b.block_value_out,
+                       b.block_total_seconds, b.block_satoshi_seconds,
+                       b.block_total_satoshis, b.block_ss_destroyed,
+                       b.block_total_ss
+                  FROM block b
+                  JOIN chain_candidate cc ON (b.block_id = cc.block_id)
+                 WHERE cc.chain_id = ?
+                   AND cc.block_height BETWEEN ? AND ?
+                   AND cc.in_longest = 1
+                 ORDER BY cc.block_height DESC LIMIT ?
+            """, (chain.id, hi - count + 1, hi, count))
+    
+            if hi is None:
+                hi = int(rows[0][1])
+           
+            for row in rows:
+                (hash, height, nTime, num_tx, nBits, value_out,
+                 seconds, ss, satoshis, destroyed, total_ss) = row
+                nTime = int(nTime)
+                value_out = int(value_out)
+                seconds = int(seconds)
+                satoshis = int(satoshis)
+                ss = int(ss)
+                total_ss = int(total_ss)
+
+                if satoshis == 0:
+                    avg_age = '&nbsp;'
+                else:
+                    avg_age = '%5g' % (ss / satoshis / 86400.0)
+    
+                if total_ss <= 0:
+                    percent_destroyed = '&nbsp;'
+                else:
+                    percent_destroyed = '%5g%%' % (100.0 - (100.0 * ss / total_ss))
+    
+                latest_blocks.append([int(height),hash,format_time(int(nTime)), num_tx,format_satoshis(value_out, chain),
+                                      util.calculate_difficulty(int(nBits)),format_satoshis(satoshis, chain),avg_age,'%5g' % (seconds / 86400.0),percent_destroyed])
+                
+            return ['{"sEcho":',sEcho_val,',"iTotalRecords":',total_number_of_blocks,',"iTotalDisplayRecords":',total_number_of_blocks,',"aaData":',json.dumps(latest_blocks),'}']
+        else:
+            return ['error']
+            
     def q_getdifficulty(abe, page, chain):
         """shows the last solved block's difficulty."""
         if chain is None:
