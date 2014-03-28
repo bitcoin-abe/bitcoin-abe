@@ -3284,7 +3284,7 @@ store._ddl['txout_approx'],
             return False
         chain = store.chains_by.id[chain_id]
 
-        conffile = dircfg['conf'] or chain.datadir_conf_file_name
+        conffile = dircfg.get('conf') or chain.datadir_conf_file_name
         conffile = os.path.join(dircfg['dirname'], conffile)
         try:
             conf = dict([line.strip().split("=", 1)
