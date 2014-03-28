@@ -1432,6 +1432,22 @@ class Abe:
             return ['{"sEcho":',sEcho_val,',"iTotalRecords":',total_number_of_blocks,',"iTotalDisplayRecords":',total_number_of_blocks,',"aaData":',json.dumps(latest_blocks),'}']
         else:
             return ['error']
+    
+    def q_get_latest_transactions(abe,page,chain):
+        if chain is None:
+            return 'Shows latest 10 transactions in CHAIN.\n' \
+                '/chain/CHAIN/q/getdifficulty\n'
+        rows = abe.store.selectall("""
+            SELECT tx_id,tx_hash,tx_size
+            FROM tx
+            ORDER BY tx_id DESC
+            LIMIT 10
+        """)
+        output = []
+        for row in rows:
+            tx_id, tx_hash, tx_size = (row[0], row[1],row[2])
+            output.append([tx_hash[:14],tx_hash,tx_size]);
+        return ['{"sEcho":1,"iTotalRecords":10,"iTotalDisplayRecords":10,"aaData":',json.dumps(output),'}']
             
     def q_getdifficulty(abe, page, chain):
         """shows the last solved block's difficulty."""
