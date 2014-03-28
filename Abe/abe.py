@@ -322,15 +322,13 @@ class Abe:
     def handle_chains(abe, page):
         page['title'] = ABE_APPNAME + ' Search'
         body = page['body']
-        body += [
-            abe.search_form(page),
-            '<table>\n',
-            '<tr><th>Currency</th><th>Code</th><th>Block</th><th>Time</th>',
+        body += ['<div class="col-lg-12"><table class="table table-striped table-hover" id="chains">\n',
+            '<thead><tr><th>Currency</th><th>Code</th><th>Block</th><th>Time</th>',
             '<th>Started</th><th>Age (days)</th><th>Coins Created</th>',
             '<th>Avg Coin Age</th><th>',
             '% <a href="https://en.bitcoin.it/wiki/Bitcoin_Days_Destroyed">',
             'CoinDD</a></th>',
-            '</tr>\n']
+            '</tr></thead>\n']
         now = time.time() - EPOCH1970
 
         rows = abe.store.selectall("""
@@ -397,6 +395,7 @@ class Abe:
         body += ['</table>\n']
         if len(rows) == 0:
             body += ['<p>No block data found.</p>\n']
+        body += ['</div><div class="col-lg-9"><div class="well"><h2>Search</h2>',abe.search_form(page),'</div>']
 
     def chain_lookup_by_name(abe, symbol):
         if symbol is None:
