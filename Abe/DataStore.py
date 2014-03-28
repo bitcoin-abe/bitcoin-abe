@@ -35,7 +35,7 @@ import util
 import logging
 import base58
 
-SCHEMA_VERSION = "AbeMultisig1"
+SCHEMA_VERSION = "Abe38"
 
 CONFIG_DEFAULTS = {
     "dbtype":             None,

@@ -1108,7 +1108,8 @@ upgrades = [
     ('AbeMultisig0.3', create_multisig_pubkey), # Fast
     ('AbeMultisig0.4', create_x_multisig_pubkey_multisig), # Fast
     ('AbeMultisig0.5', populate_multisig_pubkey), # Minutes-hours
-    ('AbeMultisig1', None)
+    ('AbeMultisig1', noop),
+    ('Abe38', None)
 ]
 
 def upgrade_schema(store):
