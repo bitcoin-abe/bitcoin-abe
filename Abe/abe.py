@@ -58,33 +58,70 @@ EPOCH1970 = calendar.timegm(TIME1970)
 # under Internet Explorer.
 DEFAULT_CONTENT_TYPE = "text/html; charset=utf-8"
 DEFAULT_HOMEPAGE = "chains";
-DEFAULT_TEMPLATE = """
-<!DOCTYPE html>
+DEFAULT_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel="stylesheet" type="text/css"
-     href="%(dotdot)s%(STATIC_PATH)sabe.css" />
-    <link rel="shortcut icon" href="%(dotdot)s%(STATIC_PATH)sfavicon.ico" />
-    <title>%(title)s</title>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="">
+<meta name="author" content="">
+<title>%(title)s</title>
+<link rel="icon" type="image/x-icon" href="%(dotdot)s%(STATIC_PATH)sfavicon.ico" />
+<link rel="stylesheet" href="http://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.1.1/css/bootstrap.min.css">
+<link href="http://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.0.3/css/font-awesome.min.css" rel="stylesheet" type="text/css">
+<link href="http://cdnjs.cloudflare.com/ajax/libs/datatables/1.9.4/css/jquery.dataTables.min.css" rel="stylesheet" type="text/css">
+<!-- Custom styles for this template -->
+<link href="%(dotdot)s%(STATIC_PATH)scss/style.css" rel="stylesheet" type="text/css">
+<!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries -->
+<!--[if lt IE 9]>
+      <script src="http://cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7/html5shiv.js"></script>
+      <script src="http://cdnjs.cloudflare.com/ajax/libs/respond.js/1.4.2/respond.min.js"></script>
+    <![endif]-->
 </head>
+
 <body>
-    <h1><a href="%(dotdot)s%(HOMEPAGE)s"><img
-     src="%(dotdot)s%(STATIC_PATH)slogo32.png" alt="Abe logo" /></a> %(h1)s
-    </h1>
+<header class="navbar navbar-inverse" role="navigation">
+  <div class="container">
+    <div class="navbar-header">
+      <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse"> <span class="sr-only">Toggle navigation</span> <span class="icon-bar"></span> <span class="icon-bar"></span> <span class="icon-bar"></span> </button>
+      <a class="logo navbar-brand" href="%(dotdot)s%(HOMEPAGE)s">%(APPNAME)s Block Explorer</a> </div>
+    <div class="collapse navbar-collapse"> 
+      <form class="navbar-form navbar-right" role="search" action="%(dotdot)ssearch">
+        <div class="form-group">
+        <input name="q" type="text" class="form-control" placeholder="Search" id="searchfld">
+        </div>
+      </form>
+    </div> 
+  </div>
+</header>
+<div class="container">
+  <div class="inner-container">
+ <div class="row">
     %(body)s
-    <p><a href="%(dotdot)sq">API</a> (machine-readable pages)</p>
+ </div> </div>
+  <hr>
+  <footer class="col-lg-12">
     <p style="font-size: smaller">
+    
         <span style="font-style: italic">
-            Powered by <a href="%(ABE_URL)s">%(APPNAME)s</a>
+            Powered by <a href="%(ABE_URL)s">%(APPNAME)s</a> , eXplorer theme by <a href="http://ancblockchain.com/static/support.php">geekz</a>
         </span>
         %(download)s
         Tips appreciated!
         <a href="%(dotdot)saddress/%(DONATIONS_BTC)s">BTC</a>
         <a href="%(dotdot)saddress/%(DONATIONS_NMC)s">NMC</a>
+        |  <a href="%(dotdot)sq">API</a> (machine-readable pages)
     </p>
+  </footer>
+</div>
+<!--/.container-->
+<script src="http://cdnjs.cloudflare.com/ajax/libs/jquery/2.1.0/jquery.min.js"></script>
+<script src="http://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.1.1/js/bootstrap.min.js"></script>
+<script src="http://cdnjs.cloudflare.com/ajax/libs/datatables/1.9.4/jquery.dataTables.min.js"></script>
+<script src="%(dotdot)s%(STATIC_PATH)sjs/nethash.js"></script>
 </body>
-</html>
-"""
+</html>"""
 
 DEFAULT_LOG_FORMAT = "%(message)s"
 
