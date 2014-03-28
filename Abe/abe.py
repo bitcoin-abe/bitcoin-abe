@@ -1794,6 +1794,17 @@ def get_int_param(page, name):
     vals = page['params'].get(name)
     return vals and int(vals[0])
 
+def get_post_data(page):
+    env = page['env']
+    output={}
+    if env['REQUEST_METHOD'] == 'POST':
+        post_data = (env['wsgi.input'].read())
+        post_data = post_data.split('&')
+        for each_data in post_data:
+            temp_data = (each_data.split('='))
+            output [temp_data[0]]= temp_data[1]
+    return output
+    
 def path_info_uint(page, default):
     ret = path_info_int(page, None)
     if ret is None or ret < 0:
