@@ -445,9 +445,10 @@ class Abe:
         page['title'] = chain.name
 
         body = page['body']
-        body += abe.search_form(page)
+        body += ['<script type="text/javascript" > //<![CDATA[ \n var block_data_url = location.href+"/q/get_blocks_data"; ']
+        body += ['var latest_transactions_url = location.href+"/q/get_latest_transactions"; //]]></script>']
 
-        count = get_int_param(page, 'count') or 20
+        count = get_int_param(page, 'count') or 10
         hi = get_int_param(page, 'hi')
         orig_hi = hi
 
@@ -486,35 +487,11 @@ class Abe:
             hi = int(rows[0][1])
         basename = os.path.basename(page['env']['PATH_INFO'])
 
-        nav = ['<a href="',
-               basename, '?count=', str(count), '">&lt;&lt;</a>']
-        nav += [' <a href="', basename, '?hi=', str(hi + count),
-                 '&amp;count=', str(count), '">&lt;</a>']
-        nav += [' ', '&gt;']
-        if hi >= count:
-            nav[-1] = ['<a href="', basename, '?hi=', str(hi - count),
-                        '&amp;count=', str(count), '">', nav[-1], '</a>']
-        nav += [' ', '&gt;&gt;']
-        if hi != count - 1:
-            nav[-1] = ['<a href="', basename, '?hi=', str(count - 1),
-                        '&amp;count=', str(count), '">', nav[-1], '</a>']
-        for c in (20, 50, 100, 500, 2016):
-            nav += [' ']
-            if c != count:
-                nav += ['<a href="', basename, '?count=', str(c)]
-                if hi is not None:
-                    nav += ['&amp;hi=', str(max(hi, c - 1))]
-                nav += ['">']
-            nav += [' ', str(c)]
-            if c != count:
-                nav += ['</a>']
-
-        nav += [' <a href="', page['dotdot'], '">Search</a>']
 
         extra = False
         #extra = True
-        body += ['<p>', nav, '</p>\n',
-                 '<table><tr><th>Block</th><th>Approx. Time</th>',
+        body += ['<div class="transaction-wrap col-lg-12"><h1>Recently mined ',chain.name,' blocks</h1>',
+                 '<table class="table table-striped table-hover" id="chain"><thead><tr><th>Block</th><th class="hide">Hash</th><th>Approx. Time</th>',
                  '<th>Transactions</th><th>Value Out</th>',
                  '<th>Difficulty</th><th>Outstanding</th>',
                  '<th>Average Age</th><th>Chain Age</th>',
@@ -524,7 +501,7 @@ class Abe:
                  ['<th>Satoshi-seconds</th>',
                   '<th>Total ss</th>']
                  if extra else '',
-                 '</tr>\n']
+                 '</tr></thead><tbody>']
         for row in rows:
             (hash, height, nTime, num_tx, nBits, value_out,
              seconds, ss, satoshis, destroyed, total_ss) = row
@@ -561,7 +538,20 @@ class Abe:
                  '</td><td>', '%8g' % total_ss] if extra else '',
                 '</td></tr>\n']
 
-        body += ['</table>\n<p>', nav, '</p>\n']
+                body += ['</tbody></table>\n']
+        body += ['</div><div class="col-lg-8"><h3>Search</h3><div class="well">',abe.search_form(page),'</div></div>']
+        body += ['<div class="col-lg-4" style="padding:0; margin:0;"><h3>Latest Transactions</h3><table class="table table-striped table-condensed" id="txs"><thead><tr><th>Hash</th><th class="hidden">hash</th><th>size(in bytes)</th></tr></thead><tbody>']
+        
+        rows = abe.store.selectall("""
+            SELECT tx_id,tx_hash,tx_size
+            FROM tx
+            ORDER BY tx_id DESC
+            LIMIT 10
+        """)
+        for row in rows:
+            tx_id, tx_hash, tx_size = (row[0], row[1],row[2])
+            body+='<tr><td><a href="',basename,'/tx/',tx_hash,'">',tx_hash[:14],'</a></td><td class="hidden">',tx_hash,'</td><td>',tx_size,'(bytes)</td></tr>';
+        body += ['</tbody></table></div>']
 
     def _show_block(abe, page, dotdotblock, chain, **kwargs):
         body = page['body']
