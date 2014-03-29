@@ -1738,7 +1738,7 @@ class Abe:
         ret = True
         pi = env['PATH_INFO']
         pi = posixpath.normpath(pi)
-        if pi[-1] != '/' and env['PATH_INFO'][-1] == '/':
+        if pi[-1] != '/' and env['PATH_INFO'][-1:] == '/':
             pi += '/'
         if pi == '/':
             pi += abe.home
