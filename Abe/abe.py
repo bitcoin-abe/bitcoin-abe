@@ -905,10 +905,11 @@ class Abe:
                 link = address
         else:
             link = address[0 : abe.shortlink_type]
-        body += abe.short_link(page, 'a/' + link)
-
-        body += ['<p>Balance: '] + format_amounts(balance, True)
-
+        final_address_balance=format_amounts(balance, True);
+        body += ['<h1 style="padding-bottom:10px">Address : ',address,'</h1>']
+        body += ['<div class="row-fluid"><div class="col-lg-8"><table class="table table-striped"><tbody><tr><th>Address</th><th>Short Link</th></tr>']
+        body += ['<tr><td>',address,'</td><td>',abe.short_link(page, 'a/' + link),'</td></tr>']
+        body += ['</tbody></table></div><div class="col-lg-4" style="overflow:visible;"><table class="table table-striped"><tbody><tr><th colspan="3">Address Ledger</th></tr>']
         if 'subbinaddr' in history:
             chain = page['chain']
 
@@ -920,25 +921,22 @@ class Abe:
                 if chain is None:
                     chain = chains[0]
 
-            body += ['<br />\nEscrow']
+            body += ['<tr><td>Escrow</td><td>']
             for subbinaddr in history['subbinaddr']:
-                body += [' ', hash_to_address_link(chain.address_version, subbinaddr, page['dotdot'], 10) ]
+                body += [hash_to_address_link(chain.address_version, subbinaddr, page['dotdot'], 10) ,'</td></tr>']
 
         for chain in chains:
             balance[chain.id] = 0  # Reset for history traversal.
-
-        body += ['<br />\n',
-                 'Transactions in: ', counts[0], '<br />\n',
-                 'Received: ', format_amounts(received, False), '<br />\n',
-                 'Transactions out: ', counts[1], '<br />\n',
-                 'Sent: ', format_amounts(sent, False), '<br />\n']
-
+        body += ['<tr><td>No. Transactions</td><td>',counts[0] + counts[1],'</td></tr>']
+        body += ['<tr><td>Total Received</td><td>',format_amounts(received, False), '</td></tr>']
+        body += ['<tr><td>Total Sent</td><td>',format_amounts(sent, False), '</td></tr>']
+        body += ['<tr><td>Final Balance</td><td><b>',final_address_balance,'</b></td></tr>']
+        body += ['</tbody></table></div></div>']
         body += ['</p>\n'
-                 '<h3>Transactions</h3>\n'
-                 '<table class="addrhist">\n<tr><th>Transaction</th><th>Block</th>'
-                 '<th>Approx. Time</th><th>Amount</th><th>Balance</th>'
-                 '<th>Currency</th></tr>\n']
-
+         '<h3>Transactions</h3>\n'
+         '<table class="table table-condensed table-hover">\n<tr><th>Transaction</th><th>Block</th>'
+         '<th>Approx. Time</th><th>Amount</th><th>Balance</th>'
+         '</tr>\n']
         for elt in txpoints:
             chain = elt['chain']
             type = elt['type']
@@ -962,9 +960,8 @@ class Abe:
                 value = hash_to_address_link(chain.script_addr_vers, elt['binaddr'], page['dotdot'], text=value)
 
             body += [value, '</td><td class="balance">',
-                     format_satoshis(balance[chain.id], chain),
-                     '</td><td class="currency">', escape(chain.code3),
-                     '</td></tr>\n']
+                     format_satoshis(balance[chain.id], chain),' ',
+                     escape(chain.code3),'</td></tr>\n']
         body += ['</table>\n']
 
     def search_form(abe, page):
