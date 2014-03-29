@@ -592,19 +592,13 @@ class Abe:
         is_stake_chain = chain.has_feature('nvc_proof_of_stake')
         is_stake_block = is_stake_chain and b['is_proof_of_stake']
         
-        body += ['<div class="block-wrap"><div class="col-lg-12"><h1>Anoncoin Block #',b['height'],'</h1><div class="col-lg-6"><table class="table table-striped"><tbody><tr><th colspan="2">Summary</th></tr>']
+        body += ['<div class="block-wrap"><div class="col-lg-12"><h1>Anoncoin Block #',b['height'],'</h1></div><div class="col-lg-5"><table class="table table-striped"><tbody><tr><th colspan="2">Summary</th></tr>']
         if b['height'] is not None:
             body += ['<tr><td>Height</td><td> ', b['height'], '</td></tr>']
         body += ['<tr><td>Number Of Transactions</td><td>',len(b['transactions']), '</td></tr>']
-        body += ['<tr><td>Value Out</td><td>', format_satoshis(b['value_out'], chain),'</td></tr>']
-        body += ['<tr><td>Transaction Fees</td><td>',format_satoshis(b['fees'], chain),'</td></tr>']
-        if b['chain_satoshis'] and (b['satoshi_seconds'] is not None) :
-            body += ['<tr><td>Average Coin Age</td><td>',(b['satoshi_seconds'] / 86400.0 / b['chain_satoshis']),' days']
-        if b['satoshis_destroyed'] is not None:
-            body += ['<tr><td>Coin-days Destroyed</td><td>',format_satoshis(b['satoshis_destroyed'] / 86400.0, chain),'</td></tr>']
-        if b['chain_satoshi_seconds'] is not None:
-            body += ['<tr><td>Cumulative Coin-days Destroyed</td><td>',(100 * (1 - float(b['satoshi_seconds']) / b['chain_satoshi_seconds']))]
-        body += ['<tr><td>Timestamp</td><td> ',  b['nTime'],'(', format_time( b['nTime']), ')</td></tr>']
+        body += ['<tr><td>Value Out</td><td>', format_satoshis(b['value_out'], chain),' ',escape(chain.code3),'</td></tr>']
+        body += ['<tr><td>Transaction Fees</td><td>',format_satoshis(b['fees'], chain),' ',escape(chain.code3),'</td></tr>']
+        body += ['<tr><td>Timestamp</td><td> ',format_time( b['nTime']),'</td></tr>']
         body += ['<tr><td>Difficulty</td><td> ',format_difficulty(util.calculate_difficulty(b['nBits'])), '</td></tr>']
         if b['chain_work'] is not None:
             body += ['<tr><td>Cumulative Difficulty</td><td>',format_difficulty(util.work_to_difficulty(b['chain_work'])), '</td></tr>']
@@ -614,9 +608,8 @@ class Abe:
         if block_reward is not None:
             body += ['<tr><td>Block Reward</td><td>',block_reward,' ',escape(chain.code3),'</td></tr>']
         body += ['</table></div>']
-        body += ['<div class="col-lg-6"><table class="table table-striped"><tbody><tr><th colspan="2">Hashes</th></tr>']
+        body += ['<div class="col-lg-7"><table class="table table-striped"><tbody><tr><th colspan="2">Hashes</th></tr>']
         body += ['<tr><td>Hash</td><td>', b['hash'], '</td></tr>']
-        body += ['<tr><td>Short Link</td><td>', abe.short_link(page, 'b/' + block_shortlink(b['hash'])), '</td></tr>']
         if b['hashPrev'] is not None:
             body += ['<tr><td>Previous Block</td><td> <a href="',dotdotblock,b['hashPrev'], '">', b['hashPrev'], '</a></td></tr>']
         if b['next_block_hashes']:
@@ -626,6 +619,15 @@ class Abe:
         if is_stake_chain:
              body += ['<tr><td>','Proof of Stake' if is_stake_block else 'Proof of Work','</td><td>' if is_proof_of_stake else 'Proof of Work',': ',format_satoshis(b['generated'], chain), ' coins generated</td></tr>']
         body += ['<tr><td>Merkle Root</td><td>',b['hashMerkleRoot'], '</td></tr>']
+        body += ['</tbody></table>']
+        body += ['<table class="table table-striped"><tbody><tr><th colspan="2">Advanced Summery</th></tr>']
+        if b['chain_satoshis'] and (b['satoshi_seconds'] is not None) :
+            body += ['<tr><td>Average Coin Age</td><td>',(b['satoshi_seconds'] / 86400.0 / b['chain_satoshis']),' days']
+        if b['satoshis_destroyed'] is not None:
+            body += ['<tr><td>Coin-days Destroyed</td><td>',format_satoshis(b['satoshis_destroyed'] / 86400.0, chain),'</td></tr>']
+        if b['chain_satoshi_seconds'] is not None:
+            body += ['<tr><td>Cumulative Coin-days Destroyed</td><td>',(100 * (1 - float(b['satoshi_seconds']) / b['chain_satoshi_seconds']))]
+        body += ['<tr><td>Short Link</td><td>', abe.short_link(page, 'b/' + block_shortlink(b['hash'])), '</td></tr>']
         body += ['</tbody></table></div>']
 
         body +=[['sat=',b['chain_satoshis'],';sec=',seconds,';ss=',b['satoshi_seconds'],
@@ -673,7 +675,7 @@ class Abe:
                 body += [abe.format_addresses(txout, page['dotdot'], chain)]
                 body += ['<span class="pull-right"><span>', format_satoshis(txout['value'], chain), ' ',escape(chain.code3),'</span></span></br>']
             body += ['</div>\n']
-            body += ['</div><div style="padding-bottom:30px;width:100%;text-align:right;clear:both"><button class="btn btn-success cb">']
+            body += ['</div><div class="currency_btn"><button class="btn btn-success cb">']
             body += ['<span>',vout,' ',escape(chain.code3),'</span></button></div>']
         body += ['</div>']
 
