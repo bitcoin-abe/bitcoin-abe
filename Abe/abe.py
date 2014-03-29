@@ -580,8 +580,15 @@ class Abe:
                           escape(chain.name), '</a> ', b['height']]
         else:
             page['title'] = ['Block ', b['hash'][:4], '...', b['hash'][-10:]]
-
-
+        def get_block_reward(blocknumber,chain_code):
+            if chain_code == 'ANC' :
+                if blocknumber < 77777 :
+                    return 7
+                else:
+                    return 5 / (2 ** int((blocknumber + 1) / 306600))
+            return None
+        block_reward = get_block_reward(height,escape(chain.code3))
+        
         is_stake_chain = chain.has_feature('nvc_proof_of_stake')
         is_stake_block = is_stake_chain and b['is_proof_of_stake']
 
