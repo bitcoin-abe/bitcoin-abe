@@ -591,8 +591,8 @@ class Abe:
         
         is_stake_chain = chain.has_feature('nvc_proof_of_stake')
         is_stake_block = is_stake_chain and b['is_proof_of_stake']
-
-        body += ['<div class="block-wrap"><div class="col-lg-12"><h1>Anoncoin Block #',b['height'],'</h1></div><div class="col-lg-6"><table class="table table-striped"><tbody><tr><th colspan="2">Summary</th></tr>']
+        
+        body += ['<div class="block-wrap"><div class="col-lg-12"><h1>Anoncoin Block #',b['height'],'</h1><div class="col-lg-6"><table class="table table-striped"><tbody><tr><th colspan="2">Summary</th></tr>']
         if b['height'] is not None:
             body += ['<tr><td>Height</td><td> ', b['height'], '</td></tr>']
         body += ['<tr><td>Number Of Transactions</td><td>',len(b['transactions']), '</td></tr>']
@@ -632,32 +632,33 @@ class Abe:
              ';total_ss=',b['chain_satoshi_seconds'],';destroyed=',b['satoshis_destroyed']]
             if abe.debug else '',
             ]
-
-        body += ['<h3>Transactions</h3>\n']
-
-        body += ['<table><tr><th>Transaction</th><th>Fee</th>'
-                 '<th>Size (kB)</th><th>From (amount)</th><th>To (amount)</th>'
-                 '</tr>\n']
-
+        body += ['<div class="col-lg-12"><h2>Transactions <small>Transactions contained within this block</small></h2>']
+        body += ['<div class="transaction_section"><div class="transaction" >']
         for tx in b['transactions']:
-            body += ['<tr><td><a href="../tx/' + tx['hash'] + '">',
-                     tx['hash'][:10], '...</a>'
-                     '</td><td>', format_satoshis(tx['fees'], chain),
-                     '</td><td>', tx['size'] / 1000.0,
-                     '</td><td>']
-
+            vout=0
+            body += ['<div class="transaction_hash"><a class="nos-link" href="../tx/' + tx['hash'] + '">',
+                     tx['hash'], '</a>',
+                     '<span class="pull-right"><span class="tx_size">(Size: ',(tx['size'] / 1000.0),' KB)</span></span>',
+                     '</div>']
+                    #format_satoshis(tx['fees'], chain),
+            body += ['<div class="tx_input">']
             if tx is b['transactions'][0]:
                 body += [
                     'POS ' if is_stake_block else '',
-                    'Generation: ', format_satoshis(b['generated'], chain), ' + ',
-                    format_satoshis(b['fees'], chain), ' total fees']
+                    'Newly Generated Coins: ', format_satoshis(b['generated'], chain),' ',escape(chain.code3) ,' + ',
+                    format_satoshis(b['fees'], chain),' ',escape(chain.code3), ' total fees']
             else:
                 for txin in tx['in']:
-                    body += [abe.format_addresses(txin, page['dotdot'], chain), ': ',
-                             format_satoshis(txin['value'], chain), '<br />']
+                    body += abe.format_addresses(txin, page['dotdot'], chain)
+                    body += [' (', format_satoshis(txin['value'], chain), ' ',escape(chain.code3),')<br />']
 
-            body += ['</td><td>']
+            body += ['</div>']
+            body += ['<div class="tx_arrow"><i class="fa fa-arrow-right fa-3x"></i></div>']
+            body += ['<div class="tx_output">']
             for txout in tx['out']:
+                amount = format_satoshis(txout['value'], chain)
+                if amount!='':
+                    vout = float(vout)+float(amount)
                 if is_stake_block:
                     if tx is b['transactions'][0]:
                         assert txout['value'] == 0
@@ -669,11 +670,12 @@ class Abe:
                     if txout['value'] == 0:
                         continue
 
-                body += [abe.format_addresses(txout, page['dotdot'], chain), ': ',
-                         format_satoshis(txout['value'], chain), '<br />']
-
-            body += ['</td></tr>\n']
-        body += '</table>\n'
+                body += [abe.format_addresses(txout, page['dotdot'], chain)]
+                body += ['<span class="pull-right"><span>', format_satoshis(txout['value'], chain), ' ',escape(chain.code3),'</span></span></br>']
+            body += ['</div>\n']
+            body += ['</div><div style="padding-bottom:30px;width:100%;text-align:right;clear:both"><button class="btn btn-success cb">']
+            body += ['<span>',vout,' ',escape(chain.code3),'</span></button></div>']
+        body += ['</div>']
 
     def handle_block(abe, page):
         block_hash = wsgiref.util.shift_path_info(page['env'])
