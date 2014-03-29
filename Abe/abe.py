@@ -72,7 +72,7 @@ DEFAULT_TEMPLATE = """<!DOCTYPE html>
 <link href="http://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.0.3/css/font-awesome.min.css" rel="stylesheet" type="text/css">
 <link href="http://cdnjs.cloudflare.com/ajax/libs/datatables/1.9.4/css/jquery.dataTables.min.css" rel="stylesheet" type="text/css">
 <!-- Custom styles for this template -->
-<link href="%(dotdot)s%(STATIC_PATH)scss/style.css" rel="stylesheet" type="text/css">
+<link href="%(dotdot)s%(STATIC_PATH)sabe.css" rel="stylesheet" type="text/css">
 <!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries -->
 <!--[if lt IE 9]>
       <script src="http://cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7/html5shiv.js"></script>
