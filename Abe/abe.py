@@ -722,6 +722,26 @@ class Abe:
     def show_tx(abe, page, tx):
         body = page['body']
 
+        def row_to_transaction(row, this_ch, other_ch, no_link_text,tx_type):
+            body = page['body']
+            if tx_type == 'output':
+                tx_text = 'output'
+            elif tx_type == 'input':
+                tx_text = 'spent'
+            if row['o_hash'] is None:
+                output_link = [no_link_text]
+            else:
+                output_link = [
+                    '<a href="', row['o_hash'], '#', other_ch, row['o_pos'],'">',tx_text,'</a>']
+                
+            if row['binaddr'] is None:
+                body += no_link_text
+            else:
+                body += hash_to_address_link(chain.address_version,row['binaddr'], '../')
+            amount = (format_satoshis(row['value'], chain))
+            
+            body += ['<span class="pull-right"><span>(', amount, '  ',chain.code3,' - ',output_link,')</span></span></br>']
+            
         def row_to_html(row, this_ch, other_ch, no_link_text):
             body = page['body']
             body += [
@@ -741,9 +761,6 @@ class Abe:
             if row['binscript'] is not None:
                 body += ['<td>', escape(decode_script(row['binscript'])), '</td>\n']
             body += ['</tr>\n']
-
-        body += abe.short_link(page, 't/' + hexb58(tx['hash'][:14]))
-        body += ['<p>Hash: ', tx['hash'], '<br />\n']
         chain = None
         is_coinbase = None
 
@@ -756,47 +773,62 @@ class Abe:
                              + tx_cc['chain'].id + ', ' + chain.id)
 
             blk_hash = tx_cc['block_hash']
-            body += [
-                'Appeared in <a href="../block/', blk_hash, '">',
-                escape(tx_cc['chain'].name), ' ',
+            included_in_block = ['<a href="../block/', blk_hash, '"> ',
                 tx_cc['block_height'] if tx_cc['in_longest'] else [blk_hash[:10], '...', blk_hash[-4:]],
-                '</a> (', format_time(tx_cc['block_nTime']), ')<br />\n']
+                '</a> (', format_time(tx_cc['block_nTime']), ')']
 
         if chain is None:
             abe.log.warning('Assuming default chain for Transaction ' + tx['hash'])
             chain = abe.get_default_chain()
-
-        body += [
-            'Number of inputs: ', len(tx['in']),
-            ' (<a href="#inputs">Jump to inputs</a>)<br />\n',
-            'Total in: ', format_satoshis(tx['value_in'], chain), '<br />\n',
-            'Number of outputs: ', len(tx['out']),
-            ' (<a href="#outputs">Jump to outputs</a>)<br />\n',
-            'Total out: ', format_satoshis(tx['value_out'], chain), '<br />\n',
-            'Size: ', tx['size'], ' bytes<br />\n',
-            'Fee: ', format_satoshis(0 if is_coinbase else
+        nTime = format_time(tx_cc['block_nTime'])
+        currency_code = escape(chain.code3)            
+        body += ['<div class="transaction-wrap col-lg-12"><h1>Transaction <small>View information about ',chain.name,' transaction</small></h1></div>']
+        body += ['<div class="transaction_section"><div class="transaction" >']
+        body += ['<div class="transaction_hash"><a class="nos-link" href="',page['dotdot'],'tx/',tx['hash'],'">',tx['hash'],'</a></div>']
+        body += ['<div class="tx_input">']
+        for txin in tx['in']:
+            row_to_transaction(txin, 'i', 'o','Generation' if is_coinbase else 'Unknown','output')
+        body += ['</div><div class="tx_arrow"><i class="fa fa-arrow-right fa-3x"></i></div>']
+        body += ['<div class="tx_output">']
+        for txout in tx['out']:
+            row_to_transaction(txout, 'o', 'i', 'Unspent','input')
+        body += ['</div>\n']
+        body += ['</div><div class="currency_btn"><button class="btn btn-success cb">']
+        body += ['<span data-time="',nTime,'">',format_satoshis(tx['value_out'], chain),' ',currency_code,'</span></button></div>']
+        body += ['<div class="middle-section"><div class="col-lg-7"><table class="table table-striped"><tbody><tr><th colspan="2">Summary</th></tr>']
+        body += ['<tr><td>Size</td><td>', tx['size'], '(bytes)</td></tr>']
+        body += ['<tr><td>Hash</td><td>', tx['hash'], '</td></tr>']
+        body += ['<tr><td>Received Time</td><td>',nTime, '</td></tr>']
+        if included_in_block is not None:
+            body += ['<tr><td>Included In Blocks </td><td>',included_in_block,'</td></tr>']
+        body += ['<tr><td>Short Link </td><td>',abe.short_link(page, 't/' + hexb58(tx['hash'][:14])), '</td></tr>']
+        body += ['</tbody></table></div>']
+        body += ['<div class="col-lg-5"><table class="table table-striped"><tbody><tr><th colspan="2">Inputs and Outputs</th></tr>']
+        body += ['<tr><td>Number of inputs</td><td><span>',len(tx['in']),'</span></td></tr>']
+        total_input = format_satoshis(tx['value_in'], chain)
+        if total_input == '':
+            total_input = 0
+        body += ['<tr><td>Total Input</td><td>',total_input,' ',currency_code,'</td></tr>']
+        body += ['<tr><td>Number of outputs</td><td><span>',len(tx['out']), '</span></td></tr>']
+        body += ['<tr><td>Total Output</td><td>',format_satoshis(tx['value_out'], chain),' ',currency_code,'</td></tr>']
+        body += ['<tr><td>Fee</td><td>',format_satoshis(0 if is_coinbase else
                                      (tx['value_in'] and tx['value_out'] and
                                       tx['value_in'] - tx['value_out']), chain),
-            '<br />\n',
-            '<a href="../rawtx/', tx['hash'], '">Raw transaction</a><br />\n']
-        body += ['</p>\n',
-                 '<a name="inputs"><h3>Inputs</h3></a>\n<table>\n',
-                 '<tr><th>Index</th><th>Previous output</th><th>Amount</th>',
-                 '<th>From address</th>']
+                ' ',currency_code,'</td></tr>']
+        body += ['<tr><td>Raw</td><td>', '<a target="_blank" href="../rawtx/', tx['hash'], '">Raw transaction</a>', '</td></tr>']
+        body += ['</tbody></table></div></div>']
+        body += ['<div class="col-lg-12">']
         if abe.store.keep_scriptsig:
-            body += ['<th>ScriptSig</th>']
-        body += ['</tr>\n']
-        for txin in tx['in']:
-            row_to_html(txin, 'i', 'o',
-                        'Generation' if is_coinbase else 'Unknown')
-        body += ['</table>\n',
-                 '<a name="outputs"><h3>Outputs</h3></a>\n<table>\n',
-                 '<tr><th>Index</th><th>Redeemed at input</th><th>Amount</th>',
-                 '<th>To address</th><th>ScriptPubKey</th></tr>\n']
+            body += ['<h4>Input Scripts</h4>']
+            for txin in tx['in']:
+                if txin['binscript'] is not None:
+                    body += ['<table><tr><td>', escape(decode_script(txin['binscript'])),'</td></tr></table>']
+        
+        body += ['<h4>Output Scripts</h4>']
         for txout in tx['out']:
-            row_to_html(txout, 'o', 'i', 'Not yet redeemed')
-
-        body += ['</table>\n']
+            if txout['binscript'] is not None:
+                body += ['<table><tr><td>', escape(decode_script(txout['binscript'])),'</td></tr></table>']
+        body += ['</div>']
 
     def handle_rawtx(abe, page):
         abe.do_raw(page, abe.do_rawtx)
