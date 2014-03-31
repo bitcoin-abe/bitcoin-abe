@@ -442,7 +442,7 @@ class SqlAbstraction(object):
 
     def sql(sql, stmt, params=()):
         cached = sql.transform_stmt_cached(stmt)
-        sql.sqllog.info("EXEC: %s %s", cached, params)
+        sql.sqllog.info("EXEC: %s %r", cached, params)
         try:
             sql._execute(cached, params)
         except Exception as e:
