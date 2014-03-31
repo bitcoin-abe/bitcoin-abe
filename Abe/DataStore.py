@@ -158,10 +158,8 @@ class DataStore(object):
         sql_args.prefix = "abe_"
         sql_args.config = {}
         store.sql_args = sql_args
+        store._sql = None
         store.init_sql()
-
-        store.auto_reconnect = False
-        store.init_conn()
 
         store._blocks = {}
 
@@ -192,7 +190,7 @@ class DataStore(object):
                     "Database schema version (%s) does not match software"
                     " (%s).  Please run with --upgrade to convert database."
                     % (store.config['schema_version'], SCHEMA_VERSION))
-        store.auto_reconnect = True
+        store._sql.auto_reconnect = True
 
         if args.rescan:
             store.sql("UPDATE datadir SET blkfile_number=1, blkfile_offset=0")
@@ -218,59 +216,46 @@ class DataStore(object):
 
         store.default_loader = args.default_loader
 
-        if store.in_transaction:
-            store.commit()
-
-
-    def init_conn(store):
-        store.conn = store.connect()
-        store.cursor = store.conn.cursor()
-        store.in_transaction = False
+        store.commit()
 
     def connect(store):
         return store._sql.connect()
 
     def reconnect(store):
-        store.log.info("Reconnecting to database.")
-        try:
-            store.cursor.close()
-        except Exception:
-            pass
-        try:
-            store.conn.close()
-        except Exception:
-            pass
-        store.init_conn()
+        return store._sql.reconnect()
 
     def close(store):
-        store._sql.close(store.conn)
+        store._sql.close()
 
     def commit(store):
-        store._sql.commit(store.conn)
+        store._sql.commit()
 
     def rollback(store):
-        store._sql.rollback(store.conn)
+        store._sql.rollback()
 
     def sql(store, stmt, params=()):
-        store._sql.sql(store.cursor, stmt, params)
+        store._sql.sql(stmt, params)
 
     def ddl(store, stmt):
-        store._sql.ddl(store.conn, store.cursor, stmt)
+        store._sql.ddl(stmt)
 
     def selectrow(store, stmt, params=()):
-        return store._sql.selectrow(store.cursor, stmt, params)
+        return store._sql.selectrow(stmt, params)
 
     def selectall(store, stmt, params=()):
-        return store._sql.selectall(store.cursor, stmt, params)
+        return store._sql.selectall(stmt, params)
+
+    def rowcount(store):
+        return store._sql.rowcount()
 
     def create_sequence(store, key):
-        store._sql.create_sequence(store.conn, store.cursor, key)
+        store._sql.create_sequence(key)
 
     def drop_sequence(store, key):
-        store._sql.drop_sequence(store.conn, store.cursor, key)
+        store._sql.drop_sequence(key)
 
     def new_id(store, key):
-        return store._sql.new_id(store.cursor, key)
+        return store._sql.new_id(key)
 
     def init_sql(store):
         sql_args = store.sql_args
@@ -278,6 +263,8 @@ class DataStore(object):
             for name in store.config.keys():
                 if name.startswith('sql.'):
                     sql_args.config[name[len('sql.'):]] = store.config[name]
+        if store._sql:
+            store._sql.close()  # XXX Could just set_flavour.
         store._sql = SqlAbstraction.SqlAbstraction(sql_args)
         store.init_binfuncs()
 
@@ -298,10 +285,9 @@ class DataStore(object):
         # Read table CONFIGVAR if it exists.
         config = {}
         try:
-            store.cursor.execute("""
+            for name, value in store.selectall("""
                 SELECT configvar_name, configvar_value
-                  FROM configvar""")
-            for name, value in store.cursor.fetchall():
+                  FROM configvar"""):
                 config[name] = '' if value is None else value
             if config:
                 return config
@@ -314,11 +300,10 @@ class DataStore(object):
 
         # Read legacy table CONFIG if it exists.
         try:
-            store.cursor.execute("""
+            row = store.selectrow("""
                 SELECT schema_version, binary_type
                   FROM config
                  WHERE config_id = 1""")
-            row = store.cursor.fetchone()
             sv, btype = row
             return { 'schema_version': sv, 'binary_type': btype }
         except Exception:
@@ -920,7 +905,7 @@ store._ddl['txout_approx'],
         return sv < vers
 
     def configure(store):
-        config = store._sql.configure(store.conn, store.cursor)
+        config = store._sql.configure()
         store.init_binfuncs()
         for name in config.keys():
             store.config['sql.' + name] = config[name]
@@ -933,7 +918,7 @@ store._ddl['txout_approx'],
     def save_configvar(store, name):
         store.sql("UPDATE configvar SET configvar_value = ?"
                   " WHERE configvar_name = ?", (store.config[name], name))
-        if store.cursor.rowcount == 0:
+        if store.rowcount() == 0:
             store.sql("INSERT INTO configvar (configvar_name, configvar_value)"
                       " VALUES (?, ?)", (name, store.config[name]))
 
@@ -2934,7 +2919,7 @@ store._ddl['txout_approx'],
              WHERE datadir_id = ?""",
                   (dircfg['blkfile_number'], store.intin(offset),
                    dircfg['id']))
-        if store.cursor.rowcount == 0:
+        if store.rowcount() == 0:
             store.sql("""
                 INSERT INTO datadir (datadir_id, dirname, blkfile_number,
                     blkfile_offset, chain_id)

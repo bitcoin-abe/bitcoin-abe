@@ -30,8 +30,6 @@ class SqlAbstraction(object):
     Oracle, ODBC, and IBM DB2.
     """
 
-    # XXX Consider moving conn and cursor into sql during configure.
-
     def __init__(sql, args):
         sql.module = args.module
         sql.connect_args = args.connect_args
@@ -43,6 +41,10 @@ class SqlAbstraction(object):
         if not args.log_sql:
             sql.sqllog.setLevel(logging.WARNING)
 
+        sql._conn = None
+        sql._cursor = None
+        sql.auto_reconnect = False
+        sql.in_transaction = False
         sql._set_flavour()
 
     def _set_flavour(sql):
@@ -146,35 +148,28 @@ class SqlAbstraction(object):
 
         val = sql.config.get('sequence_type')
         if val in (None, 'update'):
-            new_id = lambda cursor, key: sql._new_id_update(cursor, key)
-            create_sequence = lambda conn, cursor, key: \
-                sql._create_sequence_update(conn, cursor, key)
-            drop_sequence = lambda conn, cursor, key: \
-                sql._drop_sequence_update(conn, cursor, key)
+            new_id = lambda key: sql._new_id_update(key)
+            create_sequence = lambda key: sql._create_sequence_update(key)
+            drop_sequence = lambda key: sql._drop_sequence_update(key)
 
         elif val == 'mysql':
-            new_id = lambda cursor, key: sql._new_id_mysql(cursor, key)
-            create_sequence = lambda conn, cursor, key: \
-                sql._create_sequence_mysql(conn, cursor, key)
-            drop_sequence = lambda conn, cursor, key: \
-                sql._drop_sequence_mysql(conn, cursor, key)
+            new_id = lambda key: sql._new_id_mysql(key)
+            create_sequence = lambda key: sql._create_sequence_mysql(key)
+            drop_sequence = lambda key: sql._drop_sequence_mysql(key)
 
         else:
-            create_sequence = lambda conn, cursor, key: \
-                sql._create_sequence(conn, cursor, key)
-            drop_sequence = lambda conn, cursor, key: \
-                sql._drop_sequence(conn, cursor, key)
+            create_sequence = lambda key: sql._create_sequence(key)
+            drop_sequence = lambda key: sql._drop_sequence(key)
 
             if val == 'oracle':
-                new_id = lambda cursor, key: sql._new_id_oracle(cursor, key)
+                new_id = lambda key: sql._new_id_oracle(key)
             elif val == 'nvf':
-                new_id = lambda cursor, key: sql._new_id_nvf(cursor, key)
+                new_id = lambda key: sql._new_id_nvf(key)
             elif val == 'postgres':
-                new_id = lambda cursor, key: sql._new_id_postgres(cursor, key)
+                new_id = lambda key: sql._new_id_postgres(key)
             elif val == 'db2':
-                new_id = lambda cursor, key: sql._new_id_db2(cursor, key)
-                create_sequence = lambda conn, cursor, key: \
-                    sql._create_sequence_db2(conn, cursor, key)
+                new_id = lambda key: sql._new_id_db2(key)
+                create_sequence = lambda key: sql._create_sequence_db2(key)
             else:
                 raise Exception("Unsupported sequence-type %s" % (val,))
 
@@ -272,6 +267,27 @@ class SqlAbstraction(object):
         if isinstance(cargs, list):
             return sql.module.connect(*cargs)
         return sql.module.connect(cargs)
+
+    def conn(sql):
+        if sql._conn is None:
+            sql._conn = sql.connect()
+        return sql._conn
+
+    def cursor(sql):
+        if sql._cursor is None:
+            sql._cursor = sql.conn().cursor()
+        return sql._cursor
+
+    def rowcount(sql):
+        return sql.cursor().rowcount
+
+    def reconnect(sql):
+        sql.log.info("Reconnecting to database.")
+        try:
+            sql.close()
+        except Exception:
+            pass
+        return sql.conn()
 
     # Run transform_chunk on each chunk between string literals.
     def _transform_stmt(sql, stmt):
@@ -374,7 +390,7 @@ class SqlAbstraction(object):
 
     def emulate_limit(sql, selectall):
         limit_re = re.compile(r"(.*)\bLIMIT\s+(\?|\d+)\s*\Z", re.DOTALL)
-        def ret(cursor, stmt, params=()):
+        def ret(stmt, params=()):
             match = limit_re.match(sql.transform_stmt_cached(stmt))
             if match:
                 if match.group(2) == '?':
@@ -382,9 +398,9 @@ class SqlAbstraction(object):
                     params = params[:-1]
                 else:
                     n = int(match.group(2))
-                cursor.execute(match.group(1), params)
-                return [ cursor.fetchone() for i in xrange(n) ]
-            return selectall(cursor, stmt, params)
+                sql.cursor().execute(match.group(1), params)
+                return [ sql.cursor().fetchone() for i in xrange(n) ]
+            return selectall(stmt, params)
         return ret
 
     def _append_table_epilogue(sql, fn):
@@ -407,177 +423,196 @@ class SqlAbstraction(object):
             sql._cache[stmt] = cached
         return cached
 
-    def sql(sql, cursor, stmt, params=()):
+    def _execute(sql, stmt, params):
+        try:
+            sql.cursor().execute(stmt, params)
+        except (sql.module.OperationalError, sql.module.InternalError, sql.module.ProgrammingError) as e:
+            if sql.in_transaction or not sql.auto_reconnect:
+                raise
+
+            sql.log.warning("Replacing possible stale cursor: %s", e)
+
+            try:
+                sql.reconnect()
+            except Exception:
+                sql.log.exception("Failed to reconnect")
+                raise e
+
+            sql.cursor().execute(stmt, params)
+
+    def sql(sql, stmt, params=()):
         cached = sql.transform_stmt_cached(stmt)
         sql.sqllog.info("EXEC: %s %s", cached, params)
         try:
-            cursor.execute(cached, params)
-        except Exception, e:
+            sql._execute(cached, params)
+        except Exception as e:
             sql.sqllog.info("EXCEPTION: %s", e)
             raise
+        finally:
+            sql.in_transaction = True
 
-    def ddl(sql, conn, cursor, stmt):
+    def ddl(sql, stmt):
         stmt = sql.transform_stmt(stmt)
         sql.sqllog.info("DDL: %s", stmt)
         try:
-            cursor.execute(stmt)
-        except Exception, e:
+            sql.cursor().execute(stmt)
+        except Exception as e:
             sql.sqllog.info("EXCEPTION: %s", e)
             raise
         if sql.config.get('ddl_implicit_commit') == 'false':
-            conn.commit()
+            sql.commit()
+        else:
+            sql.in_transaction = False
 
-    def selectrow(sql, cursor, stmt, params=()):
-        sql.sql(cursor, stmt, params)
-        ret = cursor.fetchone()
+    def selectrow(sql, stmt, params=()):
+        sql.sql(stmt, params)
+        ret = sql.cursor().fetchone()
         sql.sqllog.debug("FETCH: %s", ret)
         return ret
 
-    def _selectall(sql, cursor, stmt, params=()):
-        sql.sql(cursor, stmt, params)
-        ret = cursor.fetchall()
+    def _selectall(sql, stmt, params=()):
+        sql.sql(stmt, params)
+        ret = sql.cursor().fetchall()
         sql.sqllog.debug("FETCHALL: %s", ret)
         return ret
 
-    def _new_id_update(sql, cursor, key):
+    def _new_id_update(sql, key):
         """
         Allocate a synthetic identifier by updating a table.
         """
         while True:
-            row = sql.selectrow(
-                cursor,
-                "SELECT nextid FROM %ssequences WHERE sequence_key = ?" % (
-                    sql.prefix),
-                (key,))
+            row = sql.selectrow("SELECT nextid FROM %ssequences WHERE sequence_key = ?" % (sql.prefix), (key,))
             if row is None:
                 raise Exception("Sequence %s does not exist" % key)
 
             ret = row[0]
-            sql.sql(cursor,
-                    "UPDATE %ssequences SET nextid = nextid + 1"
+            sql.sql("UPDATE %ssequences SET nextid = nextid + 1"
                     " WHERE sequence_key = ? AND nextid = ?" % sql.prefix,
                     (key, ret))
-            if cursor.rowcount == 1:
+            if sql.cursor().rowcount == 1:
                 return ret
-            sql.log.info('Contention on %ssequences %s:%d' % sql.prefix,
-                         key, ret)
+            sql.log.info('Contention on %ssequences %s:%d' % sql.prefix, key, ret)
 
-    def _get_sequence_initial_value(sql, cursor, key):
-        (ret,) = sql.selectrow(cursor, "SELECT MAX(" + key + "_id) FROM " + key)
+    def _get_sequence_initial_value(sql, key):
+        (ret,) = sql.selectrow("SELECT MAX(" + key + "_id) FROM " + key)
         ret = 1 if ret is None else ret + 1
         return ret
 
-    def _create_sequence_update(sql, conn, cursor, key):
-        sql.commit(conn)
-        ret = sql._get_sequence_initial_value(cursor, key)
+    def _create_sequence_update(sql, key):
+        sql.commit()
+        ret = sql._get_sequence_initial_value(key)
         try:
-            sql.sql(cursor,
-                    "INSERT INTO %ssequences (sequence_key, nextid)"
+            sql.sql("INSERT INTO %ssequences (sequence_key, nextid)"
                     " VALUES (?, ?)" % sql.prefix, (key, ret))
-        except sql.module.DatabaseError, e:
-            sql.rollback(conn)
+        except sql.module.DatabaseError as e:
+            sql.rollback()
             try:
-                sql.ddl(conn, cursor, """CREATE TABLE %ssequences (
+                sql.ddl("""CREATE TABLE %ssequences (
                     sequence_key VARCHAR(100) NOT NULL PRIMARY KEY,
                     nextid NUMERIC(30)
                 )""" % sql.prefix)
             except:
-                sql.rollback(conn)
+                sql.rollback()
                 raise e
-            sql.sql(cursor,
-                    "INSERT INTO %ssequences (sequence_key, nextid)"
+            sql.sql("INSERT INTO %ssequences (sequence_key, nextid)"
                     " VALUES (?, ?)" % sql.prefix, (key, ret))
 
-    def _drop_sequence_update(sql, conn, cursor, key):
-        sql.commit(conn)
-        sql.sql(cursor,
-                "DELETE FROM %ssequences WHERE sequence_key = ?" % sql.prefix,
+    def _drop_sequence_update(sql, key):
+        sql.commit()
+        sql.sql("DELETE FROM %ssequences WHERE sequence_key = ?" % sql.prefix,
                 (key,))
-        sql.commit(conn)
+        sql.commit()
 
-    def _new_id_oracle(sql, cursor, key):
-        (ret,) = sql.selectrow(cursor,
-                               "SELECT " + key + "_seq.NEXTVAL FROM DUAL")
+    def _new_id_oracle(sql, key):
+        (ret,) = sql.selectrow("SELECT " + key + "_seq.NEXTVAL FROM DUAL")
         return ret
 
-    def _create_sequence(sql, conn, cursor, key):
-        sql.ddl(conn, cursor, "CREATE SEQUENCE %s_seq START WITH %d"
-                % (key, sql._get_sequence_initial_value(cursor, key)))
+    def _create_sequence(sql, key):
+        sql.ddl("CREATE SEQUENCE %s_seq START WITH %d"
+                % (key, sql._get_sequence_initial_value(key)))
 
-    def _drop_sequence(sql, conn, cursor, key):
-        sql.ddl(conn, cursor, "DROP SEQUENCE %s_seq" % (key,))
+    def _drop_sequence(sql, key):
+        sql.ddl("DROP SEQUENCE %s_seq" % (key,))
 
-    def _new_id_nvf(sql, cursor, key):
-        (ret,) = sql.selectrow(cursor, "SELECT NEXT VALUE FOR " + key + "_seq")
+    def _new_id_nvf(sql, key):
+        (ret,) = sql.selectrow("SELECT NEXT VALUE FOR " + key + "_seq")
         return ret
 
-    def _new_id_postgres(sql, cursor, key):
-        (ret,) = sql.selectrow(cursor, "SELECT NEXTVAL('" + key + "_seq')")
+    def _new_id_postgres(sql, key):
+        (ret,) = sql.selectrow("SELECT NEXTVAL('" + key + "_seq')")
         return ret
 
-    def _create_sequence_db2(sql, conn, cursor, key):
-        sql.commit(conn)
+    def _create_sequence_db2(sql, key):
+        sql.commit()
         try:
-            rows = sql.selectall(cursor, "SELECT 1 FROM %sdual" % sql.prefix)
+            rows = sql.selectall("SELECT 1 FROM %sdual" % sql.prefix)
             if len(rows) != 1:
-                sql.sql(cursor, "INSERT INTO %sdual(x) VALUES ('X')"
-                        % sql.prefix)
-        except sql.module.DatabaseError, e:
-            sql.rollback(conn)
-            sql.drop_table_if_exists(conn, cursor, '%sdual' % sql.prefix)
-            sql.ddl(conn, cursor, "CREATE TABLE %sdual (x CHAR(1))"
-                    % sql.prefix)
-            sql.sql(cursor, "INSERT INTO %sdual(x) VALUES ('X')" % sql.prefix)
+                sql.sql("INSERT INTO %sdual(x) VALUES ('X')" % sql.prefix)
+        except sql.module.DatabaseError as e:
+            sql.rollback()
+            sql.drop_table_if_exists('%sdual' % sql.prefix)
+            sql.ddl("CREATE TABLE %sdual (x CHAR(1))" % sql.prefix)
+            sql.sql("INSERT INTO %sdual(x) VALUES ('X')" % sql.prefix)
             sql.log.info("Created silly table %sdual" % sql.prefix)
-        sql._create_sequence(conn, cursor, key)
+        sql._create_sequence(key)
 
-    def _new_id_db2(sql, cursor, key):
-        (ret,) = sql.selectrow(cursor, "SELECT NEXTVAL FOR " + key + "_seq"
+    def _new_id_db2(sql, key):
+        (ret,) = sql.selectrow("SELECT NEXTVAL FOR " + key + "_seq"
                                " FROM %sdual" % sql.prefix)
         return ret
 
-    def _create_sequence_mysql(sql, conn, cursor, key):
-        sql.ddl(conn, cursor,
-                "CREATE TABLE %s_seq (id BIGINT AUTO_INCREMENT PRIMARY KEY)"
+    def _create_sequence_mysql(sql, key):
+        sql.ddl("CREATE TABLE %s_seq (id BIGINT AUTO_INCREMENT PRIMARY KEY)"
                 " AUTO_INCREMENT=%d"
-                % (key, sql._get_sequence_initial_value(cursor, key)))
+                % (key, sql._get_sequence_initial_value(key)))
 
-    def _drop_sequence_mysql(sql, conn, cursor, key):
-        sql.ddl(conn, cursor, "DROP TABLE %s_seq" % (key,))
+    def _drop_sequence_mysql(sql, key):
+        sql.ddl("DROP TABLE %s_seq" % (key,))
 
-    def _new_id_mysql(sql, cursor, key):
-        sql.sql(cursor, "INSERT INTO " + key + "_seq () VALUES ()")
-        (ret,) = sql.selectrow(cursor, "SELECT LAST_INSERT_ID()")
+    def _new_id_mysql(sql, key):
+        sql.sql("INSERT INTO " + key + "_seq () VALUES ()")
+        (ret,) = sql.selectrow("SELECT LAST_INSERT_ID()")
         if ret % 1000 == 0:
-            sql.sql(cursor, "DELETE FROM " + key + "_seq WHERE id < ?", (ret,))
+            sql.sql("DELETE FROM " + key + "_seq WHERE id < ?", (ret,))
         return ret
 
-    def commit(sql, conn):
+    def commit(sql):
         sql.sqllog.info("COMMIT")
-        conn.commit()
+        sql.conn().commit()
+        sql.in_transaction = False
 
-    def rollback(sql, conn):
+    def rollback(sql):
+        if sql.module is None:
+            return
         sql.sqllog.info("ROLLBACK")
-        conn.rollback()
+        try:
+            sql.conn().rollback()
+            sql.in_transaction = False
+        except sql.module.OperationalError as e:
+            sql.log.warning("Reconnecting after rollback error: %s", e)
+            sql.reconnect()
 
-    def close(sql, conn):
-        sql.sqllog.info("CLOSE")
-        conn.close()
+    def close(sql):
+        conn = sql._conn
+        if conn is not None:
+            sql.sqllog.info("CLOSE")
+            conn.close()
+            sql._conn = None
 
-    def configure(sql, conn, cursor):
-        sql.configure_ddl_implicit_commit(conn, cursor)
-        sql.configure_create_table_epilogue(conn, cursor)
-        sql.configure_max_varchar(conn, cursor)
-        sql.configure_max_precision(conn, cursor)
-        sql.configure_clob_type(conn, cursor)
-        sql.configure_binary_type(conn, cursor)
-        sql.configure_int_type(conn, cursor)
-        sql.configure_sequence_type(conn, cursor)
-        sql.configure_limit_style(conn, cursor)
+    def configure(sql):
+        sql.configure_ddl_implicit_commit()
+        sql.configure_create_table_epilogue()
+        sql.configure_max_varchar()
+        sql.configure_max_precision()
+        sql.configure_clob_type()
+        sql.configure_binary_type()
+        sql.configure_int_type()
+        sql.configure_sequence_type()
+        sql.configure_limit_style()
 
         return sql.config
 
-    def configure_binary_type(sql, conn, cursor):
+    def configure_binary_type(sql):
         defaults = ['binary', 'bytearray', 'buffer', 'hex', 'pg-bytea']
         tests = (defaults
                  if sql.config.get('binary_type') is None else
@@ -586,7 +621,7 @@ class SqlAbstraction(object):
         for val in tests:
             sql.config['binary_type'] = val
             sql._set_flavour()
-            if sql._test_binary_type(conn, cursor):
+            if sql._test_binary_type():
                 sql.log.info("binary_type=%s", val)
                 return
 
@@ -595,7 +630,7 @@ class SqlAbstraction(object):
             if len(tests) > 1 else
             "Binary type " + tests[0] + " fails test")
 
-    def configure_int_type(sql, conn, cursor):
+    def configure_int_type(sql):
         defaults = ['int', 'decimal', 'str']
         tests = (defaults if sql.config.get('int_type') is None else
                  [ sql.config['int_type'] ])
@@ -603,7 +638,7 @@ class SqlAbstraction(object):
         for val in tests:
             sql.config['int_type'] = val
             sql._set_flavour()
-            if sql._test_int_type(conn, cursor):
+            if sql._test_int_type():
                 sql.log.info("int_type=%s", val)
                 return
         raise Exception(
@@ -611,217 +646,205 @@ class SqlAbstraction(object):
             if len(tests) > 1 else
             "Integer type " + tests[0] + " fails test")
 
-    def configure_sequence_type(sql, conn, cursor):
+    def configure_sequence_type(sql):
         for val in ['nvf', 'oracle', 'postgres', 'mysql', 'db2', 'update']:
             sql.config['sequence_type'] = val
             sql._set_flavour()
-            if sql._test_sequence_type(conn, cursor):
+            if sql._test_sequence_type():
                 sql.log.info("sequence_type=%s", val)
                 return
         raise Exception("No known sequence type works")
 
-    def _drop_if_exists(sql, conn, cursor, otype, name):
+    def _drop_if_exists(sql, otype, name):
         try:
-            sql.sql(cursor, "DROP " + otype + " " + name)
-            sql.commit(conn)
+            sql.sql("DROP " + otype + " " + name)
+            sql.commit()
         except sql.module.DatabaseError:
-            sql.rollback(conn)
+            sql.rollback()
 
-    def drop_table_if_exists(sql, conn, cursor, obj):
-        sql._drop_if_exists(conn, cursor, "TABLE", obj)
-    def drop_view_if_exists(sql, conn, cursor, obj):
-        sql._drop_if_exists(conn, cursor, "VIEW", obj)
+    def drop_table_if_exists(sql, obj):
+        sql._drop_if_exists("TABLE", obj)
+    def drop_view_if_exists(sql, obj):
+        sql._drop_if_exists("VIEW", obj)
 
-    def drop_sequence_if_exists(sql, conn, cursor, key):
+    def drop_sequence_if_exists(sql, key):
         try:
-            sql.drop_sequence(conn, cursor, key)
+            sql.drop_sequence(key)
         except sql.module.DatabaseError:
-            sql.rollback(conn)
+            sql.rollback()
 
-    def drop_column_if_exists(sql, conn, cursor, table, column):
+    def drop_column_if_exists(sql, table, column):
         try:
-            sql.ddl(conn, cursor,
-                    "ALTER TABLE " + table + " DROP COLUMN " + column)
+            sql.ddl("ALTER TABLE " + table + " DROP COLUMN " + column)
         except sql.module.DatabaseError:
-            sql.rollback(conn)
+            sql.rollback()
 
-    def configure_ddl_implicit_commit(sql, conn, cursor):
+    def configure_ddl_implicit_commit(sql):
         if 'create_table_epilogue' not in sql.config:
             sql.config['create_table_epilogue'] = ''
         for val in ['true', 'false']:
             sql.config['ddl_implicit_commit'] = val
             sql._set_flavour()
-            if sql._test_ddl(conn, cursor):
+            if sql._test_ddl():
                 sql.log.info("ddl_implicit_commit=%s", val)
                 return
         raise Exception("Can not test for DDL implicit commit.")
 
-    def _test_ddl(sql, conn, cursor):
+    def _test_ddl(sql):
         """Test whether DDL performs implicit commit."""
-        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+        sql.drop_table_if_exists("%stest_1" % sql.prefix)
         try:
             sql.ddl(
-                conn, cursor,
                 "CREATE TABLE %stest_1 ("
                 " %stest_1_id NUMERIC(12) NOT NULL PRIMARY KEY,"
                 " foo VARCHAR(10))" % (sql.prefix, sql.prefix))
-            sql.rollback(conn)
-            sql.selectall(cursor, "SELECT MAX(%stest_1_id) FROM %stest_1"
+            sql.rollback()
+            sql.selectall("SELECT MAX(%stest_1_id) FROM %stest_1"
                           % (sql.prefix, sql.prefix))
             return True
-        except sql.module.DatabaseError, e:
-            sql.rollback(conn)
+        except sql.module.DatabaseError as e:
+            sql.rollback()
             return False
         except Exception:
-            sql.rollback(conn)
+            sql.rollback()
             return False
         finally:
-            sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+            sql.drop_table_if_exists("%stest_1" % sql.prefix)
 
-    def configure_create_table_epilogue(sql, conn, cursor):
+    def configure_create_table_epilogue(sql):
         for val in ['', ' ENGINE=InnoDB']:
             sql.config['create_table_epilogue'] = val
             sql._set_flavour()
-            if sql._test_transaction(conn, cursor):
+            if sql._test_transaction():
                 sql.log.info("create_table_epilogue='%s'", val)
                 return
         raise Exception("Can not create a transactional table.")
 
-    def _test_transaction(sql, conn, cursor):
+    def _test_transaction(sql):
         """Test whether CREATE TABLE needs ENGINE=InnoDB for rollback."""
-        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+        sql.drop_table_if_exists("%stest_1" % sql.prefix)
         try:
-            sql.ddl(
-                conn, cursor,
-                "CREATE TABLE %stest_1 (a NUMERIC(12))" % sql.prefix)
-            sql.sql(cursor, "INSERT INTO %stest_1 (a) VALUES (4)" % sql.prefix)
-            sql.commit(conn)
-            sql.sql(cursor, "INSERT INTO %stest_1 (a) VALUES (5)" % sql.prefix)
-            sql.rollback(conn)
+            sql.ddl("CREATE TABLE %stest_1 (a NUMERIC(12))" % sql.prefix)
+            sql.sql("INSERT INTO %stest_1 (a) VALUES (4)" % sql.prefix)
+            sql.commit()
+            sql.sql("INSERT INTO %stest_1 (a) VALUES (5)" % sql.prefix)
+            sql.rollback()
             data = [int(row[0]) for row in sql.selectall(
-                    cursor, "SELECT a FROM %stest_1" % sql.prefix)]
+                    "SELECT a FROM %stest_1" % sql.prefix)]
             return data == [4]
-        except sql.module.DatabaseError, e:
-            sql.rollback(conn)
+        except sql.module.DatabaseError as e:
+            sql.rollback()
             return False
-        except Exception, e:
-            sql.rollback(conn)
+        except Exception as e:
+            sql.rollback()
             return False
         finally:
-            sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+            sql.drop_table_if_exists("%stest_1" % sql.prefix)
 
-    def configure_max_varchar(sql, conn, cursor):
+    def configure_max_varchar(sql):
         """Find the maximum VARCHAR width, up to 0xffffffff"""
         lo = 0
         hi = 1 << 32
         mid = hi - 1
         sql.config['max_varchar'] = str(mid)
-        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+        sql.drop_table_if_exists("%stest_1" % sql.prefix)
         while True:
-            sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+            sql.drop_table_if_exists("%stest_1" % sql.prefix)
             try:
-                sql.ddl(conn, cursor,
-                        """CREATE TABLE %stest_1
+                sql.ddl("""CREATE TABLE %stest_1
                            (a VARCHAR(%d), b VARCHAR(%d))"""
                         % (sql.prefix, mid, mid))
-                sql.sql(cursor,
-                        "INSERT INTO %stest_1 (a, b) VALUES ('x', 'y')"
+                sql.sql("INSERT INTO %stest_1 (a, b) VALUES ('x', 'y')"
                         % sql.prefix)
-                row = sql.selectrow(cursor, "SELECT a, b FROM %stest_1"
+                row = sql.selectrow("SELECT a, b FROM %stest_1"
                                     % sql.prefix)
                 if [x for x in row] == ['x', 'y']:
                     lo = mid
                 else:
                     hi = mid
-            except sql.module.DatabaseError, e:
-                sql.rollback(conn)
+            except sql.module.DatabaseError as e:
+                sql.rollback()
                 hi = mid
-            except Exception, e:
-                sql.rollback(conn)
+            except Exception as e:
+                sql.rollback()
                 hi = mid
             if lo + 1 == hi:
                 sql.config['max_varchar'] = str(lo)
                 sql.log.info("max_varchar=%s", sql.config['max_varchar'])
                 break
             mid = (lo + hi) / 2
-        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+        sql.drop_table_if_exists("%stest_1" % sql.prefix)
 
-    def configure_max_precision(sql, conn, cursor):
+    def configure_max_precision(sql):
         sql.config['max_precision'] = ""  # XXX
 
-    def configure_clob_type(sql, conn, cursor):
+    def configure_clob_type(sql):
         """Find the name of the CLOB type, if any."""
         long_str = 'x' * 10000
-        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+        sql.drop_table_if_exists("%stest_1" % sql.prefix)
         for val in ['CLOB', 'LONGTEXT', 'TEXT', 'LONG']:
             try:
-                sql.ddl(conn, cursor, "CREATE TABLE %stest_1 (a %s)"
-                        % (sql.prefix, val))
-                sql.sql(cursor, "INSERT INTO %stest_1 (a) VALUES (?)",
-                        (sql.prefix, sql.binin(long_str)))
-                out = sql.selectrow(cursor, "SELECT a FROM %stest_1"
-                                    % sql.prefix)[0]
+                sql.ddl("CREATE TABLE %stest_1 (a %s)" % (sql.prefix, val))
+                sql.sql("INSERT INTO %stest_1 (a) VALUES (?)", (sql.prefix, sql.binin(long_str)))
+                out = sql.selectrow("SELECT a FROM %stest_1" % sql.prefix)[0]
                 if sql.binout(out) == long_str:
                     sql.config['clob_type'] = val
                     sql.log.info("clob_type=%s", val)
                     return
                 else:
                     sql.log.debug("out=%s", repr(out))
-            except sql.module.DatabaseError, e:
-                sql.rollback(conn)
-            except Exception, e:
+            except sql.module.DatabaseError as e:
+                sql.rollback()
+            except Exception as e:
                 try:
-                    sql.rollback(conn)
+                    sql.rollback()
                 except:
                     # Fetching a CLOB really messes up Easysoft ODBC Oracle.
-                    #store.reconnect()
+                    sql.reconnect()
                     raise
             finally:
-                sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+                sql.drop_table_if_exists("%stest_1" % sql.prefix)
         sql.log.info("No native type found for CLOB.")
         sql.config['clob_type'] = NO_CLOB
 
-    def _test_binary_type(sql, conn, cursor):
-        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+    def _test_binary_type(sql):
+        sql.drop_table_if_exists("%stest_1" % sql.prefix)
         try:
             # XXX The 10000 should be configurable: max_desired_binary?
-            sql.ddl(conn, cursor, """
+            sql.ddl("""
                 CREATE TABLE %stest_1 (
                     test_id NUMERIC(2) NOT NULL PRIMARY KEY,
                     test_bit BINARY(32),
                     test_varbit VARBINARY(10000))""" % sql.prefix)
             val = str(''.join(map(chr, range(0, 256, 8))))
-            sql.sql(cursor,
-                    "INSERT INTO %stest_1 (test_id, test_bit, test_varbit)"
+            sql.sql("INSERT INTO %stest_1 (test_id, test_bit, test_varbit)"
                     " VALUES (?, ?, ?)" % sql.prefix,
                     (1, sql.revin(val), sql.binin(val)))
-            (bit, vbit) = sql.selectrow(
-                cursor,
-                "SELECT test_bit, test_varbit FROM %stest_1" % sql.prefix)
+            (bit, vbit) = sql.selectrow("SELECT test_bit, test_varbit FROM %stest_1" % sql.prefix)
             if sql.revout(bit) != val:
                 return False
             if sql.binout(vbit) != val:
                 return False
             return True
-        except sql.module.DatabaseError, e:
-            sql.rollback(conn)
+        except sql.module.DatabaseError as e:
+            sql.rollback()
             return False
-        except Exception, e:
-            sql.rollback(conn)
+        except Exception as e:
+            sql.rollback()
             return False
         finally:
-            sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+            sql.drop_table_if_exists("%stest_1" % sql.prefix)
 
-    def _test_int_type(sql, conn, cursor):
-        sql.drop_view_if_exists(conn, cursor, "%stest_v1" % sql.prefix)
-        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+    def _test_int_type(sql):
+        sql.drop_view_if_exists("%stest_v1" % sql.prefix)
+        sql.drop_table_if_exists("%stest_1" % sql.prefix)
         try:
-            sql.ddl(conn, cursor, """
+            sql.ddl("""
                 CREATE TABLE %stest_1 (
                     test_id NUMERIC(2) NOT NULL PRIMARY KEY,
                     txout_value NUMERIC(30), i2 NUMERIC(20))""" % sql.prefix)
             # XXX No longer needed?
-            sql.ddl(conn, cursor, """
+            sql.ddl("""
                 CREATE VIEW %stest_v1 AS
                 SELECT test_id,
                        CAST(txout_value AS DECIMAL(50)) txout_approx_value,
@@ -830,87 +853,84 @@ class SqlAbstraction(object):
                   FROM %stest_1""" % (sql.prefix, sql.prefix))
             v1 = 2099999999999999
             v2 = 1234567890
-            sql.sql(cursor, "INSERT INTO %stest_1 (test_id, txout_value, i2)"
+            sql.sql("INSERT INTO %stest_1 (test_id, txout_value, i2)"
                     " VALUES (?, ?, ?)" % sql.prefix,
                     (1, sql.intin(v1), v2))
-            sql.commit(conn)
-            prod, o1 = sql.selectrow(
-                cursor, "SELECT txout_approx_value * i2, i1 FROM %stest_v1"
-                % sql.prefix)
+            sql.commit()
+            prod, o1 = sql.selectrow("SELECT txout_approx_value * i2, i1 FROM %stest_v1" % sql.prefix)
             prod = int(prod)
             o1 = int(o1)
             if prod < v1 * v2 * 1.0001 and prod > v1 * v2 * 0.9999 and o1 == v1:
                 return True
             return False
-        except sql.module.DatabaseError, e:
-            sql.rollback(conn)
+        except sql.module.DatabaseError as e:
+            sql.rollback()
             return False
-        except Exception, e:
-            sql.rollback(conn)
+        except Exception as e:
+            sql.rollback()
             return False
         finally:
-            sql.drop_view_if_exists(conn, cursor, "%stest_v1" % sql.prefix)
-            sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+            sql.drop_view_if_exists("%stest_v1" % sql.prefix)
+            sql.drop_table_if_exists("%stest_1" % sql.prefix)
 
-    def _test_sequence_type(sql, conn, cursor):
-        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
-        sql.drop_sequence_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+    def _test_sequence_type(sql):
+        sql.drop_table_if_exists("%stest_1" % sql.prefix)
+        sql.drop_sequence_if_exists("%stest_1" % sql.prefix)
 
         try:
-            sql.ddl(conn, cursor, """
+            sql.ddl("""
                 CREATE TABLE %stest_1 (
                     %stest_1_id NUMERIC(12) NOT NULL PRIMARY KEY,
                     foo VARCHAR(10)
                 )""" % (sql.prefix, sql.prefix))
-            sql.create_sequence(conn, cursor, '%stest_1' % sql.prefix)
-            id1 = sql.new_id(cursor, '%stest_1' % sql.prefix)
-            id2 = sql.new_id(cursor, '%stest_1' % sql.prefix)
+            sql.create_sequence('%stest_1' % sql.prefix)
+            id1 = sql.new_id('%stest_1' % sql.prefix)
+            id2 = sql.new_id('%stest_1' % sql.prefix)
             if int(id1) != int(id2):
                 return True
             return False
-        except sql.module.DatabaseError, e:
-            sql.rollback(conn)
+        except sql.module.DatabaseError as e:
+            sql.rollback()
             return False
-        except Exception, e:
-            sql.rollback(conn)
+        except Exception as e:
+            sql.rollback()
             return False
         finally:
-            sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+            sql.drop_table_if_exists("%stest_1" % sql.prefix)
             try:
-                sql.drop_sequence(conn, cursor, "%stest_1" % sql.prefix)
+                sql.drop_sequence("%stest_1" % sql.prefix)
             except sql.module.DatabaseError:
-                sql.rollback(conn)
+                sql.rollback()
 
-    def configure_limit_style(sql, conn, cursor):
+    def configure_limit_style(sql):
         for val in ['native', 'emulated']:
             sql.config['limit_style'] = val
             sql._set_flavour()
-            if sql._test_limit_style(conn, cursor):
+            if sql._test_limit_style():
                 sql.log.info("limit_style=%s", val)
                 return
         raise Exception("Can not emulate LIMIT.")
 
-    def _test_limit_style(sql, conn, cursor):
-        sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+    def _test_limit_style(sql):
+        sql.drop_table_if_exists("%stest_1" % sql.prefix)
         try:
-            sql.ddl(conn, cursor, """
+            sql.ddl("""
                 CREATE TABLE %stest_1 (
                     %stest_1_id NUMERIC(12) NOT NULL PRIMARY KEY
                 )""" % (sql.prefix, sql.prefix))
             for id in (2, 4, 6, 8):
-                sql.sql(cursor,
-                        "INSERT INTO %stest_1 (%stest_1_id) VALUES (?)"
+                sql.sql("INSERT INTO %stest_1 (%stest_1_id) VALUES (?)"
                         % (sql.prefix, sql.prefix),
                         (id,))
-            rows = sql.selectall(cursor, """
+            rows = sql.selectall("""
                 SELECT %stest_1_id FROM %stest_1 ORDER BY %stest_1_id
                  LIMIT 3""" % (sql.prefix, sql.prefix, sql.prefix))
             return [int(row[0]) for row in rows] == [2, 4, 6]
-        except sql.module.DatabaseError, e:
-            sql.rollback(conn)
+        except sql.module.DatabaseError as e:
+            sql.rollback()
             return False
-        except Exception, e:
-            sql.rollback(conn)
+        except Exception as e:
+            sql.rollback()
             return False
         finally:
-            sql.drop_table_if_exists(conn, cursor, "%stest_1" % sql.prefix)
+            sql.drop_table_if_exists("%stest_1" % sql.prefix)
