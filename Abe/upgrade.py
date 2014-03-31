@@ -34,7 +34,7 @@ def run_upgrades_locked(store, upgrades):
                     "UPDATE configvar SET configvar_value = ?"
                     " WHERE configvar_name = 'schema_version'",
                     (sv,))
-                if store.cursor.rowcount != 1:
+                if store.rowcount() != 1:
                     raise Exception("Failed to update schema_version");
             else:
                 store.sql(
@@ -1023,6 +1023,7 @@ def abstract_sql(store):
              WHERE configvar_name = ?""", ('sql.' + name, name))
         store.config['sql.' + name] = store.config[name]
         del store.config[name]
+    store.commit()
     store.init_sql()
 
 upgrades = [

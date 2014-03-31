@@ -37,7 +37,7 @@ import util
 import base58
 
 SCHEMA_TYPE = "Abe"
-SCHEMA_VERSION = SCHEMA_TYPE + "38"
+SCHEMA_VERSION = SCHEMA_TYPE + "39"
 
 CONFIG_DEFAULTS = {
     "dbtype":             None,
@@ -474,7 +474,7 @@ class DataStore(object):
 
             store.chains_by.id[chain.id] = chain
             store.chains_by.name[chain.name] = chain
-            store.chains_by.magic[chain.magic] = chain
+            store.chains_by.magic[bytes(chain.magic)] = chain
 
     def get_chain_by_id(store, chain_id):
         return store.chains_by.id[int(chain_id)]
