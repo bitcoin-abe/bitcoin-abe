@@ -1031,19 +1031,18 @@ def populate_multisig_pubkey(store):
     store.commit()
     store.log.info("Found %d", count)
 
+sql_arg_names = (
+    'binary_type', 'max_varchar', 'ddl_implicit_commit',
+    'create_table_epilogue', 'sequence_type', 'limit_style',
+    'int_type', 'clob_type')
+
 def abstract_sql(store):
-    for name in (
-        'binary_type', 'max_varchar', 'ddl_implicit_commit',
-        'create_table_epilogue', 'sequence_type', 'limit_style',
-        'int_type', 'clob_type'):
+    for name in sql_arg_names:
         store.sql("""
             UPDATE configvar
                SET configvar_name = ?
              WHERE configvar_name = ?""", ('sql.' + name, name))
-        store.config['sql.' + name] = store.config[name]
-        del store.config[name]
     store.commit()
-    store.init_sql()
 
 upgrades = [
     ('6',    add_block_value_in),
@@ -1147,6 +1146,12 @@ upgrades = [
 ]
 
 def upgrade_schema(store):
+    if 'sql.binary_type' not in store.config:
+        for name in sql_arg_names:
+            store.config['sql.' + name] = store.config[name]
+            del store.config[name]
+        store.init_sql()
+
     run_upgrades(store, upgrades)
     sv = store.config['schema_version']
     curr = upgrades[-1][0]
