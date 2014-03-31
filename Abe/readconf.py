@@ -1,4 +1,4 @@
-# Copyright(C) 2011,2012 by John Tobey <jtobey@john-edwin-tobey.org>
+# Copyright(C) 2011,2012,2013 by Abe developers.
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by

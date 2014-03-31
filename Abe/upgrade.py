@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright(C) 2011,2012 by John Tobey <jtobey@john-edwin-tobey.org>
+# Copyright(C) 2011,2012,2013,2014 by Abe developers.
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -98,7 +98,7 @@ def create_block_txin(store):
 def index_block_tx_tx(store):
     try:
         store.sql("DROP INDEX x_block_tx_tx")
-    except:
+    except Exception:
         store.rollback()
     store.sql("CREATE INDEX x_block_tx_tx ON block_tx (tx_id)")
 
@@ -313,21 +313,46 @@ def index_block_nTime(store):
 
 def replace_chain_summary(store):
     store.sql("DROP VIEW chain_summary")
-    store.sql(store.get_ddl('chain_summary'))
+    store.sql("""
+        CREATE VIEW chain_summary AS SELECT
+            cc.chain_id,
+            cc.in_longest,
+            b.block_id,
+            b.block_hash,
+            b.block_version,
+            b.block_hashMerkleRoot,
+            b.block_nTime,
+            b.block_nBits,
+            b.block_nNonce,
+            cc.block_height,
+            b.prev_block_id,
+            prev.block_hash prev_block_hash,
+            b.block_chain_work,
+            b.block_num_tx,
+            b.block_value_in,
+            b.block_value_out,
+            b.block_total_satoshis,
+            b.block_total_seconds,
+            b.block_satoshi_seconds,
+            b.block_total_ss,
+            b.block_ss_destroyed
+        FROM chain_candidate cc
+        JOIN block b ON (cc.block_id = b.block_id)
+        LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""")
 
 def drop_block_ss_columns(store):
     """Drop columns that may have been added in error."""
     for c in ['created', 'destroyed']:
         try:
             store.sql("ALTER TABLE block DROP COLUMN block_ss_" + c)
-        except:
+        except Exception:
             store.rollback()
 
 def add_constraint(store, table, name, constraint):
     try:
         store.sql("ALTER TABLE " + table + " ADD CONSTRAINT " + name +
                   " " + constraint)
-    except:
+    except Exception:
         store.log.exception(
             "Failed to create constraint on table " + table + ": " +
             constraint + "; ignoring error.")
@@ -392,7 +417,7 @@ def populate_abe_sequences(store):
                              key VARCHAR(100) NOT NULL PRIMARY KEY,
                              nextid NUMERIC(30)
                          )""")
-        except:
+        except Exception:
             store.rollback()
         for t in ['block', 'tx', 'txin', 'txout', 'pubkey',
                   'chain', 'magic', 'policy']:
@@ -580,7 +605,7 @@ def rename_abe_sequences_key(store):
         data = store.selectall("""
             SELECT DISTINCT key, nextid
               FROM abe_sequences""")
-    except:
+    except Exception:
         store.rollback()
         return
     store.log.info("copying sequence positions: %s", data)
@@ -606,7 +631,7 @@ def add_datadir_id(store):
           FROM abe_tmp_datadir""")
     try:
         store.ddl("DROP TABLE datadir")
-    except:
+    except Exception:
         store.rollback()  # Assume already dropped.
 
     store.ddl("""CREATE TABLE datadir (
@@ -863,6 +888,130 @@ def widen_blkfile_number(store):
 def add_datadir_loader(store):
     store.sql("ALTER TABLE datadir ADD datadir_loader VARCHAR(100) NULL")
 
+def add_chain_policy(store):
+    store.ddl("ALTER TABLE chain ADD chain_policy VARCHAR(255)")
+
+def populate_chain_policy(store):
+    store.sql("UPDATE chain SET chain_policy = chain_name")
+
+def add_chain_magic(store):
+    store.ddl("ALTER TABLE chain ADD chain_magic BIT(32)")
+
+def populate_chain_magic(store):
+    for chain_id, magic in store.selectall("""
+        SELECT chain.chain_id, magic.magic
+          FROM chain
+          JOIN magic ON (chain.magic_id = magic.magic_id)"""):
+        store.sql("UPDATE chain SET chain_magic = ? WHERE chain_id = ?",
+                  (magic, chain_id))
+
+def drop_policy(store):
+    for stmt in [
+        "ALTER TABLE chain DROP COLUMN policy_id",
+        "DROP TABLE policy"]:
+        try:
+            store.ddl(stmt)
+        except store.module.DatabaseError, e:
+            store.log.warning("Cleanup failed, ignoring: %s", stmt)
+
+def drop_magic(store):
+    for stmt in [
+        "ALTER TABLE chain DROP COLUMN magic_id",
+        "DROP TABLE magic"]:
+        try:
+            store.ddl(stmt)
+        except store.module.DatabaseError, e:
+            store.log.warning("Cleanup failed, ignoring: %s", stmt)
+
+def add_chain_decimals(store):
+    store.ddl("ALTER TABLE chain ADD chain_decimals NUMERIC(2)")
+
+def insert_chain_novacoin(store):
+    import Chain
+    try:
+        store.insert_chain(Chain.create("NovaCoin"))
+    except Exception:
+        pass
+
+def txin_detail_multisig(store):
+    store.drop_view_if_exists('txin_detail')
+    store.ddl("""
+        CREATE VIEW txin_detail AS SELECT
+            cc.chain_id,
+            cc.in_longest,
+            cc.block_id,
+            b.block_hash,
+            b.block_height,
+            block_tx.tx_pos,
+            tx.tx_id,
+            tx.tx_hash,
+            tx.tx_lockTime,
+            tx.tx_version,
+            tx.tx_size,
+            txin.txin_id,
+            txin.txin_pos,
+            txin.txout_id prevout_id""" + (""",
+            txin.txin_scriptSig,
+            txin.txin_sequence""" if store.keep_scriptsig else """,
+            NULL txin_scriptSig,
+            NULL txin_sequence""") + """,
+            prevout.txout_value txin_value,
+            prevout.txout_scriptPubKey txin_scriptPubKey,
+            pubkey.pubkey_id,
+            pubkey.pubkey_hash,
+            pubkey.pubkey
+          FROM chain_candidate cc
+          JOIN block b ON (cc.block_id = b.block_id)
+          JOIN block_tx ON (b.block_id = block_tx.block_id)
+          JOIN tx    ON (tx.tx_id = block_tx.tx_id)
+          JOIN txin  ON (tx.tx_id = txin.tx_id)
+          LEFT JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
+          LEFT JOIN pubkey
+              ON (prevout.pubkey_id = pubkey.pubkey_id)""")
+
+def add_chain_script_addr_vers(store):
+    store.ddl("ALTER TABLE chain ADD chain_script_addr_vers BIT VARYING(800) NULL")
+
+def populate_chain_script_addr_vers(store):
+    def update(addr_vers, script_vers):
+        store.sql("UPDATE chain SET chain_script_addr_vers=? WHERE chain_address_version=?",
+                  (store.binin(script_vers), store.binin(addr_vers)))
+    update('\x00', '\x05')
+    update('\x6f', '\xc4')
+
+def create_multisig_pubkey(store):
+    store.ddl("""
+        CREATE TABLE multisig_pubkey (
+            multisig_id   NUMERIC(26) NOT NULL,
+            pubkey_id     NUMERIC(26) NOT NULL,
+            PRIMARY KEY (multisig_id, pubkey_id),
+            FOREIGN KEY (multisig_id) REFERENCES pubkey (pubkey_id),
+            FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id)
+        )""")
+
+def create_x_multisig_pubkey_multisig(store):
+    store.ddl("CREATE INDEX x_multisig_pubkey_pubkey ON multisig_pubkey (pubkey_id)")
+
+def populate_multisig_pubkey(store):
+    store.init_chains()
+    store.log.info("Finding new address types.")
+
+    rows = store.selectall("""
+        SELECT txout_id, chain_id, txout_scriptPubKey
+          FROM txout_detail
+         WHERE pubkey_id IS NULL""")
+
+    count = 0
+    for txout_id, chain_id, db_script in rows:
+        script = store.binout(db_script)
+        pubkey_id = store.script_to_pubkey_id(store.get_chain_by_id(chain_id), script)
+        if pubkey_id > 0:
+            store.sql("UPDATE txout SET pubkey_id = ? WHERE txout_id = ?",
+                      (pubkey_id, txout_id))
+            count += 1
+    store.commit()
+    store.log.info("Found %d", count)
+
 def abstract_sql(store):
     for name in (
         'binary_type', 'max_varchar', 'ddl_implicit_commit',
@@ -875,32 +1024,6 @@ def abstract_sql(store):
         store.config['sql.' + name] = store.config[name]
         del store.config[name]
     store.init_sql()
-
-def populate_pubkeys(store):
-    store.log.info("Finding short public key addresses.")
-    count = 0
-    last = 0
-    while True:
-        rows = store.selectall("""
-            SELECT txout_id, txout_scriptPubKey
-              FROM txout
-             WHERE pubkey_id IS NULL
-               AND txout_id > ?
-               AND txout_scriptPubKey BETWEEN ? AND ?
-             ORDER BY txout_id
-             LIMIT 3000""",
-                               (last, store.binin("\x21"), store.binin("\x22")))
-        if not rows:
-            break
-        for txout_id, db_script in rows:
-            last = txout_id
-            script = store.binout(db_script)
-            pubkey_id = store.script_to_pubkey_id(script)
-            if pubkey_id > 0:
-                store.sql("UPDATE txout SET pubkey_id = ? WHERE txout_id = ?",
-                          (pubkey_id, txout_id))
-                count += 1
-        store.log.info("Found %d", count)
 
 upgrades = [
     ('6',    add_block_value_in),
@@ -983,9 +1106,23 @@ upgrades = [
     ('Abe32.1', widen_blkfile_number),   # Fast
     ('Abe32.2', drop_tmp_datadir),       # Fast
     ('Abe33',   add_datadir_loader),     # Fast
-    ('Abe34',   populate_pubkeys),       # Minutes
-    ('Abe35',   abstract_sql),           # Fast
-    ('Abe36', None)
+    ('Abe34',   noop),                   # Fast
+    ('Abe35',   add_chain_policy),       # Fast
+    ('Abe35.1', populate_chain_policy),  # Fast
+    ('Abe35.2', add_chain_magic),        # Fast
+    ('Abe35.3', populate_chain_magic),   # Fast
+    ('Abe35.4', drop_policy),            # Fast
+    ('Abe35.5', drop_magic),             # Fast
+    ('Abe36',   add_chain_decimals),     # Fast
+    ('Abe36.1', insert_chain_novacoin),  # Fast
+    ('Abe37',   txin_detail_multisig),   # Fast
+    ('Abe37.1', add_chain_script_addr_vers), # Fast
+    ('Abe37.2', populate_chain_script_addr_vers), # Fast
+    ('Abe37.3', create_multisig_pubkey), # Fast
+    ('Abe37.4', create_x_multisig_pubkey_multisig), # Fast
+    ('Abe37.5', populate_multisig_pubkey), # Minutes-hours
+    ('Abe38',   abstract_sql),           # Fast
+    ('Abe39', None)
 ]
 
 def upgrade_schema(store):

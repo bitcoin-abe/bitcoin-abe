@@ -1,7 +1,7 @@
 Abe: a free block chain browser for Bitcoin-based currencies.
-https://github.com/jtobey/bitcoin-abe
+https://github.com/bitcoin-abe/bitcoin-abe
 
-    Copyright(C) 2011,2012 by John Tobey <jtobey@john-edwin-tobey.org>
+    Copyright(C) 2011,2012,2013 by Abe developers.
     License: GNU Affero General Public License, see the file LICENSE.txt.
     Portions Copyright (c) 2010 Gavin Andresen, see bct-LICENSE.txt.
 
@@ -12,9 +12,9 @@ This software reads the Bitcoin block file, transforms and loads the
 data into a database, and presents a web interface similar to Bitcoin
 Block Explorer, http://blockexplorer.com/.
 
-Abe draws inspiration from Bitcoin Block Explorer (BBE) and seeks some
-level of compatibility with it but uses a completely new
-implementation.
+Abe draws inspiration from Bitcoin Block Explorer (BBE) and
+BlockChain.info and seeks some level of compatibility with them but
+uses a completely new implementation.
 
 Installation
 ------------
@@ -39,6 +39,10 @@ let Abe read the block files while Bitcoin runs, assuming Bitcoin only
 appends to the file.  Prior to Bitcoin v0.8, this assumption seemed
 safe.  Abe may need some fixes to avoid skipping blocks while current
 and future Bitcoin versions run.
+
+NovaCoin and CryptoCash support depends on the ltc_scrypt module
+available from https://github.com/CryptoManiac/bitcoin-abe (see
+README-SCRYPT.txt).
 
 License
 -------
@@ -113,13 +117,11 @@ and network interface in abe.conf, e.g.:
 Input
 -----
 
-To display Namecoin or any block chain with data somewhere other than
-the default Bitcoin directory, specify "datadir" in abe.conf, e.g.:
+To display Namecoin, NovaCoin, or any block chain with data somewhere
+other than the default Bitcoin directory, specify "datadir" in
+abe.conf, e.g.:
 
     datadir = /home/bitcoin/.namecoin
-
-Note that the web interface is currently unaware of name transactions,
-but see namecoin_dump.py in the tools directory.
 
 The datadir directive can include a new chain's basic configuration,
 e.g.:
@@ -133,6 +135,9 @@ e.g.:
 Note that "+=" adds to the existing datadir configuration, while "="
 replaces it.  For help with address_version, please open doc/FAQ.html
 in a web browser.
+
+The web interface is currently unaware of name transactions, but see
+namecoin_dump.py in the tools directory.
 
 More information
 ----------------

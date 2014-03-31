@@ -1,3 +1,20 @@
+# Copyright(C) 2011,2012,2013,2014 by Abe developers.
+# Copyright (c) 2010 Gavin Andresen
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public
+# License along with this program.  If not, see
+# <http://www.gnu.org/licenses/agpl.html>.
+
 #
 # Misc util routines
 #
@@ -8,7 +25,7 @@ import Crypto.Hash.SHA256 as SHA256
 
 try:
     import Crypto.Hash.RIPEMD160 as RIPEMD160
-except:
+except Exception:
     import ripemd_via_hashlib as RIPEMD160
 
 # This function comes from bitcointools, bct-LICENSE.txt.
@@ -33,30 +50,11 @@ def short_hex(bytes):
         return t
     return t[0:4]+"..."+t[-4:]
 
+NULL_HASH = "\0" * 32
+GENESIS_HASH_PREV = NULL_HASH
+
 def double_sha256(s):
     return SHA256.new(SHA256.new(s).digest()).digest()
-
-# Based on CBlock::BuildMerkleTree().
-def merkle(hashes):
-    while len(hashes) > 1:
-        size = len(hashes)
-        out = []
-        for i in xrange(0, size, 2):
-            i2 = min(i + 1, size - 1)
-            out.append(double_sha256(hashes[i] + hashes[i2]))
-        hashes = out
-    return hashes and hashes[0]
-
-def block_hash(block):
-    import BCDataStream
-    ds = BCDataStream.BCDataStream()
-    ds.write_int32(block['version'])
-    ds.write(block['hashPrev'])
-    ds.write(block['hashMerkleRoot'])
-    ds.write_uint32(block['nTime'])
-    ds.write_uint32(block['nBits'])
-    ds.write_uint32(block['nNonce'])
-    return double_sha256(ds.input)
 
 def pubkey_to_hash(pubkey):
     return RIPEMD160.new(SHA256.new(pubkey).digest()).digest()
@@ -143,6 +141,39 @@ def jsonrpc(url, method, *params):
         raise JsonrpcException(resp['error'], method, params)
     return resp['result']
 
-def is_coinbase_tx(tx):
-    return len(tx['txIn']) == 1 and tx['txIn'][0]['prevout_hash'] == \
-        "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"
+def str_to_ds(s):
+    import BCDataStream
+    ds = BCDataStream.BCDataStream()
+    ds.write(s)
+    return ds
+
+class CmdLine(object):
+    def __init__(self, argv, conf=None):
+        self.argv = argv
+        if conf is None:
+            self.conf = {}
+        else:
+            self.conf = conf.copy()
+
+    def usage(self):
+        return "Sorry, no help is available."
+
+    def init(self):
+        import DataStore, readconf, logging, sys
+        self.conf.update({ "debug": None, "logging": None })
+        self.conf.update(DataStore.CONFIG_DEFAULTS)
+
+        args, argv = readconf.parse_argv(self.argv, self.conf, strict=False)
+        if argv and argv[0] in ('-h', '--help'):
+            print self.usage()
+            return None, []
+
+        logging.basicConfig(
+            stream=sys.stdout, level=logging.DEBUG, format="%(message)s")
+        if args.logging is not None:
+            import logging.config as logging_config
+            logging_config.dictConfig(args.logging)
+
+        store = DataStore.new(args)
+
+        return store, argv
