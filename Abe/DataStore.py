@@ -158,7 +158,7 @@ class DataStore(object):
         sql_args.prefix = "abe_"
         sql_args.config = {}
         store.sql_args = sql_args
-        store._sql = None
+        store.set_db(None)
         store.init_sql()
 
         store._blocks = {}
@@ -218,6 +218,12 @@ class DataStore(object):
 
         store.commit()
 
+    def set_db(store, db):
+        store._sql = db
+
+    def get_db(store):
+        return store._sql
+
     def connect(store):
         return store._sql.connect()
 
@@ -265,7 +271,7 @@ class DataStore(object):
                     sql_args.config[name[len('sql.'):]] = store.config[name]
         if store._sql:
             store._sql.close()  # XXX Could just set_flavour.
-        store._sql = SqlAbstraction.SqlAbstraction(sql_args)
+        store.set_db(SqlAbstraction.SqlAbstraction(sql_args))
         store.init_binfuncs()
 
     def init_binfuncs(store):
