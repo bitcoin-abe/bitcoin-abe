@@ -1,9 +1,10 @@
 Abe: a free block chain browser for Bitcoin-based currencies.
 https://github.com/bitcoin-abe/bitcoin-abe
 
-    Copyright(C) 2011,2012,2013 by Abe developers.
+    Copyright(C) 2011,2012,2013,2014 by Abe developers.
     License: GNU Affero General Public License, see the file LICENSE.txt.
-    Portions Copyright (c) 2010 Gavin Andresen, see bct-LICENSE.txt.
+    Based on Bitcointools, Copyright (c) 2010 Gavin Andresen, see bct-LICENSE.txt.
+    Includes Enumeration by Will Ware, 2001, see Abe/enumeration.py.
 
 Welcome to Abe!
 ===============
