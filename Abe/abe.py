@@ -549,7 +549,7 @@ class Abe:
             LIMIT 10
         """)
         for row in rows:
-            tx_id, tx_hash, tx_size = (row[0], row[1],row[2])
+            tx_id, tx_hash, tx_size = (row[0], abe.store.hashout_hex(row[1]),row[2])
             body+='<tr><td><a href="',basename,'/tx/',tx_hash,'">',tx_hash[:14],'</a></td><td class="hidden">',tx_hash,'</td><td>',tx_size,'(bytes)</td></tr>';
         body += ['</tbody></table></div>']
 
@@ -587,12 +587,12 @@ class Abe:
                 else:
                     return 5 / (2 ** int((blocknumber + 1) / 306600))
             return None
-        block_reward = get_block_reward(height,escape(chain.code3))
+        block_reward = get_block_reward(b['height'],escape(chain.code3))
         
         is_stake_chain = chain.has_feature('nvc_proof_of_stake')
         is_stake_block = is_stake_chain and b['is_proof_of_stake']
         
-        body += ['<div class="block-wrap"><div class="col-lg-12"><h1>Anoncoin Block #',b['height'],'</h1></div><div class="col-lg-5"><table class="table table-striped"><tbody><tr><th colspan="2">Summary</th></tr>']
+        body += ['<div class="block-wrap"><div class="col-lg-12"><h1>', chain.name, ' Block #',b['height'],'</h1></div><div class="col-lg-5"><table class="table table-striped"><tbody><tr><th colspan="2">Summary</th></tr>']
         if b['height'] is not None:
             body += ['<tr><td>Height</td><td> ', b['height'], '</td></tr>']
         body += ['<tr><td>Number Of Transactions</td><td>',len(b['transactions']), '</td></tr>']
@@ -1463,7 +1463,7 @@ class Abe:
         """)
         output = []
         for row in rows:
-            tx_id, tx_hash, tx_size = (row[0], row[1],row[2])
+            tx_id, tx_hash, tx_size = (row[0], abe.store.hashout_hex(row[1]),row[2])
             output.append([tx_hash[:14],tx_hash,tx_size]);
         return ['{"sEcho":1,"iTotalRecords":10,"iTotalDisplayRecords":10,"aaData":',json.dumps(output),'}']
             
