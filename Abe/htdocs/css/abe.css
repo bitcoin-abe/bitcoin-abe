@@ -24,6 +24,7 @@ donation 	: http://ancblockchain.com/static/support.php
 .navbar-header .logo{font-size:36px;}
 header .navbar-nav{}
 .nos-link{float: left;font-weight: normal;white-space: nowrap;}
+.page-404{ text-align:center;}
 .fa.fa-arrow-right{color:#5bb75b;}
 .search-form{float: right; padding: 10px 0;}
 a:focus{border:none !important;}
