@@ -635,9 +635,10 @@ class Abe:
             if abe.debug else '',
             ]
         body += ['<div class="col-lg-12"><h2>Transactions <small>Transactions contained within this block</small></h2>']
-        body += ['<div class="transaction_section"><div class="transaction" >']
+        body += ['<div class="transaction_section">']
         for tx in b['transactions']:
             vout=0
+            body += ['<div class="transaction">']
             body += ['<div class="transaction_hash"><a class="nos-link" href="../tx/' + tx['hash'] + '">',
                      tx['hash'], '</a>',
                      '<span class="pull-right"><span class="tx_size">(Size: ',(tx['size'] / 1000.0),' KB)</span></span>',
@@ -675,8 +676,8 @@ class Abe:
                 body += [abe.format_addresses(txout, page['dotdot'], chain)]
                 body += ['<span class="pull-right"><span>', format_satoshis(txout['value'], chain), ' ',escape(chain.code3),'</span></span></br>']
             body += ['</div>\n']
-            body += ['</div><div class="currency_btn"><button class="btn btn-success cb">']
-            body += ['<span>',vout,' ',escape(chain.code3),'</span></button></div>']
+            body += ['<div class="currency_btn"><button class="btn btn-success cb">']
+            body += ['<span>',vout,' ',escape(chain.code3),'</span></button></div></div>\n']
         body += ['</div>']
 
     def handle_block(abe, page):
