@@ -854,12 +854,11 @@ class Abe:
             history = abe.store.export_address_history(
                 address, chain=page['chain'], max_rows=abe.address_history_rows_max)
         except DataStore.MalformedAddress:
-            body += ['<p>Not a valid address.</p>']
+            body += abe.page_error(page,'Not a valid address.')
             return
 
         if history is None:
-            body += ["<p>I'm sorry, this address has too many records"
-                     " to display.</p>"]
+            body += abe.page_error(page,'This address has too many records to display')
             return
 
         binaddr  = history['binaddr']
@@ -980,7 +979,7 @@ class Abe:
                 '<div class="page-404 col-lg-12">'
                 '<div class="jumbotron center-block"><h1>',message,'</h1>'
                 '<br /> <p><b>You could just press this neat little button:</b></p>'
-                '<a href="',abe.home,'" class="btn btn-large btn-info"><i class="icon-home icon-white"></i>visit Homepage</a>'
+                '<a href="',abe.home,'" class="btn btn-primary btn-lg""><i class="fa fa-home"></i>   VISIT HOMEPAGE</a>'
                 '<p> <b>Or you can also search using form below : </b><p><i>Search by address, block number or hash, transaction or'
                 ' public key hash, or blockchain name:</i></p>\n'
                 '<form class="form-inline" role="form" action="', page['dotdot'], 'search" id="searchform">\n'
