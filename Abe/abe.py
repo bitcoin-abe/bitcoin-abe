@@ -284,13 +284,10 @@ class Abe:
             handler(page)
         except PageNotFound:
             status = '404 Not Found'
-            page['body'] = ['<p class="error">Sorry, ', env['SCRIPT_NAME'],
-                            env['PATH_INFO'],
-                            ' does not exist on this server.</p>']
+            page['body'] = abe.page_error(page,'Page not found')
+            
         except NoSuchChainError, e:
-            page['body'] += [
-                '<p class="error">'
-                'Sorry, I don\'t know about that chain!</p>\n']
+            page['body'] += abe.page_error(page,'That chain not found')
         except Redirect:
             return redirect(page)
         except Streamed:
@@ -559,11 +556,11 @@ class Abe:
         try:
             b = abe.store.export_block(chain, **kwargs)
         except DataStore.MalformedHash:
-            body += ['<p class="error">Not in correct format.</p>']
+            body += abe.page_error(page,'Not in correct format.')
             return
 
         if b is None:
-            body += ['<p class="error">Block not found.</p>']
+            body += abe.page_error(page,'Block not found.')
             return
 
         in_longest = False
@@ -704,18 +701,18 @@ class Abe:
         body = page['body']
 
         if not is_hash_prefix(tx_hash):
-            body += ['<p class="error">Not a valid transaction hash.</p>']
+            body += abe.page_error(page,'Not a valid transaction hash.')
             return
 
         try:
             # XXX Should pass chain to export_tx to help parse scripts.
             tx = abe.store.export_tx(tx_hash = tx_hash, format = 'browser')
         except DataStore.MalformedHash:
-            body += ['<p class="error">Not in correct format.</p>']
+            body += abe.page_error(page,'Not in correct format.')
             return
 
         if tx is None:
-            body += ['<p class="error">Transaction not found.</p>']
+            body += abe.page_error(page,'Transaction not found.')
             return
 
         return abe.show_tx(page, tx)
@@ -975,6 +972,23 @@ class Abe:
             '<input type="submit" class="btn btn-primary search_button" value="Search" />\n'
             '<p>Address or hash search requires at least the first ',
             HASH_PREFIX_MIN, ' characters.</p></form>\n']
+    
+    def page_error(abe, page, message):
+        if message=='':
+            message='Page Not found'
+        return [
+                '<div class="page-404 col-lg-12">'
+                '<div class="jumbotron center-block"><h1>',message,'</h1>'
+                '<br /> <p><b>You could just press this neat little button:</b></p>'
+                '<a href="',abe.home,'" class="btn btn-large btn-info"><i class="icon-home icon-white"></i>visit Homepage</a>'
+                '<p> <b>Or you can also search using form below : </b><p><i>Search by address, block number or hash, transaction or'
+                ' public key hash, or blockchain name:</i></p>\n'
+                '<form class="form-inline" role="form" action="', page['dotdot'], 'search" id="searchform">\n'
+                '<div class="form-group">'
+                '<input type="text" name="q" class="form-control" size="64" value="" id="search_field" placeholder="Search Address / block / hash" /></div>'
+                '<input type="submit" class="btn btn-primary search_button" value="Search" />\n'
+                '<p>Address or hash search requires at least the first ',
+                HASH_PREFIX_MIN, ' characters.</p></form>\n</div></div>']
 
     def handle_search(abe, page):
         page['title'] = 'Search'
