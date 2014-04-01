@@ -119,7 +119,7 @@ DEFAULT_TEMPLATE = """<!DOCTYPE html>
 <script src="%(dotdot)s%(STATIC_PATH)sjs/jquery.min.js"></script>
 <script src="%(dotdot)s%(STATIC_PATH)sjs/bootstrap.min.js"></script>
 <script src="%(dotdot)s%(STATIC_PATH)sjs/jquery.dataTables.min.js"></script>
-<script src="%(dotdot)s%(STATIC_PATH)sscripts.js"></script>
+<script src="%(dotdot)s%(STATIC_PATH)sjs/scripts.js"></script>
 </body>
 </html>"""
 
