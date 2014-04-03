@@ -68,15 +68,15 @@ DEFAULT_TEMPLATE = """<!DOCTYPE html>
 <meta name="author" content="">
 <title>%(title)s</title>
 <link rel="icon" type="image/x-icon" href="%(dotdot)s%(STATIC_PATH)sfavicon.ico" />
-<link rel="stylesheet" href="http://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.1.1/css/bootstrap.min.css">
-<link href="http://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.0.3/css/font-awesome.min.css" rel="stylesheet" type="text/css">
-<link href="http://cdnjs.cloudflare.com/ajax/libs/datatables/1.9.4/css/jquery.dataTables.min.css" rel="stylesheet" type="text/css">
+<link href="%(dotdot)s%(STATIC_PATH)scss/bootstrap.min.css" rel="stylesheet">
+<link href="%(dotdot)s%(STATIC_PATH)scss/font-awesome.min.css" rel="stylesheet" type="text/css">
+<link href="%(dotdot)s%(STATIC_PATH)scss/jquery.dataTables.min.css" rel="stylesheet" type="text/css">
 <!-- Custom styles for this template -->
-<link href="%(dotdot)s%(STATIC_PATH)sabe.css" rel="stylesheet" type="text/css">
+<link href="%(dotdot)s%(STATIC_PATH)scss/abe.css" rel="stylesheet" type="text/css">
 <!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries -->
 <!--[if lt IE 9]>
-      <script src="http://cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7/html5shiv.js"></script>
-      <script src="http://cdnjs.cloudflare.com/ajax/libs/respond.js/1.4.2/respond.min.js"></script>
+      <script src="%(dotdot)s%(STATIC_PATH)shtml5shiv.js"></script>
+      <script src="%(dotdot)s%(STATIC_PATH)srespond.min.js"></script>
     <![endif]-->
 </head>
 
@@ -116,10 +116,10 @@ DEFAULT_TEMPLATE = """<!DOCTYPE html>
   </footer>
 </div>
 <!--/.container-->
-<script src="http://cdnjs.cloudflare.com/ajax/libs/jquery/2.1.0/jquery.min.js"></script>
-<script src="http://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.1.1/js/bootstrap.min.js"></script>
-<script src="http://cdnjs.cloudflare.com/ajax/libs/datatables/1.9.4/jquery.dataTables.min.js"></script>
-<script src="%(dotdot)s%(STATIC_PATH)sscripts.js"></script>
+<script src="%(dotdot)s%(STATIC_PATH)sjs/jquery.min.js"></script>
+<script src="%(dotdot)s%(STATIC_PATH)sjs/bootstrap.min.js"></script>
+<script src="%(dotdot)s%(STATIC_PATH)sjs/jquery.dataTables.min.js"></script>
+<script src="%(dotdot)s%(STATIC_PATH)sjs/scripts.js"></script>
 </body>
 </html>"""
 
@@ -284,13 +284,10 @@ class Abe:
             handler(page)
         except PageNotFound:
             status = '404 Not Found'
-            page['body'] = ['<p class="error">Sorry, ', env['SCRIPT_NAME'],
-                            env['PATH_INFO'],
-                            ' does not exist on this server.</p>']
+            page['body'] = abe.page_error(page,'Page not found')
+            
         except NoSuchChainError, e:
-            page['body'] += [
-                '<p class="error">'
-                'Sorry, I don\'t know about that chain!</p>\n']
+            page['body'] += abe.page_error(page,'That chain not found')
         except Redirect:
             return redirect(page)
         except Streamed:
@@ -559,11 +556,11 @@ class Abe:
         try:
             b = abe.store.export_block(chain, **kwargs)
         except DataStore.MalformedHash:
-            body += ['<p class="error">Not in correct format.</p>']
+            body += abe.page_error(page,'Not in correct format.')
             return
 
         if b is None:
-            body += ['<p class="error">Block not found.</p>']
+            body += abe.page_error(page,'Block not found.')
             return
 
         in_longest = False
@@ -635,9 +632,10 @@ class Abe:
             if abe.debug else '',
             ]
         body += ['<div class="col-lg-12"><h2>Transactions <small>Transactions contained within this block</small></h2>']
-        body += ['<div class="transaction_section"><div class="transaction" >']
+        body += ['<div class="transaction_section">']
         for tx in b['transactions']:
             vout=0
+            body += ['<div class="transaction">']
             body += ['<div class="transaction_hash"><a class="nos-link" href="../tx/' + tx['hash'] + '">',
                      tx['hash'], '</a>',
                      '<span class="pull-right"><span class="tx_size">(Size: ',(tx['size'] / 1000.0),' KB)</span></span>',
@@ -675,8 +673,8 @@ class Abe:
                 body += [abe.format_addresses(txout, page['dotdot'], chain)]
                 body += ['<span class="pull-right"><span>', format_satoshis(txout['value'], chain), ' ',escape(chain.code3),'</span></span></br>']
             body += ['</div>\n']
-            body += ['</div><div class="currency_btn"><button class="btn btn-success cb">']
-            body += ['<span>',vout,' ',escape(chain.code3),'</span></button></div>']
+            body += ['<div class="currency_btn"><button class="btn btn-success cb">']
+            body += ['<span>',vout,' ',escape(chain.code3),'</span></button></div></div>\n']
         body += ['</div>']
 
     def handle_block(abe, page):
@@ -703,18 +701,18 @@ class Abe:
         body = page['body']
 
         if not is_hash_prefix(tx_hash):
-            body += ['<p class="error">Not a valid transaction hash.</p>']
+            body += abe.page_error(page,'Not a valid transaction hash.')
             return
 
         try:
             # XXX Should pass chain to export_tx to help parse scripts.
             tx = abe.store.export_tx(tx_hash = tx_hash, format = 'browser')
         except DataStore.MalformedHash:
-            body += ['<p class="error">Not in correct format.</p>']
+            body += abe.page_error(page,'Not in correct format.')
             return
 
         if tx is None:
-            body += ['<p class="error">Transaction not found.</p>']
+            body += abe.page_error(page,'Transaction not found.')
             return
 
         return abe.show_tx(page, tx)
@@ -856,12 +854,11 @@ class Abe:
             history = abe.store.export_address_history(
                 address, chain=page['chain'], max_rows=abe.address_history_rows_max)
         except DataStore.MalformedAddress:
-            body += ['<p>Not a valid address.</p>']
+            body += abe.page_error(page,'Not a valid address.')
             return
 
         if history is None:
-            body += ["<p>I'm sorry, this address has too many records"
-                     " to display.</p>"]
+            body += abe.page_error(page,'This address has too many records to display')
             return
 
         binaddr  = history['binaddr']
@@ -974,6 +971,23 @@ class Abe:
             '<input type="submit" class="btn btn-primary search_button" value="Search" />\n'
             '<p>Address or hash search requires at least the first ',
             HASH_PREFIX_MIN, ' characters.</p></form>\n']
+    
+    def page_error(abe, page, message):
+        if message=='':
+            message='Page Not found'
+        return [
+                '<div class="page-404 col-lg-12">'
+                '<div class="jumbotron center-block"><h1>',message,'</h1>'
+                '<br /> <p><b>You could just press this neat little button:</b></p>'
+                '<a href="',abe.home,'" class="btn btn-primary btn-lg""><i class="fa fa-home"></i>   VISIT HOMEPAGE</a>'
+                '<p> <b>Or you can also search using form below : </b><p><i>Search by address, block number or hash, transaction or'
+                ' public key hash, or blockchain name:</i></p>\n'
+                '<form class="form-inline" role="form" action="', page['dotdot'], 'search" id="searchform">\n'
+                '<div class="form-group">'
+                '<input type="text" name="q" class="form-control" size="64" value="" id="search_field" placeholder="Search Address / block / hash" /></div>'
+                '<input type="submit" class="btn btn-primary search_button" value="Search" />\n'
+                '<p>Address or hash search requires at least the first ',
+                HASH_PREFIX_MIN, ' characters.</p></form>\n</div></div>']
 
     def handle_search(abe, page):
         page['title'] = 'Search'
