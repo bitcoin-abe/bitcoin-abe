@@ -68,16 +68,28 @@ DEFAULT_TEMPLATE = """<!DOCTYPE html>
 <meta name="author" content="">
 <title>%(title)s</title>
 <link rel="icon" type="image/x-icon" href="%(dotdot)s%(STATIC_PATH)sfavicon.ico" />
+
 <link href="%(dotdot)s%(STATIC_PATH)scss/bootstrap.min.css" rel="stylesheet">
 <link href="%(dotdot)s%(STATIC_PATH)scss/font-awesome.min.css" rel="stylesheet" type="text/css">
 <link href="%(dotdot)s%(STATIC_PATH)scss/jquery.dataTables.min.css" rel="stylesheet" type="text/css">
+<!-- Replace the above with this for better performance if you trust cdnjs.cloudflare.com:
+<link rel="stylesheet" href="http://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.1.1/css/bootstrap.min.css">
+<link href="http://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.0.3/css/font-awesome.min.css" rel="stylesheet" type="text/css">
+<link href="http://cdnjs.cloudflare.com/ajax/libs/datatables/1.9.4/css/jquery.dataTables.min.css" rel="stylesheet" type="text/css">
+-->
+
 <!-- Custom styles for this template -->
 <link href="%(dotdot)s%(STATIC_PATH)scss/abe.css" rel="stylesheet" type="text/css">
+
 <!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries -->
 <!--[if lt IE 9]>
       <script src="%(dotdot)s%(STATIC_PATH)shtml5shiv.js"></script>
       <script src="%(dotdot)s%(STATIC_PATH)srespond.min.js"></script>
     <![endif]-->
+<!-- Replace the above IE <script>s with this for better performance if you trust cdnjs.cloudflare.com:
+      <script src="http://cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7/html5shiv.js"></script>
+      <script src="http://cdnjs.cloudflare.com/ajax/libs/respond.js/1.4.2/respond.min.js"></script> -->
+
 </head>
 
 <body>
@@ -1477,7 +1489,7 @@ class Abe:
         """)
         output = []
         for row in rows:
-            tx_id, tx_hash, tx_size = (row[0], abe.store.hashout_hex(row[1]), int(row[2]))
+            tx_id, tx_hash, tx_size = (row[0], abe.store.hashout_hex(row[1]), None if row[2] is None else int(row[2]))
             output.append([tx_hash[:14],tx_hash,tx_size]);
         return ['{"sEcho":1,"iTotalRecords":10,"iTotalDisplayRecords":10,"aaData":',json.dumps(output),'}']
             
