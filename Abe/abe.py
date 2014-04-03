@@ -26,7 +26,7 @@ import time
 import calendar
 import math
 import logging
-import simplejson as json
+import json
 
 import version
 import DataStore
@@ -979,7 +979,7 @@ class Abe:
                 '<div class="page-404 col-lg-12">'
                 '<div class="jumbotron center-block"><h1>',message,'</h1>'
                 '<br /> <p><b>You could just press this neat little button:</b></p>'
-                '<a href="',abe.home,'" class="btn btn-primary btn-lg""><i class="fa fa-home"></i>   VISIT HOMEPAGE</a>'
+                '<a href="', page['dotdot'], abe.home, '" class="btn btn-primary btn-lg""><i class="fa fa-home"></i>   VISIT HOMEPAGE</a>'
                 '<p> <b>Or you can also search using form below : </b><p><i>Search by address, block number or hash, transaction or'
                 ' public key hash, or blockchain name:</i></p>\n'
                 '<form class="form-inline" role="form" action="', page['dotdot'], 'search" id="searchform">\n'
@@ -1458,8 +1458,8 @@ class Abe:
                 else:
                     percent_destroyed = '%5g%%' % (100.0 - (100.0 * ss / total_ss))
     
-                latest_blocks.append([int(height),hash,format_time(int(nTime)), num_tx,format_satoshis(value_out, chain),
-                                      util.calculate_difficulty(int(nBits)),format_satoshis(satoshis, chain),avg_age,'%5g' % (seconds / 86400.0),percent_destroyed])
+                latest_blocks.append([int(height), hash, format_time(int(nTime)), int(num_tx), format_satoshis(value_out, chain),
+                                      util.calculate_difficulty(int(nBits)),format_satoshis(satoshis, chain), avg_age, '%5g' % (seconds / 86400.0), percent_destroyed])
                 
             return ['{"sEcho":',sEcho_val,',"iTotalRecords":',total_number_of_blocks,',"iTotalDisplayRecords":',total_number_of_blocks,',"aaData":',json.dumps(latest_blocks),'}']
         else:
@@ -1477,7 +1477,7 @@ class Abe:
         """)
         output = []
         for row in rows:
-            tx_id, tx_hash, tx_size = (row[0], abe.store.hashout_hex(row[1]),row[2])
+            tx_id, tx_hash, tx_size = (row[0], abe.store.hashout_hex(row[1]), int(row[2]))
             output.append([tx_hash[:14],tx_hash,tx_size]);
         return ['{"sEcho":1,"iTotalRecords":10,"iTotalDisplayRecords":10,"aaData":',json.dumps(output),'}']
             
