@@ -74,6 +74,7 @@ CHAIN_CONFIG = [
     {"chain":"NovaCoin"},
     {"chain":"CryptoCash"},
     {"chain":"Anoncoin","code3":"ANC", "address_version":"\u0017", "magic":"\xFA\xCA\xBA\xDA" },
+    {"chain":"Hirocoin"},
     #{"chain":"",
     # "code3":"", "address_version":"\x", "magic":""},
     ]
@@ -1108,7 +1109,7 @@ store._ddl['configvar'],
 """CREATE TABLE chain (
     chain_id    NUMERIC(10) NOT NULL PRIMARY KEY,
     chain_name  VARCHAR(100) UNIQUE NOT NULL,
-    chain_code3 CHAR(3)     NULL,
+    chain_code3 CHAR(4)     NULL,
     chain_address_version BIT VARYING(800) NOT NULL,
     chain_script_addr_vers BIT VARYING(800) NULL,
     chain_magic BIT(32)     NULL,
