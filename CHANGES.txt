@@ -1,6 +1,10 @@
 New in 0.8 - ????
 =========================
 
+* Advanced, ajax-based front end.
+
+* Support standard Bitcoin multisig and pay-to-script-hash (P2SH) transactions.
+
 * Fixed bug affecting /rawtx.
 
 * Added /unspent/ADDR|ADDR|... similar to blockchain.info/unspent?address=...
@@ -8,6 +12,8 @@ New in 0.8 - ????
 * Allow configuration to import unconfirmed transactions via RPC to bitcoind.
 
 * Crude SVG hash rate chart via nethash?format=svg.
+
+* Removed auto-agpl and download-name options.
 
 
 New in 0.7.2 - 2012-12-06

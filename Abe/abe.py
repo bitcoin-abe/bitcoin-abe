@@ -119,10 +119,6 @@ DEFAULT_TEMPLATE = """<!DOCTYPE html>
         <span style="font-style: italic">
             Powered by <a href="%(ABE_URL)s">%(APPNAME)s</a> , eXplorer theme by <a href="http://ancblockchain.com/static/support.php">geekz</a>
         </span>
-        %(download)s
-        Tips appreciated!
-        <a href="%(dotdot)saddress/%(DONATIONS_BTC)s">BTC</a>
-        <a href="%(dotdot)saddress/%(DONATIONS_NMC)s">NMC</a>
         |  <a href="%(dotdot)sq">API</a> (machine-readable pages)
     </p>
   </footer>
@@ -231,9 +227,7 @@ class Abe:
         abe.log = logging.getLogger(__name__)
         abe.log.info('Abe initialized.')
         abe.home = str(abe.template_vars.get("HOMEPAGE", DEFAULT_HOMEPAGE))
-        if not args.auto_agpl:
-            abe.template_vars['download'] = (
-                abe.template_vars.get('download', ''))
+        abe.template_vars['download'] = (abe.template_vars.get('download', ''))  # legacy
         abe.base_url = args.base_url
         abe.address_history_rows_max = int(
             args.address_history_rows_max or 1000)
@@ -316,9 +310,6 @@ class Abe:
         tvars['title'] = flatten(page['title'])
         tvars['h1'] = flatten(page.get('h1') or page['title'])
         tvars['body'] = flatten(page['body'])
-        if abe.args.auto_agpl:
-            tvars['download'] = (
-                ' <a href="' + page['dotdot'] + 'download">Source</a>')
 
         content = page['template'] % tvars
         if isinstance(content, unicode):
@@ -1858,21 +1849,6 @@ class Abe:
         return "\n".join(abe.store.firstbits_to_addresses(
                 fb, chain_id = (chain and chain.id)))
 
-    def handle_download(abe, page):
-        name = abe.args.download_name
-        if name is None:
-            name = re.sub(r'\W+', '-', ABE_APPNAME.lower()) + '-' + ABE_VERSION
-        fileobj = lambda: None
-        fileobj.func_dict['write'] = page['start_response'](
-            '200 OK',
-            [('Content-type', 'application/x-gtar-compressed'),
-             ('Content-disposition', 'filename=' + name + '.tar.gz')])
-        import tarfile
-        with tarfile.TarFile.open(fileobj=fileobj, mode='w|gz',
-                                  format=tarfile.PAX_FORMAT) as tar:
-            tar.add(os.path.split(__file__)[0], name)
-        raise Streamed()
-
     def serve_static(abe, path, start_response):
         slen = len(abe.static_path)
         if path[:slen] != abe.static_path:
@@ -2134,8 +2110,6 @@ def create_conf():
         "debug":                    None,
         "static_path":              None,
         "document_root":            None,
-        "auto_agpl":                None,
-        "download_name":            None,
         "watch_pid":                None,
         "base_url":                 None,
         "logging":                  None,
@@ -2199,9 +2173,6 @@ See abe.conf for commented examples.""")
     if args.logging is not None:
         import logging.config as logging_config
         logging_config.dictConfig(args.logging)
-
-    if args.auto_agpl:
-        import tarfile
 
     store = make_store(args)
     if (not args.no_serve):
