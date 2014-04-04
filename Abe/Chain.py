@@ -27,6 +27,7 @@ def create(policy, **kwargs):
     if policy == "LegacyNoBit8":    return Sha256Chain(**kwargs)
     if policy == "NovaCoin":        return NovaCoin(**kwargs)
     if policy == "CryptoCash":      return CryptoCash(**kwargs)
+    if policy == "Hirocoin":        return Hirocoin(**kwargs)
     if policy == "X11":             return X11Chain(**kwargs)
     return Sha256NmcAuxPowChain(**kwargs)
 

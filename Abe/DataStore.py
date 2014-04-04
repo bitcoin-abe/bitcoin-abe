@@ -1109,7 +1109,7 @@ store._ddl['configvar'],
 """CREATE TABLE chain (
     chain_id    NUMERIC(10) NOT NULL PRIMARY KEY,
     chain_name  VARCHAR(100) UNIQUE NOT NULL,
-    chain_code3 CHAR(4)     NULL,
+    chain_code3 VARCHAR(4)     NULL,
     chain_address_version BIT VARYING(800) NOT NULL,
     chain_script_addr_vers BIT VARYING(800) NULL,
     chain_magic BIT(32)     NULL,
