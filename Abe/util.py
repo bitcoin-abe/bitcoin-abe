@@ -60,7 +60,7 @@ def pubkey_to_hash(pubkey):
     return RIPEMD160.new(SHA256.new(pubkey).digest()).digest()
 
 def calculate_target(nBits):
-    return (nBits & 0xffffff) << (8 * ((nBits >> 24) - 3))
+    return (nBits & 0xffffff) << (8 * (((nBits >> 24) & 0xff) - 3))
 
 def target_to_difficulty(target):
     return ((1 << 224) - 1) * 1000 / (target + 1) / 1000.0
