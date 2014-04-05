@@ -44,6 +44,7 @@ CONFIG_DEFAULTS = {
     "connect_args":       None,
     "binary_type":        None,
     "int_type":           None,
+    "int64_type":         None,
     "upgrade":            None,
     "rescan":             None,
     "commit_bytes":       None,
@@ -152,8 +153,6 @@ class DataStore(object):
         sql_args = lambda: 1
         sql_args.module = store.dbmodule
         sql_args.connect_args = args.connect_args
-        sql_args.binary_type = args.binary_type
-        sql_args.int_type = args.int_type
         sql_args.log_sql = args.log_sql
         sql_args.prefix = "abe_"
         sql_args.config = {}
@@ -912,7 +911,10 @@ store._ddl['txout_approx'],
         return sv < vers
 
     def configure(store):
-        config = store._sql.configure()
+        config = store._sql.configure(
+            binary_type=store.args.binary_type,
+            int_type=store.args.int_type,
+            int64_type=store.args.int64_type)
         store.init_binfuncs()
         for name in config.keys():
             store.config['sql.' + name] = config[name]
