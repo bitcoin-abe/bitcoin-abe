@@ -355,7 +355,7 @@ class SqlAbstraction(object):
         return ret
 
     def _transform_type(sql, fn, old, new):
-        if old == new:
+        if old == new or new is None:
             return fn
         patt = re.compile(r'\b' + old + r'\b')
         def ret(chunk):
