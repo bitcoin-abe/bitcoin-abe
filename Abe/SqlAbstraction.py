@@ -142,6 +142,8 @@ class SqlAbstraction(object):
             def _intin(x):
                 return None if x is None else str(x)
             intin = _intin
+            # Work around sqlite3's integer overflow.
+            transform = sql._approximate(transform)
 
         else:
             raise Exception("Unsupported int-type %s" % (val,))
@@ -388,6 +390,14 @@ class SqlAbstraction(object):
 
         return ret
 
+    def _approximate(store, fn):
+        def repl(match):
+            return 'CAST(' + match.group(1) + match.group(2) + ' AS DOUBLE PRECISION) ' \
+                + match.group(1) + '_approx' + match.group(2)
+        def ret(stmt):
+            return fn(re.sub(r'\b(\w+)(\w*) \1_approx\2\b', repl, stmt))
+        return ret
+
     def emulate_limit(sql, selectall):
         limit_re = re.compile(r"(.*)\bLIMIT\s+(\?|\d+)\s*\Z", re.DOTALL)
         def ret(stmt, params=()):
@@ -511,7 +521,7 @@ class SqlAbstraction(object):
                     sequence_key VARCHAR(100) NOT NULL PRIMARY KEY,
                     nextid NUMERIC(30)
                 )""" % sql.prefix)
-            except:
+            except Exception:
                 sql.rollback()
                 raise e
             sql.sql("INSERT INTO %ssequences (sequence_key, nextid)"
@@ -798,7 +808,7 @@ class SqlAbstraction(object):
             except Exception as e:
                 try:
                     sql.rollback()
-                except:
+                except Exception:
                     # Fetching a CLOB really messes up Easysoft ODBC Oracle.
                     sql.reconnect()
                     raise
@@ -842,22 +852,22 @@ class SqlAbstraction(object):
             sql.ddl("""
                 CREATE TABLE %stest_1 (
                     test_id NUMERIC(2) NOT NULL PRIMARY KEY,
-                    txout_value NUMERIC(30), i2 NUMERIC(20))""" % sql.prefix)
+                    i1 NUMERIC(30), i2 NUMERIC(20))""" % sql.prefix)
             # XXX No longer needed?
             sql.ddl("""
                 CREATE VIEW %stest_v1 AS
                 SELECT test_id,
-                       CAST(txout_value AS DECIMAL(50)) txout_approx_value,
-                       txout_value i1,
+                       i1 i1_approx,
+                       i1,
                        i2
                   FROM %stest_1""" % (sql.prefix, sql.prefix))
             v1 = 2099999999999999
             v2 = 1234567890
-            sql.sql("INSERT INTO %stest_1 (test_id, txout_value, i2)"
+            sql.sql("INSERT INTO %stest_1 (test_id, i1, i2)"
                     " VALUES (?, ?, ?)" % sql.prefix,
                     (1, sql.intin(v1), v2))
             sql.commit()
-            prod, o1 = sql.selectrow("SELECT txout_approx_value * i2, i1 FROM %stest_v1" % sql.prefix)
+            prod, o1 = sql.selectrow("SELECT i1_approx * i2, i1 FROM %stest_v1" % sql.prefix)
             prod = int(prod)
             o1 = int(o1)
             if prod < v1 * v2 * 1.0001 and prod > v1 * v2 * 0.9999 and o1 == v1:
