@@ -148,6 +148,8 @@ class SqlAbstraction(object):
         else:
             raise Exception("Unsupported int-type %s" % (val,))
 
+        transform = sql._transform_type(transform, 'BIGINT', sql.config.get('int64_type', 'NUMERIC(19)'))
+
         val = sql.config.get('sequence_type')
         if val in (None, 'update'):
             new_id = lambda key: sql._new_id_update(key)
@@ -350,6 +352,14 @@ class SqlAbstraction(object):
                     ret += match.group(2)
                 return ret
             return fn(STMT_RE.sub(transform_chunk, stmt))
+        return ret
+
+    def _transform_type(sql, fn, old, new):
+        if old == new:
+            return fn
+        patt = re.compile(r'\b' + old + r'\b')
+        def ret(chunk):
+            return fn(patt.sub(new, chunk))
         return ret
 
     # Converts VARCHAR types that are too long to CLOB or similar.
@@ -615,7 +625,9 @@ class SqlAbstraction(object):
             conn.close()
             sql._conn = None
 
-    def configure(sql):
+    def configure(sql, **config):
+        sql.config = config
+
         sql.configure_ddl_implicit_commit()
         sql.configure_create_table_epilogue()
         sql.configure_max_varchar()
@@ -623,6 +635,7 @@ class SqlAbstraction(object):
         sql.configure_clob_type()
         sql.configure_binary_type()
         sql.configure_int_type()
+        sql.configure_int64_type()
         sql.configure_sequence_type()
         sql.configure_limit_style()
 
@@ -661,6 +674,22 @@ class SqlAbstraction(object):
             "No known large integer representation works"
             if len(tests) > 1 else
             "Integer type " + tests[0] + " fails test")
+
+    def configure_int64_type(sql):
+        defaults = ['INTEGER', 'BIGINT', 'NUMERIC(19)']
+        tests = (defaults if sql.config.get('int64_type') is None else
+                 [ sql.config['int64_type'] ])
+
+        for val in tests:
+            sql.config['int64_type'] = val
+            sql._set_flavour()
+            if sql._test_intb_type('BIGINT', 64):
+                sql.log.info("int64_type=%s", val)
+                return
+        raise Exception(
+            "No known 64-bit integer representation works"
+            if len(tests) > 1 else
+            "64-bit integer type " + tests[0] + " fails test")
 
     def configure_sequence_type(sql):
         for val in ['nvf', 'oracle', 'postgres', 'mysql', 'db2', 'update']:
@@ -887,6 +916,31 @@ class SqlAbstraction(object):
             return False
         finally:
             sql.drop_view_if_exists("%stest_v1" % sql.prefix)
+            sql.drop_table_if_exists("%stest_1" % sql.prefix)
+
+    def _test_intb_type(sql, type, bits):
+        sql.drop_table_if_exists("%stest_1" % sql.prefix)
+        try:
+            sql.ddl("CREATE TABLE %stest_1 (i1 %s)" % (sql.prefix, type))
+            max = (1 << (bits - 1)) - 1
+            min = -1 - max
+            sql.sql("INSERT INTO %stest_1 (i1) VALUES (?)" % sql.prefix, (min,))
+            sql.sql("INSERT INTO %stest_1 (i1) VALUES (?)" % sql.prefix, (max,))
+            sql.commit()
+            rows = sql.selectall("""
+                SELECT i1, -1-i1, i1+1, i1-1
+                  FROM %stest_1
+                 ORDER BY i1""" % sql.prefix)
+            got = (rows[0][0], rows[0][1], rows[0][2], rows[1][0], rows[1][1], rows[1][3])
+            want = (min, max, min+1, max, min, max-1)
+            return got == want
+        except sql.module.DatabaseError as e:
+            sql.rollback()
+            return False
+        except Exception as e:
+            sql.rollback()
+            return False
+        finally:
             sql.drop_table_if_exists("%stest_1" % sql.prefix)
 
     def _test_sequence_type(sql):
