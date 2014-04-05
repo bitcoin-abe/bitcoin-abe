@@ -594,6 +594,7 @@ class Abe:
             'Value out: ', format_satoshis(b['value_out'], chain), '<br />\n',
             'Transaction Fees: ', format_satoshis(b['fees'], chain), '<br />\n',
 
+            [
             ['Average Coin Age: %6g' % (b['satoshi_seconds'] / 86400.0 / b['chain_satoshis'],),
              ' days<br />\n']
             if b['chain_satoshis'] and (b['satoshi_seconds'] is not None) else '',
@@ -609,6 +610,8 @@ class Abe:
             ['sat=',b['chain_satoshis'],';sec=',seconds,';ss=',b['satoshi_seconds'],
              ';total_ss=',b['chain_satoshi_seconds'],';destroyed=',b['satoshis_destroyed']]
             if abe.debug else '',
+            ]
+            if abe.store.conf_coin_days_destroyed else '',
 
             '</p>\n']
 

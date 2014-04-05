@@ -758,7 +758,6 @@ store._ddl['configvar'],
 None if not store.conf_tx_pubkey else """CREATE TABLE tx_pubkey (
     tx_id         BIGINT NOT NULL,
     pubkey_id     BIGINT NOT NULL,
-    PRIMARY KEY (tx_id, pubkey_id),
     FOREIGN KEY (tx_id) REFERENCES tx (tx_id),
     FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id)
 )""",
@@ -1646,75 +1645,110 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         block_out = 0
         block_in = 0
 
-        # XXX Will use tx_pubkey if conf_external_tx.
-        for row in store.selectall("""
-            SELECT tx_id, tx_hash, tx_size, txout_value, txout_scriptPubKey
-              FROM txout_detail
-             WHERE block_id = ?
-             ORDER BY tx_pos, txout_pos
-        """, (block_id,)):
-            tx_id, tx_hash, tx_size, txout_value, scriptPubKey = (
-                row[0], row[1], row[2], int(row[3]), store.binout(row[4]))
-            tx = txs.get(tx_id)
-            if tx is None:
+        if store.conf_external_tx:
+            for tx_id, tx_hash in store.selectall("""
+                SELECT tx.tx_id, tx.tx_hash
+                  FROM block_tx bt
+                  JOIN tx ON (bt.tx_id = tx.tx_id)
+                 WHERE bt.block_id = ?
+                 ORDER BY bt.tx_pos""", (block_id,)):
+
+                tx = store.get_external_tx_by_id(tx_id, found_chain)
+                tx['hash'] = store.hashout_hex(tx_hash)
                 tx_ids.append(tx_id)
-                txs[tx_id] = {
-                    "hash": store.hashout_hex(tx_hash),
-                    "total_out": 0,
-                    "total_in": 0,
-                    "out": [],
-                    "in": [],
-                    "size": int(tx_size),
-                    }
-                tx = txs[tx_id]
-            tx['total_out'] += txout_value
-            block_out += txout_value
+                txs[tx_id] = tx
+                store.get_external_tx_value(tx, tx_id == tx_ids[0], chain)
+                tx['value_in'] = 0
+                tx['value_out'] = 0
+                tx['in'] = tx['txIn']
+                tx['out'] = tx['txOut']
 
-            txout = { 'value': txout_value }
-            store._export_scriptPubKey(txout, found_chain, scriptPubKey)
-            tx['out'].append(txout)
+                for txout in tx['out']:
+                    tx['value_out'] += txout['value']
+                    store._export_scriptPubKey(txout, found_chain, txout['scriptPubKey'])
+                block_out += tx['value_out']
 
-        for row in store.selectall("""
-            SELECT tx_id, txin_value, txin_scriptPubKey
-              FROM txin_detail
-             WHERE block_id = ?
-             ORDER BY tx_pos, txin_pos
-        """, (block_id,)):
-            tx_id, txin_value, scriptPubKey = (
-                row[0], 0 if row[1] is None else int(row[1]),
-                store.binout(row[2]))
-            tx = txs.get(tx_id)
-            if tx is None:
-                # Strange, inputs but no outputs?
-                tx_ids.append(tx_id)
-                tx_hash, tx_size = store.selectrow("""
-                    SELECT tx_hash, tx_size FROM tx WHERE tx_id = ?""",
-                                           (tx_id,))
-                txs[tx_id] = {
-                    "hash": store.hashout_hex(tx_hash),
-                    "total_out": 0,
-                    "total_in": 0,
-                    "out": [],
-                    "in": [],
-                    "size": int(tx_size),
-                    }
-                tx = txs[tx_id]
-            tx['total_in'] += txin_value
-            block_in += txin_value
+                if not found_chain.is_coinbase_tx(tx):
+                    for txin in tx['in']:
+                        prevout = store.get_external_prevout(txin['prevout_hash'], txin['prevout_n'], found_chain)
+                        if prevout is None:
+                            tx['value_in'] = None
+                            scriptPubKey = None
+                        else:
+                            txin['value'] = prevout['value']
+                            if tx['value_in'] is not None:
+                                tx['value_in'] += txin['value']
+                            scriptPubKey = prevout['scriptPubKey']
+                        store._export_scriptPubKey(txin, found_chain, scriptPubKey)
 
-            txin = { 'value': txin_value }
-            store._export_scriptPubKey(txin, found_chain, scriptPubKey)
-            tx['in'].append(txin)
+        else:
+            for row in store.selectall("""
+                SELECT tx_id, tx_hash, tx_size, txout_value, txout_scriptPubKey
+                  FROM txout_detail
+                 WHERE block_id = ?
+                 ORDER BY tx_pos, txout_pos
+            """, (block_id,)):
+                tx_id, tx_hash, tx_size, txout_value, scriptPubKey = (
+                    row[0], row[1], row[2], int(row[3]), store.binout(row[4]))
+                tx = txs.get(tx_id)
+                if tx is None:
+                    tx_ids.append(tx_id)
+                    txs[tx_id] = {
+                        "hash": store.hashout_hex(tx_hash),
+                        "value_out": 0,
+                        "value_in": 0,
+                        "out": [],
+                        "in": [],
+                        "size": int(tx_size),
+                        }
+                    tx = txs[tx_id]
+                tx['value_out'] += txout_value
+                block_out += txout_value
+
+                txout = { 'value': txout_value }
+                store._export_scriptPubKey(txout, found_chain, scriptPubKey)
+                tx['out'].append(txout)
+
+            for row in store.selectall("""
+                SELECT tx_id, txin_value, txin_scriptPubKey
+                  FROM txin_detail
+                 WHERE block_id = ?
+                 ORDER BY tx_pos, txin_pos
+            """, (block_id,)):
+                tx_id, txin_value, scriptPubKey = (
+                    row[0], 0 if row[1] is None else int(row[1]),
+                    store.binout(row[2]))
+                tx = txs.get(tx_id)
+                if tx is None:
+                    # Strange, inputs but no outputs?
+                    tx_ids.append(tx_id)
+                    tx_hash, tx_size = store.selectrow("""
+                        SELECT tx_hash, tx_size FROM tx WHERE tx_id = ?""",
+                                               (tx_id,))
+                    txs[tx_id] = {
+                        "hash": store.hashout_hex(tx_hash),
+                        "value_out": 0,
+                        "value_in": 0,
+                        "out": [],
+                        "in": [],
+                        "size": int(tx_size),
+                        }
+                    tx = txs[tx_id]
+                tx['value_in'] += txin_value
+                block_in += txin_value
+
+                txin = { 'value': txin_value }
+                store._export_scriptPubKey(txin, found_chain, scriptPubKey)
+                tx['in'].append(txin)
 
         generated = block_out - block_in
         coinbase_tx = txs[tx_ids[0]]
         coinbase_tx['fees'] = 0
-        block_fees = coinbase_tx['total_out'] - generated
+        block_fees = coinbase_tx['value_out'] - generated
 
         b = {
             'chain_candidates':      cc,
             'chain_satoshis':        satoshis,
-            'chain_satoshi_seconds': total_ss,
             'chain_work':            block_chain_work,
             'fees':                  block_fees,
             'generated':             generated,
@@ -1726,22 +1760,26 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             'next_block_hashes':     next_hashes,
             'nNonce':                nNonce,
             'nTime':                 nTime,
-            'satoshis_destroyed':    destroyed,
-            'satoshi_seconds':       ss,
             'transactions':          [txs[tx_id] for tx_id in tx_ids],
             'value_out':             block_out,
             'version':               block_version,
             }
+        if store.conf_coin_days_destroyed:
+            b.update({
+                    'chain_satoshi_seconds': total_ss,
+                    'satoshis_destroyed':    destroyed,
+                    'satoshi_seconds':       ss,
+                    })
 
         is_stake_chain = chain is not None and chain.has_feature('nvc_proof_of_stake')
         if is_stake_chain:
             # Proof-of-stake display based loosely on CryptoManiac/novacoin and
             # http://nvc.cryptocoinexplorer.com.
-            b['is_proof_of_stake'] = len(tx_ids) > 1 and coinbase_tx['total_out'] == 0
+            b['is_proof_of_stake'] = len(tx_ids) > 1 and coinbase_tx['value_out'] == 0
 
         for tx_id in tx_ids[1:]:
             tx = txs[tx_id]
-            tx['fees'] = tx['total_in'] - tx['total_out']
+            tx['fees'] = tx['value_in'] - tx['value_out']
 
         if is_stake_chain and b['is_proof_of_stake']:
             b['proof_of_stake_generated'] = -txs[tx_ids[1]]['fees']
@@ -1750,24 +1788,27 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
 
         return b
 
+    def get_external_tx_value(store, tx, is_coinbase, chain):
+        value_out, value_in = 0, 0
+        for txout in tx['txOut']:
+            value_out += txout['value']
+        if not is_coinbase:
+            for txin in tx['txIn']:
+                txout = store.get_external_prevout(txin['prevout_hash'], txin['prevout_n'], chain)
+                if txout is None:
+                    value_in = None
+                    break
+                value_in += txout['value']
+        tx['value_in'] = value_in
+        tx['value_out'] = value_out
+        tx['value_destroyed'] = 0  # XXX
+
     def tx_find_id_and_value(store, tx, is_coinbase, chain):
         if store.conf_external_tx:
             ext = store.get_external_tx_by_hash(tx['hash'], chain)
             if ext is None:
                 return None
-            value_out, value_in = 0, 0
-            for txout in ext['txOut']:
-                value_out += txout['value']
-            if not is_coinbase:
-                for txin in ext['txIn']:
-                    txout = store.get_external_prevout(txin['prevout_hash'], txin['prevout_n'], chain)
-                    if txout is None:
-                        value_in = None
-                        break
-                    value_in += txout['value']
-            tx['value_in'] = value_in
-            tx['value_out'] = value_out
-            tx['value_destroyed'] = 0  # XXX
+            store.get_external_tx_value(tx, is_coinbase, chain)
             return ext['tx_id']
 
         row = store.selectrow("""
@@ -2488,6 +2529,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         data = file.read(1000)        # XXX testing
         tx = chain.ds_parse_transaction(util.str_to_ds(data))
         tx['tx_id'] = tx_id
+        tx['size'] = len(tx['__data__'])
         return tx
 
     def get_external_tx_by_hash(store, tx_hash, chain):
