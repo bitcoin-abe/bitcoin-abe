@@ -438,8 +438,8 @@ class Abe:
         rows = abe.store.selectall("""
             SELECT b.block_hash, b.block_height, b.block_nTime, b.block_num_tx,
                    b.block_nBits, b.block_value_out,
-                   b.block_total_seconds, b.block_satoshi_seconds,
-                   b.block_total_satoshis, b.block_ss_destroyed,
+                   b.block_total_seconds, b.block_total_satoshis,
+                   b.block_satoshi_seconds, b.block_ss_destroyed,
                    b.block_total_ss
               FROM block b
               JOIN chain_candidate cc ON (b.block_id = cc.block_id)
@@ -478,39 +478,37 @@ class Abe:
 
         nav += [' <a href="', page['dotdot'], '">Search</a>']
 
-        extra = False
-        #extra = True
         body += ['<p>', nav, '</p>\n',
                  '<table><tr><th>Block</th><th>Approx. Time</th>',
                  '<th>Transactions</th><th>Value Out</th>',
                  '<th>Difficulty</th><th>Outstanding</th>',
-                 '<th>Average Age</th><th>Chain Age</th>',
-                 '<th>% ',
-                 '<a href="https://en.bitcoin.it/wiki/Bitcoin_Days_Destroyed">',
-                 'CoinDD</a></th>',
-                 ['<th>Satoshi-seconds</th>',
-                  '<th>Total ss</th>']
-                 if extra else '',
+                 '<th>Average Age</th>' if abe.store.conf_coin_days_destroyed else '',
+                 '<th>Chain Age</th>',
+                 '<th>% <a href="https://en.bitcoin.it/wiki/Bitcoin_Days_Destroyed">CoinDD</a></th>'
+                 if abe.store.conf_coin_days_destroyed else '',
                  '</tr>\n']
         for row in rows:
             (hash, height, nTime, num_tx, nBits, value_out,
-             seconds, ss, satoshis, destroyed, total_ss) = row
+             seconds, satoshis) = row[:8]
             nTime = int(nTime)
             value_out = int(value_out)
             seconds = int(seconds)
             satoshis = int(satoshis)
-            ss = int(ss)
-            total_ss = int(total_ss)
 
-            if satoshis == 0:
-                avg_age = '&nbsp;'
-            else:
-                avg_age = '%5g' % (ss / satoshis / 86400.0)
+            if abe.store.conf_coin_days_destroyed:
+                ss, destroyed, total_ss = row[8:]
+                ss = int(ss)
+                total_ss = int(total_ss)
 
-            if total_ss <= 0:
-                percent_destroyed = '&nbsp;'
-            else:
-                percent_destroyed = '%5g%%' % (100.0 - (100.0 * ss / total_ss))
+                if satoshis == 0:
+                    avg_age = '&nbsp;'
+                else:
+                    avg_age = '%5g' % (ss / satoshis / 86400.0)
+
+                if total_ss <= 0:
+                    percent_destroyed = '&nbsp;'
+                else:
+                    percent_destroyed = '%5g%%' % (100.0 - (100.0 * ss / total_ss))
 
             body += [
                 '<tr><td><a href="', page['dotdot'], 'block/',
@@ -521,11 +519,9 @@ class Abe:
                 '</td><td>', format_satoshis(value_out, chain),
                 '</td><td>', util.calculate_difficulty(int(nBits)),
                 '</td><td>', format_satoshis(satoshis, chain),
-                '</td><td>', avg_age,
+                ['</td><td>', avg_age] if abe.store.conf_coin_days_destroyed else '',
                 '</td><td>', '%5g' % (seconds / 86400.0),
-                '</td><td>', percent_destroyed,
-                ['</td><td>', '%8g' % ss,
-                 '</td><td>', '%8g' % total_ss] if extra else '',
+                ['</td><td>', percent_destroyed] if abe.store.conf_coin_days_destroyed else '',
                 '</td></tr>\n']
 
         body += ['</table>\n<p>', nav, '</p>\n']
@@ -762,7 +758,7 @@ class Abe:
                  '<a name="inputs"><h3>Inputs</h3></a>\n<table>\n',
                  '<tr><th>Index</th><th>Previous output</th><th>Amount</th>',
                  '<th>From address</th>']
-        if abe.store.keep_scriptsig:
+        if abe.store.conf_keep_scriptsig:
             body += ['<th>ScriptSig</th>']
         body += ['</tr>\n']
         for txin in tx['in']:
