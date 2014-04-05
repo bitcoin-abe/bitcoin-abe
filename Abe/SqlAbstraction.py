@@ -1,4 +1,4 @@
-# Copyright(C) 2011,2012,2013 by John Tobey <jtobey@john-edwin-tobey.org>
+# Copyright(C) 2011,2012,2013,2014 by Abe developers.
 
 # sql.py: feature-detecting, SQL-transforming database abstraction layer
 
@@ -221,7 +221,13 @@ class SqlAbstraction(object):
         sql.binout_int  = binout_int
         sql.binin_int   = binin_int
 
+        def intout(x):
+            if x is None:
+                return None
+            return int(x)
         sql.intin       = intin
+        sql.intout      = intout
+
         sql.new_id      = new_id
         sql.create_sequence = create_sequence
         sql.drop_sequence = drop_sequence

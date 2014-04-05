@@ -282,6 +282,7 @@ class DataStore(object):
         store.binout_hex  = store._sql.binout_hex
         store.binout_int  = store._sql.binout_int
         store.intin       = store._sql.intin
+        store.intout      = store._sql.intout
         store.hashin      = store._sql.revin
         store.hashin_hex  = store._sql.revin_hex
         store.hashout     = store._sql.revout
@@ -338,7 +339,7 @@ class DataStore(object):
                 "dirname": dir,
                 "blkfile_number": int(num),
                 "blkfile_offset": int(offs),
-                "chain_id": None if chain_id is None else int(chain_id),
+                "chain_id": store.intout(chain_id),
                 "loader": None}
 
         #print("datadirs: %r" % datadirs)
@@ -956,8 +957,7 @@ store._ddl['txout_approx'],
             height, prev_id, search_id = row
             block = store.cache_block(
                 block_id, int(height),
-                None if prev_id is None else int(prev_id),
-                None if search_id is None else int(search_id))
+                store.intout(prev_id), store.intout(search_id))
         return block
 
     def get_block_id_at_height(store, height, descendant_id):
@@ -997,12 +997,9 @@ store._ddl['txout_approx'],
             return (None, None, None, None, None, None, None, None)
         (id, height, chain_work, satoshis, seconds, satoshi_seconds,
          total_ss, nTime) = row
-        return (id, None if height is None else int(height),
-                store.binout_int(chain_work),
-                None if satoshis is None else int(satoshis),
-                None if seconds is None else int(seconds),
-                None if satoshi_seconds is None else int(satoshi_seconds),
-                None if total_ss is None else int(total_ss),
+        return (id, store.intout(height), store.binout_int(chain_work),
+                store.intout(satoshis), store.intout(seconds),
+                store.intout(satoshi_seconds), store.intout(total_ss),
                 int(nTime))
 
     def import_block(store, b, chain_ids=None, chain=None):
@@ -1101,7 +1098,7 @@ store._ddl['txout_approx'],
         else:
             b['search_block_id'] = store.get_block_id_at_height(
                 util.get_search_height(int(b['height'])),
-                None if prev_block_id is None else int(prev_block_id))
+                store.intout(prev_block_id))
 
         # Insert the block table row.
         try:
@@ -1143,7 +1140,7 @@ store._ddl['txout_approx'],
                     store.log.info("Block already inserted; block_id %d unsued",
                                    block_id)
                     b['block_id'] = int(row[0])
-                    b['ss'] = None if row[1] is None else int(row[1])
+                    b['ss'] = store.intout(row[1])
                     store.offer_block_to_chains(b, chain_ids)
                     return
 
@@ -1326,7 +1323,7 @@ store._ddl['txout_approx'],
             next_id, nBits, value_out, value_in, nTime, satoshis = row
             nBits = int(nBits)
             nTime = int(nTime)
-            satoshis = None if satoshis is None else int(satoshis)
+            satoshis = store.intout(satoshis)
             new_work = util.calculate_work(orphan_work, nBits)
 
             if b['chain_work'] is None:
@@ -1604,12 +1601,8 @@ store._ddl['txout_approx'],
             store.hashout_hex(row[3]), row[4], int(row[5]), row[6],
             row[7], store.hashout_hex(row[8]),
             store.binout_int(row[9]), int(row[10]), int(row[11]),
-            None if row[12] is None else int(row[12]),
-            None if row[13] is None else int(row[13]),
-            None if row[14] is None else int(row[14]),
-            None if row[15] is None else int(row[15]),
-            None if row[16] is None else int(row[16]),
-            int(row[17]),
+            store.intout(row[12]), store.intout(row[13]), store.intout(row[14]),
+            store.intout(row[15]), store.intout(row[16]), int(row[17]),
             )
 
         next_hashes = [
@@ -1752,7 +1745,7 @@ store._ddl['txout_approx'],
                  WHERE txin.tx_id = ?""", (tx_id,))
             if (count_in or 0) < len(tx['txIn']):
                 value_in = 0 if is_coinbase else None
-            tx['value_in'] = None if value_in is None else int(value_in)
+            tx['value_in'] = store.intout(value_in)
             tx['value_out'] = value_out
             tx['value_destroyed'] = value_out - undestroyed
             return tx_id
@@ -1929,7 +1922,7 @@ store._ddl['txout_approx'],
             WHERE txin.tx_id = ?
             ORDER BY txin.txin_pos""", (tx_id,)):
             prevout_hash = row[0]
-            prevout_n = None if row[1] is None else int(row[1])
+            prevout_n = store.intout(row[1])
             if is_bin:
                 txin = {
                     'prevout_hash': store.hashout(prevout_hash),
@@ -1951,7 +1944,7 @@ store._ddl['txout_approx'],
                     txin['scriptSig'] = store.binout(scriptSig)
                 else:
                     txin['raw_scriptSig'] = store.binout_hex(scriptSig)
-                txin['sequence'] = None if sequence is None else int(sequence)
+                txin['sequence'] = store.intout(sequence)
             txins.append(txin)
 
         txouts = []
@@ -2009,7 +2002,7 @@ store._ddl['txout_approx'],
                 'chain': store.get_chain_by_id(row[0]),
                 'in_longest': int(row[1]),
                 'block_nTime': int(row[2]),
-                'block_height': None if row[3] is None else int(row[3]),
+                'block_height': store.intout(row[3]),
                 'block_hash': store.hashout_hex(row[4]),
                 'tx_pos': int(row[5])
                 }
@@ -2039,9 +2032,9 @@ store._ddl['txout_approx'],
             ret = {
                 "pos": int(pos),
                 "binscript": script,
-                "value": None if value is None else int(value),
+                "value": store.intout(value),
                 "o_hash": store.hashout_hex(o_hash),
-                "o_pos": None if o_pos is None else int(o_pos),
+                "o_pos": store.intout(o_pos),
                 }
             store._export_scriptPubKey(ret, chain, scriptPubKey)
 
