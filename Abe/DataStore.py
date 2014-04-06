@@ -221,7 +221,7 @@ class DataStore(object):
 
         store.default_loader = args.default_loader
         if store.conf_external_tx:
-            store._define_external_tx_id(datadir_id_bits=7, blkfile_offset_bits=32)  # XXX params could be configurable
+            store._define_external_id(datadir_id_bits=7, blkfile_offset_bits=32)  # XXX params could be configurable
             store.clear_mempool()
             store._mempool = {}
             store._mempool_size = 0
@@ -1854,7 +1854,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                 datadir_id = store.get_datadir_by_chain_id(chain.id)['id']
                 offset = store._mempool_size
                 store._mempool_size += tx['size']
-                tx_id = store.make_external_tx_id(datadir_id, 0, offset)
+                tx_id = store.make_external_id(datadir_id, 0, offset)
                 store._mempool[tx_id] = tx['__data__']
         else:
             tx_id = store.new_id("tx")
@@ -2593,7 +2593,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                 return datadir
         return { 'id': chain_id, 'chain_id': chain_id }
 
-    def _define_external_tx_id(store, datadir_id_bits, blkfile_offset_bits):
+    def _define_external_id(store, datadir_id_bits, blkfile_offset_bits):
         def make(datadir_id, blkfile_number, blkfile_offset):
             assert 0 <= datadir_id <= ~(-1 << datadir_id_bits)
             assert 0 <= blkfile_offset <= ~(-1 << blkfile_offset_bits)
@@ -2611,13 +2611,13 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         def clear():
             store.sql("DELETE FROM tx WHERE tx_id < ?", (make(0, 1, 0),))
 
-        store.make_external_tx_id = make
-        store.parse_external_tx_id = parse
+        store.make_external_id = make
+        store.parse_external_id = parse
         store.clear_mempool = clear
 
     def get_external_tx_by_id(store, tx_id, chain):
         assert store.conf_external_tx
-        datadir_id, blkfile_number, blkfile_offset = store.parse_external_tx_id(tx_id)
+        datadir_id, blkfile_number, blkfile_offset = store.parse_external_id(tx_id)
         datadir = store.get_datadir_by_id(datadir_id)
         if chain is None:
             chain = store.get_chain_by_id(datadir['chain_id'])
@@ -3140,7 +3140,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                         pass
 
                 if store.conf_external_tx:
-                    id_base = store.make_external_tx_id(dircfg['id'], filenum, 0)
+                    id_base = store.make_external_id(dircfg['id'], filenum, 0)
                     for tx in b['transactions']:
                         offset = tx['__offset__']
                         assert 0 <= offset <= 0xffffffff
