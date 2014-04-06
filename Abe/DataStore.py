@@ -220,6 +220,11 @@ class DataStore(object):
             store.maybe_import_binary_tx(chain_name, str(hex_tx).decode('hex'))
 
         store.default_loader = args.default_loader
+        if store.conf_external_tx:
+            store._define_external_tx_id(datadir_id_bits=7, blkfile_offset_bits=32)  # XXX params could be configurable
+            store.clear_mempool()
+            store._mempool = {}
+            store._mempool_size = 0
 
         store.commit()
 
@@ -365,6 +370,7 @@ class DataStore(object):
         for dircfg in store.args.datadir:
             loader = None
             conf = None
+            datadir_id = None
 
             if isinstance(dircfg, dict):
                 #print("dircfg is dict: %r" % dircfg)  # XXX
@@ -391,6 +397,7 @@ class DataStore(object):
 
                     if chain_id is None and chain_name is not None:
                         chain_id = store.new_id('chain')
+                        datadir_id = chain_id
 
                         code3 = dircfg.get('code3')
                         if code3 is None:
@@ -440,7 +447,7 @@ class DataStore(object):
                 chain_id = None
 
             d = {
-                "id": store.new_id("datadir"),
+                "id": store.new_id("chain") if datadir_id is None else datadir_id,
                 "dirname": dirname,
                 "blkfile_number": 1,
                 "blkfile_offset": 0,
@@ -658,10 +665,8 @@ store._ddl['configvar'],
     block_total_ss NUMERIC(28) NULL,
     block_num_tx  NUMERIC(10) NOT NULL,
     block_ss_destroyed NUMERIC(28) NULL,
-    FOREIGN KEY (prev_block_id)
-        REFERENCES block (block_id),
-    FOREIGN KEY (search_block_id)
-        REFERENCES block (block_id)
+    FOREIGN KEY (prev_block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE,
+    FOREIGN KEY (search_block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE
 )""",
 
 # CHAIN comprises a magic number, a policy, and (indirectly via
@@ -677,8 +682,7 @@ store._ddl['configvar'],
     chain_policy VARCHAR(255) NOT NULL,
     chain_decimals NUMERIC(2) NULL,
     chain_last_block_id NUMERIC(14) NULL,
-    FOREIGN KEY (chain_last_block_id)
-        REFERENCES block (block_id)
+    FOREIGN KEY (chain_last_block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE SET NULL
 )""",
 
 # CHAIN_CANDIDATE lists blocks that are, or might become, part of the
@@ -691,7 +695,7 @@ store._ddl['configvar'],
     in_longest    NUMERIC(1),
     block_height  NUMERIC(14),
     PRIMARY KEY (chain_id, block_id),
-    FOREIGN KEY (block_id) REFERENCES block (block_id)
+    FOREIGN KEY (block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE
 )""",
 """CREATE INDEX x_cc_block ON chain_candidate (block_id)""",
 """CREATE INDEX x_cc_chain_block_height
@@ -702,7 +706,7 @@ store._ddl['configvar'],
 """CREATE TABLE orphan_block (
     block_id      NUMERIC(14) NOT NULL PRIMARY KEY,
     block_hashPrev BINARY(32) NOT NULL,
-    FOREIGN KEY (block_id) REFERENCES block (block_id)
+    FOREIGN KEY (block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE
 )""",
 """CREATE INDEX x_orphan_block_hashPrev ON orphan_block (block_hashPrev)""",
 
@@ -711,8 +715,8 @@ store._ddl['configvar'],
     block_id      NUMERIC(14) NOT NULL,
     next_block_id NUMERIC(14) NOT NULL,
     PRIMARY KEY (block_id, next_block_id),
-    FOREIGN KEY (block_id) REFERENCES block (block_id),
-    FOREIGN KEY (next_block_id) REFERENCES block (block_id)
+    FOREIGN KEY (block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE,
+    FOREIGN KEY (next_block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE
 )""",
 
 # A transaction of the type used by Bitcoin.
@@ -731,10 +735,8 @@ store._ddl['configvar'],
     tx_pos        NUMERIC(10) NOT NULL,
     PRIMARY KEY (block_id, tx_id),
     UNIQUE (block_id, tx_pos),
-    FOREIGN KEY (block_id)
-        REFERENCES block (block_id),
-    FOREIGN KEY (tx_id)
-        REFERENCES tx (tx_id)
+    FOREIGN KEY (block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE,
+    FOREIGN KEY (tx_id) REFERENCES tx (tx_id) ON UPDATE CASCADE ON DELETE CASCADE
 )""",
 """CREATE INDEX x_block_tx_tx ON block_tx (tx_id)""",
 
@@ -750,16 +752,16 @@ store._ddl['configvar'],
     multisig_id   BIGINT NOT NULL,
     pubkey_id     BIGINT NOT NULL,
     PRIMARY KEY (multisig_id, pubkey_id),
-    FOREIGN KEY (multisig_id) REFERENCES pubkey (pubkey_id),
-    FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id)
+    FOREIGN KEY (multisig_id) REFERENCES pubkey (pubkey_id) ON UPDATE CASCADE ON DELETE CASCADE,
+    FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id) ON UPDATE CASCADE ON DELETE CASCADE
 )""",
 """CREATE INDEX x_multisig_pubkey_pubkey ON multisig_pubkey (pubkey_id)""",
 
 None if not store.conf_tx_pubkey else """CREATE TABLE tx_pubkey (
     tx_id         BIGINT NOT NULL,
     pubkey_id     BIGINT NOT NULL,
-    FOREIGN KEY (tx_id) REFERENCES tx (tx_id),
-    FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id)
+    FOREIGN KEY (tx_id) REFERENCES tx (tx_id) ON UPDATE CASCADE ON DELETE CASCADE,
+    FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id) ON UPDATE CASCADE ON DELETE CASCADE
 )""",
 
 # A transaction out-point.
@@ -771,8 +773,8 @@ None if store.conf_external_tx else """CREATE TABLE txout (
     txout_scriptPubKey VARBINARY(""" + str(MAX_SCRIPT) + """),
     pubkey_id     BIGINT,
     UNIQUE (tx_id, txout_pos),
-    FOREIGN KEY (pubkey_id)
-        REFERENCES pubkey (pubkey_id)
+    FOREIGN KEY (tx_id) REFERENCES tx (tx_id) ON UPDATE CASCADE ON DELETE CASCADE,
+    FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id) ON UPDATE CASCADE ON DELETE SET NULL
 )""",
 None if store.conf_external_tx else """CREATE INDEX x_txout_pubkey ON txout (pubkey_id)""",
 
@@ -785,8 +787,7 @@ None if store.conf_external_tx else """CREATE TABLE txin (
     txin_scriptSig VARBINARY(""" + str(MAX_SCRIPT) + """),
     txin_sequence NUMERIC(10)""" if store.conf_keep_scriptsig else "") + """,
     UNIQUE (tx_id, txin_pos),
-    FOREIGN KEY (tx_id)
-        REFERENCES tx (tx_id)
+    FOREIGN KEY (tx_id) REFERENCES tx (tx_id) ON UPDATE CASCADE ON DELETE CASCADE
 )""",
 None if store.conf_external_tx else """CREATE INDEX x_txin_txout ON txin (txout_id)""",
 
@@ -796,7 +797,7 @@ None if store.conf_external_tx else """CREATE TABLE unlinked_txin (
     txin_id       BIGINT NOT NULL PRIMARY KEY,
     txout_tx_hash BINARY(32)  NOT NULL,
     txout_pos     NUMERIC(10) NOT NULL,
-    FOREIGN KEY (txin_id) REFERENCES txin (txin_id)
+    FOREIGN KEY (txin_id) REFERENCES txin (txin_id) ON UPDATE CASCADE ON DELETE CASCADE
 )""",
 None if store.conf_external_tx else """CREATE INDEX x_unlinked_txin_outpoint
     ON unlinked_txin (txout_tx_hash, txout_pos)""",
@@ -806,9 +807,9 @@ None if store.conf_external_tx else """CREATE TABLE block_txin (
     txin_id       BIGINT NOT NULL,
     out_block_id  NUMERIC(14) NOT NULL,
     PRIMARY KEY (block_id, txin_id),
-    FOREIGN KEY (block_id) REFERENCES block (block_id),
-    FOREIGN KEY (txin_id) REFERENCES txin (txin_id),
-    FOREIGN KEY (out_block_id) REFERENCES block (block_id)
+    FOREIGN KEY (block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE,
+    FOREIGN KEY (txin_id) REFERENCES txin (txin_id) ON UPDATE CASCADE ON DELETE CASCADE,
+    FOREIGN KEY (out_block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE
 )""",
 
 store._ddl['chain_summary'],
@@ -828,7 +829,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                     store.log.error("Failed: %s", stmt)
                     raise
 
-        for key in ['chain', 'datadir', 'pubkey', 'block']:
+        for key in ['chain', 'pubkey', 'block']:
             store.create_sequence(key)
 
         if not store.conf_external_tx:
@@ -858,8 +859,8 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                     address_version VARBINARY(10) NOT NULL,
                     firstbits       VARCHAR(50) NOT NULL,
                     PRIMARY KEY (address_version, pubkey_id, block_id),
-                    FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id),
-                    FOREIGN KEY (block_id) REFERENCES block (block_id)
+                    FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    FOREIGN KEY (block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE
                 )""")
             store.ddl(
                 """CREATE INDEX x_abe_firstbits
@@ -1051,7 +1052,11 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             tx_id = store.tx_find_id_and_value(tx, pos == 0, chain)
 
             if tx_id:
-                tx['tx_id'] = tx_id
+                if store.conf_external_tx and tx.get('tx_id') is not None and tx_id in store._mempool:
+                    store.sql("UPDATE tx SET tx_id = ? WHERE tx_id = ?", (tx['tx_id'], tx_id))
+                    tx_id = tx['tx_id']
+                else:
+                    tx['tx_id'] = tx_id
                 all_txins_linked = False
             else:
                 if store.commit_bytes == 0:
@@ -1839,12 +1844,22 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         return None
 
     def import_tx(store, tx, is_coinbase, chain):
-        tx_id = tx['tx_id'] if store.conf_external_tx else store.new_id("tx")
-        dbhash = store.hashin(tx['hash'])
-        pubkey_ids = set()
-
         if 'size' not in tx:
             tx['size'] = len(tx['__data__'])
+
+        if store.conf_external_tx:
+            tx_id = tx.get('tx_id')
+            if tx_id is None:
+                datadir_id = store.get_datadir_by_chain_id(chain.id)['id']
+                offset = store._mempool_size
+                store._mempool_size += tx['size']
+                tx_id = store.make_external_tx_id(datadir_id, 0, offset)
+                store._mempool[tx_id] = tx['__data__']
+        else:
+            tx_id = store.new_id("tx")
+
+        dbhash = store.hashin(tx['hash'])
+        pubkey_ids = set()
 
         if store.conf_external_tx:
             store.sql("INSERT INTO tx (tx_id, tx_hash) VALUES (?, ?)", (tx_id, dbhash))
@@ -2512,22 +2527,53 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         for datadir in store.datadirs:
             if datadir['id'] == datadir_id:
                 return datadir
-        raise ValueError('No such datadir_id: %s' % datadir_id)
+        return { 'id': datadir_id, 'chain_id': datadir_id }
+
+    def get_datadir_by_chain_id(store, chain_id):
+        # XXX should use a dict.
+        for datadir in store.datadirs:
+            if datadir.get('chain_id') == chain_id:
+                return datadir
+        return { 'id': chain_id, 'chain_id': chain_id }
+
+    def _define_external_tx_id(store, datadir_id_bits, blkfile_offset_bits):
+        def make(datadir_id, blkfile_number, blkfile_offset):
+            assert 0 <= datadir_id <= ~(-1 << datadir_id_bits)
+            assert 0 <= blkfile_offset <= ~(-1 << blkfile_offset_bits)
+            tx_id = blkfile_number
+            tx_id = (tx_id << datadir_id_bits)     | datadir_id
+            tx_id = (tx_id << blkfile_offset_bits) | blkfile_offset
+            return tx_id
+
+        def parse(tx_id):
+            blkfile_offset = tx_id & ~(-1 << blkfile_offset_bits); tx_id >>= blkfile_offset_bits
+            datadir_id     = tx_id & ~(-1 << datadir_id_bits)    ; tx_id >>= datadir_id_bits
+            blkfile_number = tx_id
+            return datadir_id, blkfile_number, blkfile_offset
+
+        def clear():
+            store.sql("DELETE FROM tx WHERE tx_id < ?", (make(0, 1, 0),))
+
+        store.make_external_tx_id = make
+        store.parse_external_tx_id = parse
+        store.clear_mempool = clear
 
     def get_external_tx_by_id(store, tx_id, chain):
         assert store.conf_external_tx
-        datadir_id = (tx_id >> 56) & 0xff
-        blkfile_number = (tx_id >> 32) & 0xffffff
-        blkfile_offset = (tx_id & 0xffffffff)
+        datadir_id, blkfile_number, blkfile_offset = store.parse_external_tx_id(tx_id)
         datadir = store.get_datadir_by_id(datadir_id)
         if chain is None:
             chain = store.get_chain_by_id(datadir['chain_id'])
-        # XXX should keep a LRU cache of mmaps.
-        fname = store.blkfile_name(datadir, blkfile_number)
-        file = open(fname, 'rb')
-        file.seek(blkfile_offset)
-        data = file.read(1000)        # XXX testing
-        tx = chain.ds_parse_transaction(util.str_to_ds(data))
+        if tx_id in store._mempool:
+            ds = util.str_to_ds(store._mempool[tx_id])
+        else:
+            # XXX should keep a LRU cache of mmaps.
+            fname = store.blkfile_name(datadir, blkfile_number)
+            file = open(fname, 'rb')
+            file.seek(blkfile_offset)
+            data = file.read(1000)        # XXX testing
+            ds = util.str_to_ds(data)
+        tx = chain.ds_parse_transaction(ds)
         tx['tx_id'] = tx_id
         tx['size'] = len(tx['__data__'])
         return tx
@@ -3034,13 +3080,11 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                         pass
 
                 if store.conf_external_tx:
-                    assert 1 <= dircfg['id'] <= 0xff
-                    assert 0 <= filenum <= 0xffffff
-                    id_base = (dircfg['id'] << 56) | (filenum << 32)
+                    id_base = store.make_external_tx_id(dircfg['id'], filenum, 0)
                     for tx in b['transactions']:
                         offset = tx['__offset__']
                         assert 0 <= offset <= 0xffffffff
-                        tx['tx_id'] = id_base | offset
+                        tx['tx_id'] = id_base + offset
 
                 store.import_block(b, chain = chain)
                 if ds.read_cursor != end:
