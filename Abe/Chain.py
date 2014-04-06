@@ -88,6 +88,9 @@ class Chain(object):
             d['transactions'].append(chain.ds_parse_transaction(ds))
         return d
 
+    def ds_read_byte_string(chain, ds):
+        return ds.read_bytes(ds.read_compact_size())
+
     def ds_serialize_block(chain, ds, block):
         chain.ds_serialize_block_header(ds, block)
         ds.write_compact_size(len(block['transactions']))
@@ -174,7 +177,7 @@ class Chain(object):
         * SCRIPT_TYPE_PUBKEY   - DATA is the binary public key
         * SCRIPT_TYPE_ADDRESS  - DATA is the binary public key hash
         * SCRIPT_TYPE_BURN     - DATA is None
-        * SCRIPT_TYPE_MULTISIG - DATA is {"m":M, "pubkeys":list_of_pubkeys}
+        * SCRIPT_TYPE_MULTISIG - DATA is {"m":M, "pubkeys":[{"pubkey":K, "offset":BYTES},...]}
         * SCRIPT_TYPE_P2SH     - DATA is the binary script hash
         """
         if script is None:
@@ -210,7 +213,8 @@ class Chain(object):
             if 1 <= m <= n <= MAX_MULTISIG_KEYS and len(decoded) == 3 + n and \
                     all([ decoded[i][0] <= opcodes.OP_PUSHDATA4 for i in range(1, 1+n) ]):
                 return SCRIPT_TYPE_MULTISIG, \
-                    { "m": m, "pubkeys": [ decoded[i][1] for i in range(1, 1+n) ] }
+                    { "m": m, "pubkeys": [ { 'pubkey': decoded[i][1], 'offset': decoded[i][2] }
+                                           for i in range(1, 1+n) ] }
 
         # Namecoin overrides this to accept name operations.
         return SCRIPT_TYPE_UNKNOWN, decoded

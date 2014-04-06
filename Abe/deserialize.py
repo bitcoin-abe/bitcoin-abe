@@ -42,6 +42,7 @@ def parse_TxIn(vds):
   d = {}
   d['prevout_hash'] = vds.read_bytes(32)
   d['prevout_n'] = vds.read_uint32()
+  d['__script_offset__'] = vds.read_cursor
   d['scriptSig'] = vds.read_bytes(vds.read_compact_size())
   d['sequence'] = vds.read_uint32()
   return d
@@ -65,6 +66,7 @@ def deserialize_TxIn(d, transaction_index=None, owner_keys=None):
 def parse_TxOut(vds):
   d = {}
   d['value'] = vds.read_int64()
+  d['__script_offset__'] = vds.read_cursor
   d['scriptPubKey'] = vds.read_bytes(vds.read_compact_size())
   return d
 
@@ -278,7 +280,7 @@ def script_GetOp(bytes):
     elif opcode == opcodes.OP_1NEGATE:
       vch = chr(255)
 
-    yield (opcode, vch)
+    yield (opcode, vch, i)
 
 def script_GetOpName(opcode):
   try:
@@ -288,7 +290,7 @@ def script_GetOpName(opcode):
 
 def decode_script(bytes):
   result = ''
-  for (opcode, vch) in script_GetOp(bytes):
+  for (opcode, vch, i) in script_GetOp(bytes):
     if len(result) > 0: result += " "
     if opcode <= opcodes.OP_PUSHDATA4:
       result += "%d:"%(opcode,)

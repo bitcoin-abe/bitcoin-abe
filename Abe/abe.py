@@ -443,9 +443,9 @@ class Abe:
         rows = abe.store.selectall("""
             SELECT b.block_hash, b.block_height, b.block_nTime, b.block_num_tx,
                    b.block_nBits, b.block_value_out,
-                   b.block_total_seconds, b.block_total_satoshis,
+                   b.block_total_seconds, b.block_total_satoshis""" + (""",
                    b.block_satoshi_seconds, b.block_ss_destroyed,
-                   b.block_total_ss
+                   b.block_total_ss""" if abe.store.conf_coin_days_destroyed else "") + """
               FROM block b
               JOIN chain_candidate cc ON (b.block_id = cc.block_id)
              WHERE cc.chain_id = ?
