@@ -530,10 +530,10 @@ class DataStore(object):
     b.block_value_in,
     b.block_value_out,
     b.block_total_satoshis,
-    b.block_total_seconds,
+    b.block_total_seconds""" + (""",
     b.block_satoshi_seconds,
     b.block_total_ss,
-    b.block_ss_destroyed
+    b.block_ss_destroyed""" if store.conf_coin_days_destroyed else "") + """
 FROM chain_candidate cc
 JOIN block b ON (cc.block_id = b.block_id)
 LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
@@ -660,11 +660,11 @@ store._ddl['configvar'],
     block_value_in NUMERIC(30) NULL,
     block_value_out NUMERIC(30),
     block_total_satoshis NUMERIC(26) NULL,
-    block_total_seconds NUMERIC(20) NULL,
+    block_total_seconds NUMERIC(20) NULL""" + (""",
     block_satoshi_seconds NUMERIC(28) NULL,
     block_total_ss NUMERIC(28) NULL,
+    block_ss_destroyed NUMERIC(28) NULL""" if store.conf_coin_days_destroyed else "") + """,
     block_num_tx  NUMERIC(10) NOT NULL,
-    block_ss_destroyed NUMERIC(28) NULL,
     FOREIGN KEY (prev_block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE,
     FOREIGN KEY (search_block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE
 )""",
@@ -802,7 +802,7 @@ None if store.conf_external_tx else """CREATE TABLE unlinked_txin (
 None if store.conf_external_tx else """CREATE INDEX x_unlinked_txin_outpoint
     ON unlinked_txin (txout_tx_hash, txout_pos)""",
 
-None if store.conf_external_tx else """CREATE TABLE block_txin (
+"""CREATE TABLE block_txin (
     block_id      NUMERIC(14) NOT NULL,
     txin_id       BIGINT NOT NULL,
     out_block_id  NUMERIC(14) NOT NULL,
@@ -810,7 +810,7 @@ None if store.conf_external_tx else """CREATE TABLE block_txin (
     FOREIGN KEY (block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE,
     FOREIGN KEY (txin_id) REFERENCES txin (txin_id) ON UPDATE CASCADE ON DELETE CASCADE,
     FOREIGN KEY (out_block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE
-)""",
+)""" if store.conf_coin_days_destroyed and not store.conf_external_tx else None,
 
 store._ddl['chain_summary'],
 None if store.conf_external_tx else store._ddl['txout_detail'],
@@ -1009,18 +1009,17 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
     def find_prev(store, hash):
         row = store.selectrow("""
             SELECT block_id, block_height, block_chain_work,
-                   block_total_satoshis, block_total_seconds,
-                   block_satoshi_seconds, block_total_ss, block_nTime
+                   block_total_satoshis, block_nTime, block_total_seconds""" + (""",
+                   block_satoshi_seconds, block_total_ss""" if store.conf_coin_days_destroyed else "") + """
               FROM block
              WHERE block_hash=?""", (store.hashin(hash),))
         if row is None:
             return (None, None, None, None, None, None, None, None)
-        (id, height, chain_work, satoshis, seconds, satoshi_seconds,
-         total_ss, nTime) = row
+        (id, height, chain_work, satoshis, nTime, seconds) = row[:6]
+        (satoshi_seconds, total_ss) = row[6:] if store.conf_coin_days_destroyed else (None, None)
         return (id, store.intout(height), store.binout_int(chain_work),
-                store.intout(satoshis), store.intout(seconds),
-                store.intout(satoshi_seconds), store.intout(total_ss),
-                int(nTime))
+                store.intout(satoshis), int(nTime), store.intout(seconds),
+                store.intout(satoshi_seconds), store.intout(total_ss))
 
     def import_block(store, b, chain_ids=None, chain=None):
 
@@ -1090,9 +1089,8 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         else:
             is_genesis = hashPrev == chain.genesis_hash_prev
 
-        (prev_block_id, prev_height, prev_work, prev_satoshis,
-         prev_seconds, prev_ss, prev_total_ss, prev_nTime) = (
-            (None, -1, 0, 0, 0, 0, 0, b['nTime'])
+        (prev_block_id, prev_height, prev_work, prev_satoshis, prev_nTime, prev_seconds, prev_ss, prev_total_ss) = (
+            (None, -1, 0, 0, b['nTime'], 0, 0, 0)
             if is_genesis else
             store.find_prev(hashPrev))
 
@@ -1111,12 +1109,13 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             b['satoshis'] = prev_satoshis + b['value_out'] - b['value_in'] \
                 - b['value_destroyed']
 
-        if prev_satoshis is None or prev_satoshis < 0:
-            ss_created = None
-            b['total_ss'] = None
-        else:
-            ss_created = prev_satoshis * (b['nTime'] - prev_nTime)
-            b['total_ss'] = prev_total_ss + ss_created
+        if store.conf_coin_days_destroyed:
+            if prev_satoshis is None or prev_satoshis < 0:
+                ss_created = None
+                b['total_ss'] = None
+            else:
+                ss_created = prev_satoshis * (b['nTime'] - prev_nTime)
+                b['total_ss'] = prev_total_ss + ss_created
 
         if b['height'] is None or b['height'] < 2:
             b['search_block_id'] = None
@@ -1133,10 +1132,11 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                     block_nTime, block_nBits, block_nNonce, block_height,
                     prev_block_id, block_chain_work, block_value_in,
                     block_value_out, block_total_satoshis,
-                    block_total_seconds, block_total_ss, block_num_tx,
-                    search_block_id
+                    block_total_seconds, block_num_tx, search_block_id""" + (""",
+                    block_total_ss""" if store.conf_coin_days_destroyed else "") + """
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?""" + (""",
+                    ?""" if store.conf_coin_days_destroyed else "") + """
                 )""",
                 (block_id, store.hashin(b['hash']), store.intin(b['version']),
                  store.hashin(b['hashMerkleRoot']), store.intin(b['nTime']),
@@ -1145,8 +1145,8 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                  store.binin_int(b['chain_work'], WORK_BITS),
                  store.intin(b['value_in']), store.intin(b['value_out']),
                  store.intin(b['satoshis']), store.intin(b['seconds']),
-                 store.intin(b['total_ss']),
-                 len(b['transactions']), b['search_block_id']))
+                 len(b['transactions']), b['search_block_id']) +
+                 ((store.intin(b['total_ss']),) if store.conf_coin_days_destroyed else ()))
 
         except store.dbmodule.DatabaseError:
 
@@ -1157,7 +1157,8 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                 # If the exception is due to another process having
                 # inserted the same block, it is okay.
                 row = store.selectrow("""
-                    SELECT block_id, block_satoshi_seconds
+                    SELECT block_id""" + (""",
+                           block_satoshi_seconds""" if store.conf_coin_days_destroyed else "") + """
                       FROM block
                      WHERE block_hash = ?""",
                     (store.hashin(b['hash']),))
@@ -1165,7 +1166,8 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                     store.log.info("Block already inserted; block_id %d unsued",
                                    block_id)
                     b['block_id'] = int(row[0])
-                    b['ss'] = store.intout(row[1])
+                    if store.conf_coin_days_destroyed:
+                        b['ss'] = store.intout(row[1])
                     store.offer_block_to_chains(b, chain_ids)
                     return
 
@@ -1406,14 +1408,15 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                        block_value_in = ?,
                        block_total_seconds = ?,
                        block_total_satoshis = ?,
-                       block_total_ss = ?,
-                       search_block_id = ?
+                       search_block_id = ?""" + (""",
+                       block_total_ss = ?""" if store.conf_coin_days_destroyed else "") + """
                  WHERE block_id = ?""",
                       (height, store.binin_int(chain_work, WORK_BITS),
                        store.intin(value_in),
                        store.intin(seconds), store.intin(satoshis),
-                       store.intin(total_ss), search_block_id,
-                       next_id))
+                       search_block_id,) + (
+                       (store.intin(total_ss),) if store.conf_coin_days_destroyed else ()) + (
+                       next_id,))
 
             ss = None
 
@@ -2502,8 +2505,8 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         block_row = store.selectrow("""
             SELECT block_id, block_height, block_chain_work,
                    block_nTime, block_total_seconds,
-                   block_total_satoshis, block_satoshi_seconds,
-                   block_total_ss
+                   block_total_satoshis""" + (""", block_satoshi_seconds,
+                   block_total_ss""" if store.conf_coin_days_destroyed else "") + """
               FROM block
              WHERE block_hash = ?
         """, (store.hashin(hash),))
@@ -2523,9 +2526,10 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             "chain_work": store.binout_int(block_row[2]),
             "nTime":      block_row[3],
             "seconds":    block_row[4],
-            "satoshis":   block_row[5],
-            "ss":         block_row[6],
-            "total_ss":   block_row[7]}
+            "satoshis":   block_row[5]}
+        if store.conf_coin_days_destroyed:
+            b['ss'] = block_row[6]
+            b['total_ss'] = block_row[7]
 
         if store.selectrow("""
             SELECT 1

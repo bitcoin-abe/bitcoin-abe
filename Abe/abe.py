@@ -293,17 +293,19 @@ class Abe:
             '<table>\n',
             '<tr><th>Currency</th><th>Code</th><th>Block</th><th>Time</th>',
             '<th>Started</th><th>Age (days)</th><th>Coins Created</th>',
+            [
             '<th>Avg Coin Age</th><th>',
             '% <a href="https://en.bitcoin.it/wiki/Bitcoin_Days_Destroyed">',
-            'CoinDD</a></th>',
+            'CoinDD</a></th>'
+            ] if abe.store.conf_coin_days_destroyed else '',
             '</tr>\n']
         now = time.time() - EPOCH1970
 
         rows = abe.store.selectall("""
             SELECT c.chain_name, b.block_height, b.block_nTime, b.block_hash,
-                   b.block_total_seconds, b.block_total_satoshis,
+                   b.block_total_seconds, b.block_total_satoshis""" + (""",
                    b.block_satoshi_seconds,
-                   b.block_total_ss
+                   b.block_total_ss""" if abe.store.conf_coin_days_destroyed else "") + """
               FROM chain c
               JOIN block b ON (c.chain_last_block_id = b.block_id)
              ORDER BY c.chain_name
@@ -328,37 +330,39 @@ class Abe:
                     '<td><a href="', chain_url, '/block/', hash, '">', height, '</a></td>',
                     '<td>', format_time(nTime), '</td>']
 
-                if row[6] is not None and row[7] is not None:
-                    (seconds, satoshis, ss, total_ss) = (
-                        int(row[4]), int(row[5]), int(row[6]), int(row[7]))
+                if row[4] is not None and row[5] is not None:
+                    (seconds, satoshis) = (int(row[4]), int(row[5]))
+                    if abe.store.conf_coin_days_destroyed:
+                        ss, total_ss = abe.store.intout(row[6]), abe.store.intout(row[7])
 
                     started = nTime - seconds
                     chain_age = now - started
                     since_block = now - nTime
 
-                    if satoshis == 0:
-                        avg_age = '&nbsp;'
-                    else:
-                        avg_age = '%5g' % ((float(ss) / satoshis + since_block)
-                                           / 86400.0)
-
-                    if chain_age <= 0:
-                        percent_destroyed = '&nbsp;'
-                    else:
-                        more = since_block * satoshis
-                        denominator = total_ss + more
-                        if denominator <= 0:
+                    if abe.store.conf_coin_days_destroyed:
+                        if satoshis != 0 and ss is not None:
+                            avg_age = '%5g' % ((float(ss) / satoshis + since_block) / 86400.0)
+                        else:
+                            avg_age = '&nbsp;'
+                        if chain_age <= 0:
                             percent_destroyed = '&nbsp;'
                         else:
-                            percent_destroyed = '%5g%%' % (
-                                100.0 - (100.0 * (ss + more) / denominator))
+                            more = since_block * satoshis
+                            denominator = total_ss + more
+                            if denominator <= 0:
+                                percent_destroyed = '&nbsp;'
+                            else:
+                                percent_destroyed = '%5g%%' % (
+                                    100.0 - (100.0 * (ss + more) / denominator))
 
                     body += [
                         '<td>', format_time(started)[:10], '</td>',
                         '<td>', '%5g' % (chain_age / 86400.0), '</td>',
                         '<td>', format_satoshis(satoshis, chain), '</td>',
+                        [
                         '<td>', avg_age, '</td>',
-                        '<td>', percent_destroyed, '</td>']
+                        '<td>', percent_destroyed, '</td>'
+                        ] if abe.store.conf_coin_days_destroyed else '']
 
             body += ['</tr>\n']
         body += ['</table>\n']
