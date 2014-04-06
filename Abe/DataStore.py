@@ -1481,6 +1481,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
 
         if scriptPubKey is None:
             txout['script_type'] = None
+            txout['binaddr'] = None
             return
 
         script_type, data = chain.parse_txout_script(scriptPubKey)
@@ -2092,21 +2093,28 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         except TypeError:
             raise MalformedHash()
 
-        row = store.selectrow("""
-            SELECT tx_id, tx_version, tx_lockTime, tx_size
-              FROM tx
-             WHERE tx_hash = ?
-        """, (dbhash,))
-        if row is None:
-            return None
+        if store.conf_external_tx:
+            tx = store.get_external_tx_by_dbhash(dbhash, chain)
+            if tx is None:
+                return None
+            tx_id = tx['tx_id']
+            tx['hash'] = tx_hash
+        else:
+            row = store.selectrow("""
+                SELECT tx_id, tx_version, tx_lockTime, tx_size
+                  FROM tx
+                 WHERE tx_hash = ?
+            """, (dbhash,))
+            if row is None:
+                return None
 
-        tx_id = int(row[0])
-        tx = {
-            'hash': tx_hash,
-            'version': int(row[1]),
-            'lockTime': int(row[2]),
-            'size': int(row[3]),
-            }
+            tx = {
+                'hash': tx_hash,
+                'version': int(row[1]),
+                'lockTime': int(row[2]),
+                'size': int(row[3]),
+                }
+            tx_id = int(row[0])
 
         def parse_tx_cc(row):
             return {
@@ -2135,65 +2143,114 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             else:
                 chain = store.get_default_chain()
 
-        def parse_row(row):
-            pos, script, value, o_hash, o_pos = row[:5]
-            script = store.binout(script)
-            scriptPubKey = store.binout(row[5]) if len(row) >5 else script
+        if store.conf_external_tx:
+            tx['value_out'] = 0
+            tx['value_in'] = 0
+            tx['out'] = []
+            tx['in'] = []
 
-            ret = {
-                "pos": int(pos),
-                "binscript": script,
-                "value": store.intout(value),
-                "o_hash": store.hashout_hex(o_hash),
-                "o_pos": store.intout(o_pos),
-                }
-            store._export_scriptPubKey(ret, chain, scriptPubKey)
+            for pos, data in enumerate(tx['txOut']):
+                nexttx, nextpos = None, None  # XXX need to index txin.txout_id?
+                txout = {
+                    'pos': pos,
+                    'binscript': data['scriptPubKey'],
+                    'value': data['value'],
+                    'o_hash': nexttx,
+                    'o_pos': nextpos,
+                    }
+                tx['value_out'] += txout['value']
+                store._export_scriptPubKey(txout, chain, data['scriptPubKey'])
+                tx['out'].append(txout)
 
-            return ret
+            for pos, data in enumerate(tx['txIn']):
+                value = None
+                scriptPubKey = None
+                if chain.is_coinbase_tx(tx):
+                    o_hash = None
+                    o_pos = None
+                else:
+                    o_hash = data['prevout_hash'][::-1].encode('hex')
+                    o_pos = data['prevout_n']
+                    prevout = store.get_external_prevout(data['prevout_hash'], o_pos, chain)
+                    print("prevout=%r" % prevout)
+                    if prevout is None:
+                        tx['value_in'] = None
+                    else:
+                        value = prevout['value']
+                        if tx['value_in'] is not None:
+                            tx['value_in'] += value
+                        scriptPubKey = prevout['scriptPubKey']
 
-        # XXX Unneeded outer join.
-        tx['in'] = map(parse_row, store.selectall("""
-            SELECT
-                txin.txin_pos""" + (""",
-                txin.txin_scriptSig""" if store.conf_keep_scriptsig else """,
-                NULL""") + """,
-                txout.txout_value,
-                COALESCE(prevtx.tx_hash, u.txout_tx_hash),
-                COALESCE(txout.txout_pos, u.txout_pos),
-                txout.txout_scriptPubKey
-              FROM txin
-              LEFT JOIN txout ON (txout.txout_id = txin.txout_id)
-              LEFT JOIN tx prevtx ON (txout.tx_id = prevtx.tx_id)
-              LEFT JOIN unlinked_txin u ON (u.txin_id = txin.txin_id)
-             WHERE txin.tx_id = ?
-             ORDER BY txin.txin_pos
-        """, (tx_id,)))
+                txin = {
+                    'pos': pos,
+                    'binscript': data['scriptSig'],
+                    'value': value,
+                    'o_hash': o_hash,
+                    'o_pos': o_pos,
+                    }
+                store._export_scriptPubKey(txin, chain, scriptPubKey)
+                tx['in'].append(txin)
 
-        # XXX Only one outer join needed.
-        tx['out'] = map(parse_row, store.selectall("""
-            SELECT
-                txout.txout_pos,
-                txout.txout_scriptPubKey,
-                txout.txout_value,
-                nexttx.tx_hash,
-                txin.txin_pos
-              FROM txout
-              LEFT JOIN txin ON (txin.txout_id = txout.txout_id)
-              LEFT JOIN tx nexttx ON (txin.tx_id = nexttx.tx_id)
-             WHERE txout.tx_id = ?
-             ORDER BY txout.txout_pos
-        """, (tx_id,)))
+        else:
+            def parse_row(row):
+                pos, script, value, o_hash, o_pos = row[:5]
+                script = store.binout(script)
+                scriptPubKey = store.binout(row[5]) if len(row) >5 else script
 
-        def sum_values(rows):
-            ret = 0
-            for row in rows:
-                if row['value'] is None:
-                    return None
-                ret += row['value']
-            return ret
+                ret = {
+                    "pos": int(pos),
+                    "binscript": script,
+                    "value": store.intout(value),
+                    "o_hash": store.hashout_hex(o_hash),
+                    "o_pos": store.intout(o_pos),
+                    }
+                store._export_scriptPubKey(ret, chain, scriptPubKey)
 
-        tx['value_in'] = sum_values(tx['in'])
-        tx['value_out'] = sum_values(tx['out'])
+                return ret
+
+            # XXX Unneeded outer join.
+            tx['in'] = map(parse_row, store.selectall("""
+                SELECT
+                    txin.txin_pos""" + (""",
+                    txin.txin_scriptSig""" if store.conf_keep_scriptsig else """,
+                    NULL""") + """,
+                    txout.txout_value,
+                    COALESCE(prevtx.tx_hash, u.txout_tx_hash),
+                    COALESCE(txout.txout_pos, u.txout_pos),
+                    txout.txout_scriptPubKey
+                  FROM txin
+                  LEFT JOIN txout ON (txout.txout_id = txin.txout_id)
+                  LEFT JOIN tx prevtx ON (txout.tx_id = prevtx.tx_id)
+                  LEFT JOIN unlinked_txin u ON (u.txin_id = txin.txin_id)
+                 WHERE txin.tx_id = ?
+                 ORDER BY txin.txin_pos
+            """, (tx_id,)))
+
+            # XXX Only one outer join needed.
+            tx['out'] = map(parse_row, store.selectall("""
+                SELECT
+                    txout.txout_pos,
+                    txout.txout_scriptPubKey,
+                    txout.txout_value,
+                    nexttx.tx_hash,
+                    txin.txin_pos
+                  FROM txout
+                  LEFT JOIN txin ON (txin.txout_id = txout.txout_id)
+                  LEFT JOIN tx nexttx ON (txin.tx_id = nexttx.tx_id)
+                 WHERE txout.tx_id = ?
+                 ORDER BY txout.txout_pos
+            """, (tx_id,)))
+
+            def sum_values(rows):
+                ret = 0
+                for row in rows:
+                    if row['value'] is None:
+                        return None
+                    ret += row['value']
+                return ret
+
+            tx['value_in'] = sum_values(tx['in'])
+            tx['value_out'] = sum_values(tx['out'])
 
         return tx
 
@@ -2578,11 +2635,14 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         tx['size'] = len(tx['__data__'])
         return tx
 
-    def get_external_tx_by_hash(store, tx_hash, chain):
-        row = store.selectrow("SELECT tx_id FROM tx WHERE tx_hash = ?", (store.hashin(tx_hash),))
+    def get_external_tx_by_dbhash(store, dbhash, chain):
+        row = store.selectrow("SELECT tx_id FROM tx WHERE tx_hash = ?", (dbhash,))
         if row is None:
             return None
         return store.get_external_tx_by_id(row[0], chain)
+
+    def get_external_tx_by_hash(store, tx_hash, chain):
+        return store.get_external_tx_by_dbhash(store.hashin(tx_hash), chain)
 
     def get_external_prevout(store, tx_hash, txout_pos, chain):
         assert store.conf_external_tx

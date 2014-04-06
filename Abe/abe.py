@@ -686,8 +686,7 @@ class Abe:
             return
 
         try:
-            # XXX Should pass chain to export_tx to help parse scripts.
-            tx = abe.store.export_tx(tx_hash = tx_hash, format = 'browser')
+            tx = abe.store.export_tx(tx_hash = tx_hash, format='browser', chain=page['chain'])
         except DataStore.MalformedHash:
             body += ['<p class="error">Not in correct format.</p>']
             return
