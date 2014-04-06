@@ -810,7 +810,7 @@ None if store.conf_external_tx else """CREATE INDEX x_unlinked_txin_outpoint
     FOREIGN KEY (block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE,
     FOREIGN KEY (txin_id) REFERENCES txin (txin_id) ON UPDATE CASCADE ON DELETE CASCADE,
     FOREIGN KEY (out_block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE
-)""" if store.conf_coin_days_destroyed and not store.conf_external_tx else None,
+)""" if store.conf_coin_days_destroyed else None,
 
 store._ddl['chain_summary'],
 None if store.conf_external_tx else store._ddl['txout_detail'],
