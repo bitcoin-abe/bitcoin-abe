@@ -315,8 +315,9 @@ class Abe:
                 abe.log.warning("Store does not know chain: %s", name)
                 continue
 
+            chain_url = 'chain/' + escape(name)
             body += [
-                '<tr><td><a href="chain/', escape(name), '">',
+                '<tr><td><a href="', chain_url, '">',
                 escape(name), '</a></td><td>', escape(chain.code3), '</td>']
 
             if row[1] is not None:
@@ -324,7 +325,7 @@ class Abe:
                     int(row[1]), int(row[2]), abe.store.hashout_hex(row[3]))
 
                 body += [
-                    '<td><a href="block/', hash, '">', height, '</a></td>',
+                    '<td><a href="', chain_url, '/block/', hash, '">', height, '</a></td>',
                     '<td>', format_time(nTime), '</td>']
 
                 if row[6] is not None and row[7] is not None:
@@ -511,7 +512,7 @@ class Abe:
                     percent_destroyed = '%5g%%' % (100.0 - (100.0 * ss / total_ss))
 
             body += [
-                '<tr><td><a href="', page['dotdot'], 'block/',
+                '<tr><td><a href="', escape(chain.name), '/block/',
                 abe.store.hashout_hex(hash),
                 '">', height, '</a>'
                 '</td><td>', format_time(int(nTime)),
@@ -635,7 +636,7 @@ class Abe:
                     format_satoshis(b['fees'], chain), ' total fees']
             else:
                 for txin in tx['in']:
-                    body += [abe.format_addresses(txin, page['dotdot'], chain), ': ',
+                    body += [abe.format_addresses(txin, '../', chain), ': ',
                              format_satoshis(txin['value'], chain), '<br />']
 
             body += ['</td><td>']
@@ -651,7 +652,7 @@ class Abe:
                     if txout['value'] == 0:
                         continue
 
-                body += [abe.format_addresses(txout, page['dotdot'], chain), ': ',
+                body += [abe.format_addresses(txout, '../', chain), ': ',
                          format_satoshis(txout['value'], chain), '<br />']
 
             body += ['</td></tr>\n']
@@ -669,7 +670,7 @@ class Abe:
             page['body'] += ['<p class="error">Not a valid block hash.</p>']
             return
 
-        abe._show_block(page, '', None, block_hash=block_hash)
+        abe._show_block(page, '', page['chain'], block_hash=block_hash)
 
     def handle_tx(abe, page):
         tx_hash = wsgiref.util.shift_path_info(page['env'])
@@ -836,9 +837,8 @@ class Abe:
                         vers = chain.script_addr_vers or vers
                     other = util.hash_to_address(vers, binaddr)
                     if other != address:
-                        ret[-1] = ['<a href="', page['dotdot'],
-                                   'address/', other,
-                                   '">', ret[-1], '</a>']
+                        ret[-1] = ['<a href="', page['dotdot'], 'chain/', escape(chain.name),
+                                   '/address/', other, '">', ret[-1], '</a>']
             return ret
 
         if abe.shortlink_type == "firstbits":
@@ -868,7 +868,7 @@ class Abe:
 
             body += ['<br />\nEscrow']
             for subbinaddr in history['subbinaddr']:
-                body += [' ', hash_to_address_link(chain.address_version, subbinaddr, page['dotdot'], 10) ]
+                body += [' ', hash_to_address_link(chain.address_version, subbinaddr, '', 10) ]
 
         for chain in chains:
             balance[chain.id] = 0  # Reset for history traversal.
@@ -905,7 +905,7 @@ class Abe:
                 value = format_satoshis(elt['value'], chain)
 
             if 'binaddr' in elt:
-                value = hash_to_address_link(chain.script_addr_vers, elt['binaddr'], page['dotdot'], text=value)
+                value = hash_to_address_link(chain.script_addr_vers, elt['binaddr'], '', text=value)
 
             body += [value, '</td><td class="balance">',
                      format_satoshis(balance[chain.id], chain),
@@ -1129,7 +1129,7 @@ class Abe:
                 raise PageNotFound()  # XXX want to support /a/...
 
             page['title'] = [escape(chain.name), ' ', height]
-            abe._show_block(page, page['dotdot'] + 'block/', chain, block_number=height)
+            abe._show_block(page, '', chain, block_number=height)
             return
 
         abe.show_search_results(
