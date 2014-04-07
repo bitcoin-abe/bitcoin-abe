@@ -44,6 +44,9 @@ NovaCoin and CryptoCash support depends on the ltc_scrypt module
 available from https://github.com/CryptoManiac/bitcoin-abe (see
 README-SCRYPT.txt).
 
+Hirocoin (and any other X11) support depends on the xcoin_hash module
+available from https://github.com/evan82/xcoin-hash.
+
 License
 -------
 
