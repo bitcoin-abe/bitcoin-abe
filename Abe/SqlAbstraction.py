@@ -261,6 +261,11 @@ class SqlAbstraction(object):
                 conn = sql._connect(to_utf8(cargs))
                 sql.log.info("Connection required conversion to UTF-8")
 
+        # XXX SQLite thing, need to test for it in configure.
+        cur = conn.cursor()
+        cur.execute('PRAGMA foreign_keys = ON')
+        cur.close()
+
         return conn
 
     def _connect(sql, cargs):

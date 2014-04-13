@@ -80,11 +80,14 @@ class Chain(object):
     def ds_parse_transaction(chain, ds):
         return deserialize.parse_Transaction(ds)
 
+    def ds_parse_txin(chain, ds):
+        return deserialize.parse_TxIn(ds)
+
     def ds_parse_block(chain, ds):
         d = chain.ds_parse_block_header(ds)
         d['transactions'] = []
         nTransactions = ds.read_compact_size()
-        for i in xrange(nTransactions):
+        for i in range(nTransactions):
             d['transactions'].append(chain.ds_parse_transaction(ds))
         return d
 
@@ -152,7 +155,7 @@ class Chain(object):
         while len(hashes) > 1:
             size = len(hashes)
             out = []
-            for i in xrange(0, size, 2):
+            for i in range(0, size, 2):
                 i2 = min(i + 1, size - 1)
                 out.append(chain.transaction_hash(hashes[i] + hashes[i2]))
             hashes = out
@@ -185,26 +188,26 @@ class Chain(object):
         try:
             decoded = [ x for x in deserialize.script_GetOp(script) ]
         except Exception:
-            return SCRIPT_TYPE_INVALID, script
+            return SCRIPT_TYPE_INVALID, {'decoded_script': script}
         return chain.parse_decoded_txout_script(decoded)
 
     def parse_decoded_txout_script(chain, decoded):
         if deserialize.match_decoded(decoded, SCRIPT_ADDRESS_TEMPLATE):
             pubkey_hash = decoded[2][1]
             if len(pubkey_hash) == PUBKEY_HASH_LENGTH:
-                return SCRIPT_TYPE_ADDRESS, pubkey_hash
+                return SCRIPT_TYPE_ADDRESS, {'pubkey_hash': pubkey_hash, 'offset': decoded[1][2]}
 
         elif deserialize.match_decoded(decoded, SCRIPT_PUBKEY_TEMPLATE):
             pubkey = decoded[0][1]
-            return SCRIPT_TYPE_PUBKEY, pubkey
+            return SCRIPT_TYPE_PUBKEY, {'pubkey': pubkey, 'offset': 0}
 
         elif deserialize.match_decoded(decoded, SCRIPT_P2SH_TEMPLATE):
             script_hash = decoded[1][1]
             assert len(script_hash) == PUBKEY_HASH_LENGTH
-            return SCRIPT_TYPE_P2SH, script_hash
+            return SCRIPT_TYPE_P2SH, {'script_hash': script_hash, 'offset': decoded[0][2]}
 
         elif deserialize.match_decoded(decoded, SCRIPT_BURN_TEMPLATE):
-            return SCRIPT_TYPE_BURN, None
+            return SCRIPT_TYPE_BURN, {}
 
         elif len(decoded) >= 4 and decoded[-1][0] == opcodes.OP_CHECKMULTISIG:
             # cf. bitcoin/src/script.cpp:Solver
@@ -213,11 +216,13 @@ class Chain(object):
             if 1 <= m <= n <= MAX_MULTISIG_KEYS and len(decoded) == 3 + n and \
                     all([ decoded[i][0] <= opcodes.OP_PUSHDATA4 for i in range(1, 1+n) ]):
                 return SCRIPT_TYPE_MULTISIG, \
-                    { "m": m, "pubkeys": [ { 'pubkey': decoded[i][1], 'offset': decoded[i][2] }
-                                           for i in range(1, 1+n) ] }
+                    { 'm': m,
+                      'offset': 0,
+                      'pubkeys': [ { 'pubkey': decoded[i+1][1], 'offset': decoded[i][2] }
+                                   for i in range(n) ] }
 
         # Namecoin overrides this to accept name operations.
-        return SCRIPT_TYPE_UNKNOWN, decoded
+        return SCRIPT_TYPE_UNKNOWN, {'_decoded': decoded}
 
     def pubkey_hash(chain, pubkey):
         return util.pubkey_to_hash(pubkey)
@@ -279,14 +284,16 @@ class Namecoin(Sha256NmcAuxPowChain):
         chain.magic = '\xf9\xbe\xb4\xfe'
         Chain.__init__(chain, **kwargs)
 
-    _drops = (opcodes.OP_NOP, opcodes.OP_DROP, opcodes.OP_2DROP)
+    # XXX Is OP_NOP in a Namecoin script standard?
+    #_drops = (opcodes.OP_NOP, opcodes.OP_DROP, opcodes.OP_2DROP)
+    _drops = (None, opcodes.OP_DROP, opcodes.OP_2DROP)
 
     def parse_decoded_txout_script(chain, decoded):
         start = 0
         pushed = 0
 
         # Tolerate (but ignore for now) name operations.
-        for i in xrange(len(decoded)):
+        for i in range(len(decoded)):
             opcode = decoded[i][0]
 
             if decoded[i][1] is not None or \
@@ -301,10 +308,12 @@ class Namecoin(Sha256NmcAuxPowChain):
                 pushed -= to_drop
                 start = i + 1
             else:
-                return Chain.parse_decoded_txout_script(chain, decoded[start:])
+                script_type, data = Chain.parse_decoded_txout_script(chain, decoded[start:])
+                if start > 0 and 'offset' in data:
+                    data['offset'] += decoded[start-1][2]
+                return script_type, data
 
-        return SCRIPT_TYPE_UNKNOWN, decoded
-
+        return SCRIPT_TYPE_UNKNOWN, {'_decoded': decoded}
 
     datadir_conf_file_name = "namecoin.conf"
     datadir_rpcport = 8336

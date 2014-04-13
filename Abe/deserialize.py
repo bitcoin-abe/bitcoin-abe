@@ -40,10 +40,13 @@ def parse_setting(setting, vds):
 
 def parse_TxIn(vds):
   d = {}
+  d['__offset__'] = vds.read_cursor
   d['prevout_hash'] = vds.read_bytes(32)
   d['prevout_n'] = vds.read_uint32()
   d['__script_offset__'] = vds.read_cursor
-  d['scriptSig'] = vds.read_bytes(vds.read_compact_size())
+  size = vds.read_compact_size()
+  d['__ops_offset__'] = vds.read_cursor
+  d['scriptSig'] = vds.read_bytes(size)
   d['sequence'] = vds.read_uint32()
   return d
 
@@ -67,7 +70,9 @@ def parse_TxOut(vds):
   d = {}
   d['value'] = vds.read_int64()
   d['__script_offset__'] = vds.read_cursor
-  d['scriptPubKey'] = vds.read_bytes(vds.read_compact_size())
+  size = vds.read_compact_size()
+  d['__ops_offset__'] = vds.read_cursor
+  d['scriptPubKey'] = vds.read_bytes(size)
   return d
 
 def deserialize_TxOut(d, owner_keys=None):

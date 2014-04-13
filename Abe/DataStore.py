@@ -56,7 +56,6 @@ CONFIG_DEFAULTS = {
     "keep_scriptsig":     True,
     "import_tx":          [],
     "external_tx":        True,
-    "tx_pubkey":          True,
     "pubkey_pubkey":      False,
     "coin_days_destroyed": False,
     "default_loader":     "default",
@@ -85,7 +84,7 @@ CHAIN_CONFIG = [
     ]
 
 NULL_PUBKEY_HASH = "\0" * Chain.PUBKEY_HASH_LENGTH
-NULL_PUBKEY_ID = 0
+NULL_PUBKEY_ID = -1
 PUBKEY_ID_NETWORK_FEE = NULL_PUBKEY_ID
 
 # Size of the script and pubkey columns in bytes.
@@ -169,7 +168,7 @@ class DataStore(object):
         # Read the CONFIG and CONFIGVAR tables if present.
         store.config = store._read_config()
 
-        for boolean_param in ('keep_scriptsig', 'external_tx', 'tx_pubkey', 'pubkey_pubkey', 'coin_days_destroyed'):
+        for boolean_param in ('keep_scriptsig', 'external_tx', 'pubkey_pubkey', 'coin_days_destroyed'):
             if store.config is None:
                 val = getattr(args, boolean_param)
             elif boolean_param in store.config:
@@ -720,12 +719,12 @@ store._ddl['configvar'],
 )""",
 
 # A transaction of the type used by Bitcoin.
-"""CREATE TABLE tx (
+None if store.conf_external_tx else """CREATE TABLE tx (
     tx_id         BIGINT NOT NULL PRIMARY KEY,
-    tx_hash       BINARY(32)  UNIQUE NOT NULL""" + ("" if store.conf_external_tx else """,
+    tx_hash       BINARY(32)  UNIQUE NOT NULL,
     tx_version    NUMERIC(10),
     tx_lockTime   NUMERIC(10),
-    tx_size       NUMERIC(10)""") + """
+    tx_size       NUMERIC(10)
 )""",
 
 # Presence of transactions in blocks is many-to-many.
@@ -735,36 +734,31 @@ store._ddl['configvar'],
     tx_pos        NUMERIC(10) NOT NULL,
     PRIMARY KEY (block_id, tx_id),
     UNIQUE (block_id, tx_pos),
-    FOREIGN KEY (block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE,
-    FOREIGN KEY (tx_id) REFERENCES tx (tx_id) ON UPDATE CASCADE ON DELETE CASCADE
+    FOREIGN KEY (block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE""" + (
+    "" if store.conf_external_tx else """,
+    FOREIGN KEY (tx_id) REFERENCES tx (tx_id) ON UPDATE CASCADE ON DELETE CASCADE""") + """
 )""",
 """CREATE INDEX x_block_tx_tx ON block_tx (tx_id)""",
 
 # A public key for sending bitcoins.  PUBKEY_HASH is derivable from a
 # Bitcoin or Testnet address.
-"""CREATE TABLE pubkey (
+None if store.conf_external_tx else """CREATE TABLE pubkey (
     pubkey_id     BIGINT NOT NULL PRIMARY KEY,
     pubkey_hash   BINARY(20)  UNIQUE NOT NULL""" + (""",
     pubkey        VARBINARY(""" + str(MAX_PUBKEY) + """) NULL""" if store.conf_pubkey_pubkey else "") + """
 )""",
 
+# XXX Should remove cascades for conf_external_tx since txin.pubkey_id is not unique.
 """CREATE TABLE multisig_pubkey (
     multisig_id   BIGINT NOT NULL,
-    pubkey_id     BIGINT NOT NULL,
-    FOREIGN KEY (multisig_id) REFERENCES pubkey (pubkey_id) ON UPDATE CASCADE ON DELETE CASCADE,
-    FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id) ON UPDATE CASCADE ON DELETE CASCADE
+    pubkey_id     BIGINT NOT NULL""" + ("" if store.conf_external_tx else """,
+    FOREIGN KEY (multisig_id) REFERENCES pubkey (pubkey_id)
+        ON UPDATE CASCADE ON DELETE CASCADE,
+    FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id)
+        ON UPDATE CASCADE ON DELETE CASCADE""") + """
 )""",
 """CREATE INDEX x_multisig_pubkey_multisig ON multisig_pubkey (multisig_id)""",
 """CREATE INDEX x_multisig_pubkey_pubkey ON multisig_pubkey (pubkey_id)""",
-
-"""CREATE TABLE tx_pubkey (
-    tx_id         BIGINT NOT NULL,
-    pubkey_id     BIGINT NOT NULL,
-    FOREIGN KEY (tx_id) REFERENCES tx (tx_id) ON UPDATE CASCADE ON DELETE CASCADE,
-    FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id) ON UPDATE CASCADE ON DELETE CASCADE
-)""" if store.conf_tx_pubkey else None,
-"""CREATE INDEX x_tx_pubkey_tx ON tx_pubkey (tx_id)""" if store.conf_tx_pubkey else None,
-"""CREATE INDEX x_tx_pubkey_pubkey ON tx_pubkey (pubkey_id)""" if store.conf_tx_pubkey else None,
 
 # A transaction out-point.
 None if store.conf_external_tx else """CREATE TABLE txout (
@@ -781,17 +775,31 @@ None if store.conf_external_tx else """CREATE TABLE txout (
 None if store.conf_external_tx else """CREATE INDEX x_txout_pubkey ON txout (pubkey_id)""",
 
 # A transaction in-point.
-None if store.conf_external_tx else """CREATE TABLE txin (
-    txin_id       BIGINT NOT NULL PRIMARY KEY,
-    tx_id         BIGINT NOT NULL,
+# Under conf_external_tx, an output's tx and script and/or one of its spending inputs.
+# Under conf_external_tx, txin.tx_id is the id of the previous output's tx, not the txin's,
+# and tx_hash and pubkey_hash are often null where another row with the same id contains the hash.
+"""CREATE TABLE txin (
+    txin_id       BIGINT """ + ("NULL" if store.conf_external_tx else "NOT NULL PRIMARY KEY") + """,
+    tx_id         BIGINT """ + ("NULL" if store.conf_external_tx else "NOT NULL") + (""",
+    tx_hash       BINARY(32)  NULL,
+    pubkey_id     BIGINT      NULL,
+    pubkey_hash   BINARY(20)  NULL""" if store.conf_external_tx else """,
     txin_pos      NUMERIC(10) NOT NULL,
-    txout_id      BIGINT""" + (""",
-    txin_scriptSig VARBINARY(""" + str(MAX_SCRIPT) + """),
-    txin_sequence NUMERIC(10)""" if store.conf_keep_scriptsig else "") + """,
+    txout_id      BIGINT      NULL,
     UNIQUE (tx_id, txin_pos),
-    FOREIGN KEY (tx_id) REFERENCES tx (tx_id) ON UPDATE CASCADE ON DELETE CASCADE
+    FOREIGN KEY (tx_id) REFERENCES tx (tx_id) ON UPDATE CASCADE ON DELETE CASCADE""") + (""",
+    txin_scriptSig VARBINARY(""" + str(MAX_SCRIPT) + """),
+    txin_sequence NUMERIC(10)""" if store.conf_keep_scriptsig and not store.conf_external_tx else "") + """
 )""",
 None if store.conf_external_tx else """CREATE INDEX x_txin_txout ON txin (txout_id)""",
+#"""CREATE UNIQUE INDEX x_txin_txin ON txin (txin_id) WHERE txin_id IS NOT NULL""" if store.conf_external_tx else None,
+"""CREATE UNIQUE INDEX x_txin_txin ON txin (txin_id)""" if store.conf_external_tx else None,
+"""CREATE INDEX x_txin_tx ON txin (tx_id)""" if store.conf_external_tx else None,
+#"""CREATE INDEX x_txin_tx_hash ON txin (tx_hash) WHERE tx_hash IS NOT NULL""" if store.conf_external_tx else None,
+"""CREATE INDEX x_txin_tx_hash ON txin (tx_hash)""" if store.conf_external_tx else None,
+"""CREATE INDEX x_txin_pubkey ON txin (pubkey_id)""" if store.conf_external_tx else None,
+#"""CREATE UNIQUE INDEX x_txin_pubkey_hash ON txin (pubkey_hash) WHERE pubkey_hash IS NOT NULL""" if store.conf_external_tx else None,
+"""CREATE UNIQUE INDEX x_txin_pubkey_hash ON txin (pubkey_hash)""" if store.conf_external_tx else None,
 
 # While TXIN.TXOUT_ID can not be found, we must remember TXOUT_POS,
 # a.k.a. PREVOUT_N.
@@ -849,7 +857,8 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             store.insert_chain(chain)
 
         store.sql("""
-            INSERT INTO pubkey (pubkey_id, pubkey_hash) VALUES (?, ?)""",
+            INSERT INTO """ + ("txin" if store.conf_external_tx else "pubkey") + """
+                (pubkey_id, pubkey_hash) VALUES (?, ?)""",
                   (NULL_PUBKEY_ID, store.binin(NULL_PUBKEY_HASH)))
 
         if store.args.use_firstbits:
@@ -860,13 +869,13 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                     block_id        NUMERIC(14) NOT NULL,
                     address_version VARBINARY(10) NOT NULL,
                     firstbits       VARCHAR(50) NOT NULL,
-                    PRIMARY KEY (address_version, pubkey_id, block_id),
-                    FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id) ON UPDATE CASCADE ON DELETE CASCADE,
+                    PRIMARY KEY (address_version, pubkey_id, block_id)""" + ("" if store.conf_external_tx else """,
+                    FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id) ON UPDATE CASCADE ON DELETE CASCADE""") + """,
                     FOREIGN KEY (block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE
                 )""")
-            store.ddl(
-                """CREATE INDEX x_abe_firstbits
-                    ON abe_firstbits (address_version, firstbits)""")
+            store.ddl("""CREATE INDEX x_abe_firstbits ON abe_firstbits (address_version, firstbits)""")
+            #store.ddl("""CREATE INDEX x_abe_firstbits_pubkey ON abe_firstbits (pubkey_id)""")
+            #store.ddl("""CREATE INDEX x_abe_firstbits_block ON abe_firstbits (block_id)""")
         else:
             store.config['use_firstbits'] = "false"
 
@@ -1054,8 +1063,10 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
 
             if tx_id:
                 if store.conf_external_tx and tx.get('tx_id') is not None and tx_id in store._mempool:
-                    store.sql("UPDATE tx SET tx_id = ? WHERE tx_id = ?", (tx['tx_id'], tx_id))
+                    store.sql("UPDATE txin SET tx_id = ? WHERE tx_id = ?", (tx['tx_id'], tx_id))
+                    store.sql("UPDATE block_tx SET tx_id = ? WHERE tx_id = ?", (tx['tx_id'], tx_id))
                     tx_id = tx['tx_id']
+                    store._mempool.pop(tx_id)
                 else:
                     tx['tx_id'] = tx_id
                 all_txins_linked = False
@@ -1868,7 +1879,19 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         pubkey_ids = set()
 
         if store.conf_external_tx:
-            store.sql("INSERT INTO tx (tx_id, tx_hash) VALUES (?, ?)", (tx_id, dbhash))
+            def get_prevout_n(txin_id):
+                txin = store.get_external_txin_by_id(txin_id, chain)
+                assert txin['prevout_hash'] == tx['hash']
+                assert 0 <= txin['prevout_n'] < len(tx['txOut'])
+                return txin['prevout_n']
+
+            # XXX Need to set transaction isolation level serializable.
+            unlinked_txins = [
+                (row[0], get_prevout_n(row[0]))
+                for row in
+                store.selectall("SELECT txin_id FROM txin WHERE tx_hash = ?", (dbhash,))]
+
+            assert len(tx['txOut']) > 0  # need a txout to store tx_hash.
         else:
             store.sql("""
                 INSERT INTO tx (tx_id, tx_hash, tx_version, tx_lockTime, tx_size)
@@ -1876,23 +1899,116 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                       (tx_id, dbhash, store.intin(tx['version']),
                        store.intin(tx['lockTime']), tx['size']))
 
-        # Import transaction outputs.
         tx['value_out'] = 0
         tx['value_destroyed'] = 0
-        for pos in xrange(len(tx['txOut'])):
-            txout = tx['txOut'][pos]
+        tx['value_in'] = 0
+        tx['unlinked_count'] = 0
+
+        # Import transaction outputs.
+        for pos, txout in enumerate(tx['txOut']):
             tx['value_out'] += txout['value']
 
             if store.conf_external_tx:
-                txout['script_id'] = tx_id + txout['__script_offset__']
+                txout['script_id'] = tx_id + txout['__script_offset__'] - tx['__offset__']
 
             pubkey_id = store.txout_to_pubkey_id(chain, txout)
-            if pubkey_id is not None:
-                pubkey_ids.add(pubkey_id)
-                if pubkey_id <= 0:
-                    tx['value_destroyed'] += txout['value']
 
-            if not store.conf_external_tx:
+            if store.conf_external_tx:
+                to_link = [ u[0] for u in unlinked_txins if u[1] == pos ]
+
+                # The first output, and only the first output, stores tx_hash.
+                if pos == 0:
+                    # This is the first output, so store tx_hash.
+                    if len(to_link) > 0:
+                        # This output matches one or more unlinked inputs.  Reuse the first one's row.
+                        if pubkey_id is None:
+                            # First sighting of this pubkey, so give it an id.
+                            pubkey_id = txout['script_id']
+                            pubkey_hash = txout['pubkey_hash']
+                            store.sql("""
+                                UPDATE txin
+                                   SET tx_id = ?, pubkey_id = ?, pubkey_hash = ?
+                                 WHERE txin_id = ?""",
+                                      (tx_id, pubkey_id, store.binin(pubkey_hash), to_link[0]))
+                        else:
+                            # This pubkey is not new.  Use the found pubkey_id.
+                            store.sql("""
+                                UPDATE txin
+                                   SET tx_id = ?, pubkey_id = ?
+                                 WHERE txin_id = ?""",
+                                      (tx_id, pubkey_id, to_link[0]))
+                        for txin_id in to_link[1:]:
+                            # This output matches more than one unlinked input!  Free the others' tx_hash to save space.
+                            store.sql("""
+                                UPDATE txin
+                                   SET tx_id = ?, tx_hash = NULL, pubkey_id = ?
+                                 WHERE txin_id = ?""",
+                                      (tx_id, pubkey_id, txin_id))
+                    else:
+                        # No unlinked inputs to link.  Insert tx_hash and a null txin_id.
+                        if pubkey_id is None:
+                            # First sighting of this pubkey, so store its hash.
+                            pubkey_id = txout['script_id']
+                            pubkey_hash = txout['pubkey_hash']
+                            store.sql("""
+                                INSERT INTO txin (tx_id, tx_hash, pubkey_id, pubkey_hash)
+                                VALUES (?, ?, ?, ?)""",
+                                      (tx_id, dbhash, txout['script_id'], store.binin(pubkey_hash)))
+                        else:
+                            # Same as above, without pubkey_hash.
+                            store.sql("""
+                                INSERT INTO txin (tx_id, tx_hash, pubkey_id)
+                                VALUES (?, ?, ?)""",
+                                      (tx_id, dbhash, txout['script_id']))
+                else:
+                    # This is not the first output, so do not store tx_hash.
+                    if len(to_link) > 0:
+                        # This output matches one or more unlinked inputs.  Reuse the first one's row.
+                        if pubkey_id is None:
+                            # First sighting of this pubkey, so give it an id.
+                            pubkey_id = txout['script_id']
+                            pubkey_hash = txout['pubkey_hash']
+                            store.sql("""
+                                UPDATE txin
+                                   SET tx_id = ?, tx_hash = NULL, pubkey_id = ?, pubkey_hash = ?
+                                 WHERE txin_id = ?""",
+                                      (tx_id, pubkey_id, store.binin(pubkey_hash), to_link[0]))
+                        else:
+                            # This pubkey is not new.  Use the found pubkey_id.
+                            store.sql("""
+                                UPDATE txin
+                                   SET tx_id = ?, tx_hash = NULL, pubkey_id = ?
+                                 WHERE txin_id = ?""",
+                                      (tx_id, pubkey_id, to_link[0]))
+                        for txin_id in to_link[1:]:
+                            # This output matches more than one unlinked input!  Free the others' tx_hash to save space.
+                            store.sql("""
+                                UPDATE txin
+                                   SET tx_id = ?, tx_hash = NULL, pubkey_id = ?
+                                 WHERE txin_id = ?""",
+                                      (tx_id, pubkey_id, txin_id))
+                    else:
+                        # No unlinked inputs to link.  Insert tx_hash and a null txin_id.
+                        if pubkey_id is None:
+                            # First sighting of this pubkey, so store its hash.
+                            pubkey_id = txout['script_id']
+                            pubkey_hash = txout['pubkey_hash']
+                            store.sql("""
+                                INSERT INTO txin (tx_id, pubkey_id, pubkey_hash)
+                                VALUES (?, ?, ?)""",
+                                      (tx_id, txout['script_id'], store.binin(pubkey_hash)))
+                        else:
+                            # Same as above, without pubkey_hash.
+                            store.sql("""
+                                INSERT INTO txin (tx_id, pubkey_id)
+                                VALUES (?, ?)""",
+                                      (tx_id, txout['script_id']))
+            else:
+                if pubkey_id is not None:
+                    pubkey_ids.add(pubkey_id)
+                    if pubkey_id <= 0:
+                        tx['value_destroyed'] += txout['value']
+
                 txout_id = store.new_id("txout")
                 store.sql("""
                     INSERT INTO txout (
@@ -1911,22 +2027,26 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                     store.sql("DELETE FROM unlinked_txin WHERE txin_id = ?", (txin_id,))
 
         # Import transaction inputs.
-        tx['value_in'] = 0
-        tx['unlinked_count'] = 0
-        for pos in xrange(len(tx['txIn'])):
-            txin = tx['txIn'][pos]
-
+        for pos, txin in enumerate(tx['txIn']):
             if is_coinbase:
-                txout_id = None
+                txout = None
             else:
-                txout_id, value = store.lookup_txout(txin['prevout_hash'], txin['prevout_n'], chain)
-                if value is None:
+                txout = store.lookup_txout(txin['prevout_hash'], txin['prevout_n'], chain)
+                if txout is None:
                     tx['unlinked_count'] += 1
                     tx['value_in'] = None
                 elif tx['value_in'] is not None:
-                    tx['value_in'] += value
+                    tx['value_in'] += txout['value']
 
-            if not store.conf_external_tx:
+            if store.conf_external_tx:
+                txin_id = tx_id + txin['__offset__'] - tx['__offset__']
+                pubkey_id = txout and txout['pubkey_id']
+                store.sql("""
+                    INSERT INTO txin (txin_id, tx_id, pubkey_id)
+                    VALUES (?, ?, ?)""",
+                          (txin_id, txout and txout['tx_id'], pubkey_id))
+            else:
+                txout_id = txout and txout['txout_id']
                 txin_id = store.new_id("txin")
 
                 store.sql("""
@@ -1948,13 +2068,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                               (txin_id, store.hashin(txin['prevout_hash']),
                                store.intin(txin['prevout_n'])))
 
-        if store.conf_tx_pubkey:
-            for pubkey_id in pubkey_ids:
-                store.sql("INSERT INTO tx_pubkey (tx_id, pubkey_id) VALUES (?, ?)", (tx_id, pubkey_id))
-
-        # XXX Could populate PUBKEY.PUBKEY with txin scripts...
-        # or leave that to an offline process.  Nothing in this program
-        # requires them.
+        # XXX Could extract pubkeys from txin scripts.
         return tx_id
 
     def import_and_commit_tx(store, tx, is_coinbase, chain):
@@ -2617,7 +2731,8 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             return datadir_id, blkfile_number, blkfile_offset
 
         def clear():
-            store.sql("DELETE FROM tx WHERE tx_id < ?", (make(0, 1, 0),))
+            store.sql("DELETE FROM " + ("txin" if store.conf_external_tx else "tx") + " WHERE tx_id < ?",
+                      (make(0, 1, 0),))
 
         store.make_external_id = make
         store.parse_external_id = parse
@@ -2639,16 +2754,30 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         tx['size'] = len(tx['__data__'])
         return tx
 
+    def get_external_txin_by_id(store, txin_id, chain):
+        assert store.conf_external_tx
+        datadir_id, blkfile_number, blkfile_offset = store.parse_external_id(txin_id)
+        datadir = store.get_datadir_by_id(datadir_id)
+        if chain is None:
+            chain = store.get_chain_by_id(datadir['chain_id'])
+        # XXX Should support mempool tx
+        # XXX Should fetch from RPC if configured.
+        ds = store.map_blkfile(datadir, blkfile_number, blkfile_offset)
+        txin = chain.ds_parse_txin(ds)
+        txin['txin_id'] = txin_id
+        return txin
+
     def map_blkfile(store, datadir, blkfile_number, blkfile_offset):
         # XXX should keep a LRU cache of mmaps.
         fname = store.blkfile_name(datadir, blkfile_number)
         file = open(fname, 'rb')
         file.seek(blkfile_offset)
-        data = file.read(1000)        # XXX testing
+        data = file.read(100000)        # XXX testing
         return util.str_to_ds(data)
 
     def get_external_tx_by_dbhash(store, dbhash, chain):
-        row = store.selectrow("SELECT tx_id FROM tx WHERE tx_hash = ?", (dbhash,))
+        assert store.conf_external_tx
+        row = store.selectrow("SELECT tx_id FROM txin WHERE tx_hash = ?", (dbhash,))
         if row is None:
             return None
         return store.get_external_tx_by_id(row[0], chain)
@@ -2661,68 +2790,97 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         tx = store.get_external_tx_by_hash(tx_hash, chain)
         if tx is None:
             return None
-        return tx['txOut'][txout_pos]
+        txout = tx['txOut'][txout_pos]
+        txout['tx_id'] = tx['tx_id']
+        txout['script_id'] = txout['tx_id'] + txout['__script_offset__'] - tx['__offset__']
+        txout['pubkey_id'] = store.txout_to_pubkey_id(chain, txout)
+        assert txout['pubkey_id'] is not None
+        return txout
 
     def lookup_txout(store, tx_hash, txout_pos, chain):
-        txout_id, value = None, None
-
         if store.conf_external_tx:
-            txout = store.get_external_prevout(tx_hash, txout_pos, chain)
-            if txout is not None:
-                value = txout['value']
-        else:
-            row = store.selectrow("""
-                SELECT txout.txout_id, txout.txout_value
-                  FROM txout, tx
-                 WHERE txout.tx_id = tx.tx_id
-                   AND tx.tx_hash = ?
-                   AND txout.txout_pos = ?""",
-                      (store.hashin(tx_hash), txout_pos))
-            if row is not None:
-                txout_id, value = row[0], int(row[1])
+            return store.get_external_prevout(tx_hash, txout_pos, chain)
 
-        return txout_id, value
+        row = store.selectrow("""
+            SELECT txout.txout_id, txout.txout_value
+              FROM txout, tx
+             WHERE txout.tx_id = tx.tx_id
+               AND tx.tx_hash = ?
+               AND txout.txout_pos = ?""",
+                  (store.hashin(tx_hash), txout_pos))
+        if row is None:
+            return None
+        return { 'txout_id': row[0], 'value': int(row[1]) }
 
     def txout_to_pubkey_id(store, chain, txout):
-        return store.script_to_pubkey_id(chain, txout['scriptPubKey'], txout.get('script_id'))
+        """
+        Extract address from transaction output script.
 
-    def script_to_pubkey_id(store, chain, script, script_id=None):
-        """Extract address and script type from transaction output script."""
+        If conf_external_tx and the pubkey is new, return None, but
+        populate txout['pubkey_hash'] and txout['pubkey_id'], and
+        assume that the caller will record the latter as the pubkey's
+        pubkey_id.
+        """
+        script = txout['scriptPubKey']
         script_type, data = chain.parse_txout_script(script)
 
-        if script_type in (Chain.SCRIPT_TYPE_ADDRESS, Chain.SCRIPT_TYPE_P2SH):
-            return store.pubkey_hash_to_id(data, script_id, chain)
+        # XXX assumes store.conf_external_tx...
+        script_id = txout['script_id']
+        ops_id = script_id + txout['__ops_offset__'] - txout['__script_offset__']
+
+        if script_type == Chain.SCRIPT_TYPE_ADDRESS:
+            txout['pubkey_hash'] = data['pubkey_hash']
+            txout['pubkey_id'] = ops_id + data['offset']
+            return store._pubkey_id(txout['pubkey_hash'], None, txout['pubkey_id'], chain)
+
+        if script_type == Chain.SCRIPT_TYPE_P2SH:
+            txout['pubkey_hash'] = data['script_hash']
+            txout['pubkey_id'] = ops_id + data['offset']
+            return store._pubkey_id(txout['pubkey_hash'], None, txout['pubkey_id'], chain)
 
         if script_type == Chain.SCRIPT_TYPE_PUBKEY:
-            return store.pubkey_to_id(chain, data, script_id)
+            txout['pubkey_hash'] = chain.pubkey_hash(data['pubkey'])
+            txout['pubkey_id'] = ops_id + data['offset']
+            return store._pubkey_id(txout['pubkey_hash'], data['pubkey'], txout['pubkey_id'], chain)
 
         if script_type == Chain.SCRIPT_TYPE_MULTISIG:
-            script_hash = chain.script_hash(script)
-            multisig_id = store._pubkey_id(script_hash, script, script_id, chain)
+            txout['pubkey_hash'] = chain.script_hash(script)  # XXX should be script[data['offset']:] for Namecoin?
+            txout['pubkey_id'] = script_id
+            ret = store._pubkey_id(txout['pubkey_hash'], script, txout['pubkey_id'], chain)
+            multisig_id = script_id if ret is None else ret
 
-            if not store.selectrow("SELECT 1 FROM multisig_pubkey WHERE multisig_id = ?", (multisig_id,)):
-                for pubkey in set(data['pubkeys']):
-                    new_id = None if script_id is None else script_id + pubkey['offset']
-                    pubkey_id = store.pubkey_to_id(chain, pubkey['pubkey'], new_id)
-                    store.sql("""
-                        INSERT INTO multisig_pubkey (multisig_id, pubkey_id)
-                        VALUES (?, ?)""", (multisig_id, pubkey_id))
-            return multisig_id
+            if ret is not None and \
+                    store.selectrow("SELECT 1 FROM multisig_pubkey WHERE multisig_id = ?", (multisig_id,)) is None:
+
+                ops_id += data['offset']
+                pubkeys_seen = set()
+                for pubkey in data['pubkeys']:
+                    if pubkey['pubkey'] not in pubkeys_seen:
+                        pubkeys_seen.add(pubkey['pubkey'])
+
+                        new_id = ops_id + pubkey['offset']
+                        pubkey_hash = chain.pubkey_hash(pubkey['pubkey'])
+                        pubkey_id = store._pubkey_id(pubkey_hash, pubkey['pubkey'], new_id, chain)
+
+                        if pubkey_id is None:
+                            pubkey_id = new_id
+                            store.sql("INSERT INTO txin (pubkey_id, pubkey_hash) VALUES (?, ?)", (pubkey_id, pubkey_hash))
+
+                        store.sql("INSERT INTO multisig_pubkey (multisig_id, pubkey_id) VALUES (?, ?)""",
+                                  (multisig_id, pubkey_id))
+
+            return ret
 
         if script_type == Chain.SCRIPT_TYPE_BURN:
             return PUBKEY_ID_NETWORK_FEE
 
-        return None
+        txout['pubkey_hash'] = chain.pubkey_hash(script)
+        txout['pubkey_id'] = script_id
+        return store._pubkey_id(txout['pubkey_hash'], script, txout['pubkey_id'], chain)
 
-    def pubkey_hash_to_id(store, pubkey_hash, new_id, chain):
-        return store._pubkey_id(pubkey_hash, None, new_id, chain)
-
-    def pubkey_to_id(store, chain, pubkey, new_id):
-        pubkey_hash = chain.pubkey_hash(pubkey)
-        return store._pubkey_id(pubkey_hash, pubkey, new_id, chain)
-
-    def _has_pubkey(store, chain, pubkey_id):
-        return len(store._export_pubkey_data(chain, pubkey_id)) > Chain.PUBKEY_HASH_LENGTH  # XXX
+    def _has_pubkey(store, chain, pubkey_id, pubkey_hash):
+        data = store._export_pubkey_data(chain, pubkey_id)
+        return chain.pubkey_hash(data) == pubkey_hash
 
     def _export_pubkey_data(store, chain, pubkey_id):
         datadir_id, blkfile_number, blkfile_offset = store.parse_external_id(pubkey_id)
@@ -2733,21 +2891,24 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         dbhash = store.binin(pubkey_hash)  # binin, not hashin for 160-bit
         row = store.selectrow("""
             SELECT pubkey_id
-              FROM pubkey
+              FROM """ + ("txin" if store.conf_external_tx else "pubkey") + """
              WHERE pubkey_hash = ?""", (dbhash,))
 
         if row is None:
-            pubkey_id = store.new_id("pubkey") if new_id is None else new_id
+            if store.conf_external_tx:
+                return None
         else:
             pubkey_id = row[0]
             if store.conf_external_tx and new_id is not None and pubkey is not None \
-                    and not store._has_pubkey(chain, pubkey_id):
-                store.sql("UPDATE pubkey SET pubkey_id = ? WHERE pubkey_id = ?", (new_id, pubkey_id))
+                    and not store._has_pubkey(chain, pubkey_id, pubkey_hash):
+                store.sql("UPDATE txin SET pubkey_id = ? WHERE pubkey_id = ?", (new_id, pubkey_id))
+                store.sql("UPDATE multisig_pubkey SET pubkey_id = ? WHERE pubkey_id = ?", (new_id, pubkey_id))
                 return new_id
             if store.conf_pubkey_pubkey and pubkey is not None:
                 store.sql("UPDATE pubkey SET pubkey = ? WHERE pubkey_id = ?", (pubkey, pubkey_id))
             return pubkey_id
 
+        pubkey_id = store.new_id("pubkey")
         if store.conf_pubkey_pubkey:
             if pubkey is not None and len(pubkey) > MAX_PUBKEY:
                 pubkey = None
