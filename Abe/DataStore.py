@@ -224,6 +224,7 @@ class DataStore(object):
             store.clear_mempool()
             store._mempool = {}
             store._mempool_size = 0
+            store._mmap_cache = {}
 
         store.commit()
 
@@ -2768,12 +2769,20 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         return txin
 
     def map_blkfile(store, datadir, blkfile_number, blkfile_offset):
-        # XXX should keep a LRU cache of mmaps.
-        fname = store.blkfile_name(datadir, blkfile_number)
-        file = open(fname, 'rb')
-        file.seek(blkfile_offset)
-        data = file.read(100000)        # XXX testing
-        return util.str_to_ds(data)
+        key = (datadir['id'], blkfile_number)
+        entry = store._mmap_cache.get(key)
+        if entry is None:
+            fname = store.blkfile_name(datadir, blkfile_number)
+            file = open(fname, 'rb')
+            # XXX Should free the LRU entry while store.mmap_cache_used + file size > store.mmap_cache_size.
+            # XXX Should catch address space exhaustion in map_file and likewise free old mappings.
+            ds = BCDataStream.BCDataStream()
+            ds.map_file(file, blkfile_offset)
+            store._mmap_cache[key] = ds
+        else:
+            ds = entry
+            ds.read_cursor = blkfile_offset
+        return ds
 
     def get_external_tx_by_dbhash(store, dbhash, chain):
         assert store.conf_external_tx
