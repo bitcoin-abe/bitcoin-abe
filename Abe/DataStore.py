@@ -2109,106 +2109,143 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
     def export_tx(store, tx_id=None, tx_hash=None, decimals=8, format="api", chain=None):
         """Return a dict as seen by /rawtx or None if not found."""
 
-        # TODO: merge _export_tx_detail with export_tx.
+        # TODO: merge _export_tx_detail with export_tx.  Or factor out conf_external_tx stuff.
         if format == 'browser':
             return store._export_tx_detail(tx_hash, chain=chain)
 
-        tx = {}
+        tx = None
         is_bin = format == "binary"
 
-        if tx_id is not None:
-            row = store.selectrow("""
-                SELECT tx_hash, tx_version, tx_lockTime, tx_size
-                  FROM tx
-                 WHERE tx_id = ?
-            """, (tx_id,))
-            if row is None:
-                return None
-            tx['hash'] = store.hashout_hex(row[0])
+        def usage():
+            return ValueError("export_tx requires either tx_id or tx_hash.")
 
-        elif tx_hash is not None:
-            row = store.selectrow("""
-                SELECT tx_id, tx_version, tx_lockTime, tx_size
-                  FROM tx
-                 WHERE tx_hash = ?
-            """, (store.hashin_hex(tx_hash),))
-            if row is None:
-                return None
-            tx['hash'] = tx_hash.decode('hex')[::-1] if is_bin else tx_hash
-            tx_id = row[0]
-
+        if store.conf_external_tx:
+            if tx_id is not None:
+                tx = store.get_external_tx_by_id(tx_id, chain)
+                tx['hash'] = chain.transaction_hash(tx['__data__'])
+            elif tx_hash is not None:
+                tx = store.get_external_tx_by_dbhash(store.hashin_hex(tx_hash), chain)
+                tx['hash'] = tx_hash.decode('hex')[::-1]
+            else:
+                raise usage()
         else:
-            raise ValueError("export_tx requires either tx_id or tx_hash.")
+            if tx_id is not None:
+                row = store.selectrow("""
+                    SELECT tx_hash, tx_version, tx_lockTime, tx_size
+                      FROM tx
+                     WHERE tx_id = ?
+                """, (tx_id,))
+                if row is None:
+                    return None
+                tx = {'hash': store.hashout_hex(row[0])}
 
-        tx['version' if is_bin else 'ver']        = int(row[1])
-        tx['lockTime' if is_bin else 'lock_time'] = int(row[2])
-        tx['size'] = int(row[3])
+            elif tx_hash is not None:
+                row = store.selectrow("""
+                    SELECT tx_id, tx_version, tx_lockTime, tx_size
+                      FROM tx
+                     WHERE tx_hash = ?
+                """, (store.hashin_hex(tx_hash),))
+                if row is None:
+                    return None
+                tx = {'hash': tx_hash.decode('hex')[::-1] if is_bin else tx_hash}
+                tx_id = row[0]
 
-        txins = []
-        tx['txIn' if is_bin else 'in'] = txins
-        for row in store.selectall("""
-            SELECT
-                COALESCE(tx.tx_hash, uti.txout_tx_hash),
-                COALESCE(txout.txout_pos, uti.txout_pos)""" + (""",
-                txin_scriptSig,
-                txin_sequence""" if store.conf_keep_scriptsig else "") + """
-            FROM txin
-            LEFT JOIN txout ON (txin.txout_id = txout.txout_id)
-            LEFT JOIN tx ON (txout.tx_id = tx.tx_id)
-            LEFT JOIN unlinked_txin uti ON (txin.txin_id = uti.txin_id)
-            WHERE txin.tx_id = ?
-            ORDER BY txin.txin_pos""", (tx_id,)):
-            prevout_hash = row[0]
-            prevout_n = store.intout(row[1])
-            if is_bin:
-                txin = {
-                    'prevout_hash': store.hashout(prevout_hash),
-                    'prevout_n': prevout_n}
             else:
-                if prevout_hash is None:
-                    prev_out = {
-                        'hash': "0" * 64,  # XXX should store this?
-                        'n': 0xffffffff}   # XXX should store this?
-                else:
-                    prev_out = {
-                        'hash': store.hashout_hex(prevout_hash),
-                        'n': prevout_n}
-                txin = {'prev_out': prev_out}
-            if store.conf_keep_scriptsig:
-                scriptSig = row[2]
-                sequence = row[3]
+                raise usage()
+
+            tx['version' if is_bin else 'ver']        = int(row[1])
+            tx['lockTime' if is_bin else 'lock_time'] = int(row[2])
+            tx['size'] = int(row[3])
+
+        coin = 10 ** decimals
+        def format_value(satoshis):
+            satoshis = int(satoshis)
+            integer = satoshis / coin
+            frac = satoshis % coin
+            return ("%%d.%%0%dd" % (decimals,)) % (integer, frac)
+
+        if store.conf_external_tx:
+            if not is_bin:
+                def api_in(txin):
+                    return {
+                        'prev_out': {
+                            'hash': txin['prevout_hash'][::-1].encode('hex'),
+                            'n': txin['prevout_n']},
+                        'raw_scriptSig': txin['scriptSig'].encode('hex'),
+                        'sequence': txin['sequence']}
+                def api_out(txout):
+                    return {
+                        'value': format_value(txout['value']),
+                        'raw_scriptPubKey': txout['scriptPubKey'].encode('hex')}
+                tx = {
+                    'hash': tx['hash'][::-1].encode('hex'),
+                    'in': map(api_in, tx['txIn']),
+                    'out': map(api_out, tx['txOut']),
+                    'ver': tx['version'],
+                    'lock_time': tx['lockTime'],
+                    'size': tx['size']}
+        else:
+            txins = []
+            tx['txIn' if is_bin else 'in'] = txins
+            for row in store.selectall("""
+                SELECT
+                    COALESCE(tx.tx_hash, uti.txout_tx_hash),
+                    COALESCE(txout.txout_pos, uti.txout_pos)""" + (""",
+                    txin_scriptSig,
+                    txin_sequence""" if store.conf_keep_scriptsig else "") + """
+                FROM txin
+                LEFT JOIN txout ON (txin.txout_id = txout.txout_id)
+                LEFT JOIN tx ON (txout.tx_id = tx.tx_id)
+                LEFT JOIN unlinked_txin uti ON (txin.txin_id = uti.txin_id)
+                WHERE txin.tx_id = ?
+                ORDER BY txin.txin_pos""", (tx_id,)):
+                prevout_hash = row[0]
+                prevout_n = store.intout(row[1])
                 if is_bin:
-                    txin['scriptSig'] = store.binout(scriptSig)
+                    txin = {
+                        'prevout_hash': store.hashout(prevout_hash),
+                        'prevout_n': prevout_n}
                 else:
-                    txin['raw_scriptSig'] = store.binout_hex(scriptSig)
-                txin['sequence'] = store.intout(sequence)
-            txins.append(txin)
+                    if prevout_hash is None:
+                        prev_out = {
+                            'hash': "0" * 64,  # XXX should store this?
+                            'n': 0xffffffff}   # XXX should store this?
+                    else:
+                        prev_out = {
+                            'hash': store.hashout_hex(prevout_hash),
+                            'n': prevout_n}
+                    txin = {'prev_out': prev_out}
+                if store.conf_keep_scriptsig:
+                    scriptSig = row[2]
+                    sequence = row[3]
+                    if is_bin:
+                        txin['scriptSig'] = store.binout(scriptSig)
+                    else:
+                        txin['raw_scriptSig'] = store.binout_hex(scriptSig)
+                    txin['sequence'] = store.intout(sequence)
+                txins.append(txin)
 
-        txouts = []
-        tx['txOut' if is_bin else 'out'] = txouts
-        for satoshis, scriptPubKey in store.selectall("""
-            SELECT txout_value, txout_scriptPubKey
-              FROM txout
-             WHERE tx_id = ?
-            ORDER BY txout_pos""", (tx_id,)):
+            txouts = []
+            tx['txOut' if is_bin else 'out'] = txouts
+            for satoshis, scriptPubKey in store.selectall("""
+                SELECT txout_value, txout_scriptPubKey
+                  FROM txout
+                 WHERE tx_id = ?
+                ORDER BY txout_pos""", (tx_id,)):
 
-            if is_bin:
-                txout = {
-                    'value': int(satoshis),
-                    'scriptPubKey': store.binout(scriptPubKey)}
-            else:
-                coin = 10 ** decimals
-                satoshis = int(satoshis)
-                integer = satoshis / coin
-                frac = satoshis % coin
-                txout = {
-                    'value': ("%%d.%%0%dd" % (decimals,)) % (integer, frac),
-                    'raw_scriptPubKey': store.binout_hex(scriptPubKey)}
-            txouts.append(txout)
+                if is_bin:
+                    txout = {
+                        'value': int(satoshis),
+                        'scriptPubKey': store.binout(scriptPubKey)}
+                else:
+                    txout = {
+                        'value': format_value(satoshis),
+                        'raw_scriptPubKey': store.binout_hex(scriptPubKey)}
+                txouts.append(txout)
 
         if not is_bin:
-            tx['vin_sz'] = len(txins)
-            tx['vout_sz'] = len(txouts)
+            tx['vin_sz'] = len(tx['in'])
+            tx['vout_sz'] = len(tx['out'])
 
         return tx
 

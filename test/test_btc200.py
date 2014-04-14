@@ -34,7 +34,8 @@ def test_block_number(btc200):
 
 @pytest.fixture(scope="module")
 def coinbase_200(btc200):
-    return btc200.export_tx(tx_hash = '2b1f06c2401d3b49a33c3f5ad5864c0bc70044c4068f9174546f3cfc1887d5ba')
+    return btc200.export_tx(tx_hash='2b1f06c2401d3b49a33c3f5ad5864c0bc70044c4068f9174546f3cfc1887d5ba',
+                            chain=btc200.get_chain_by_name('Bitcoin'))
 
 def test_coinbase_hash(coinbase_200):
     assert coinbase_200['hash'] == '2b1f06c2401d3b49a33c3f5ad5864c0bc70044c4068f9174546f3cfc1887d5ba'
