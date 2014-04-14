@@ -2777,6 +2777,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             file = open(fname, 'rb')
             # XXX Should free the LRU entry while store.mmap_cache_used + file size > store.mmap_cache_size.
             # XXX Should catch address space exhaustion in map_file and likewise free old mappings.
+            # XXX Should make catch_up_dir share this cache.
             try:
                 ds.map_file(file, blkfile_offset)
             finally:
