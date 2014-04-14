@@ -19,6 +19,10 @@
 import pytest
 
 import os
+import json
+import tempfile
+import py.path
+
 from db import testdb
 import datagen
 import Abe.Chain
@@ -39,7 +43,7 @@ PUBKEYS = [
         ]]
 
 @pytest.fixture(scope="module")
-def gen(testdb):
+def gen(testdb, request):
     chain = Abe.Chain.create('Testnet')
     blocks = []
     gen = datagen.Gen(chain=chain, db=testdb, blocks=blocks)
@@ -75,11 +79,15 @@ def gen(testdb):
     if 'ABE_TEST_SAVE_BLKFILE' in os.environ:
         gen.save_blkfile(os.environ['ABE_TEST_SAVE_BLKFILE'], blocks)
 
-    gen.store = testdb.store
+    datadir = py.path.local(tempfile.mkdtemp(prefix='abe-test-'))
+    request.addfinalizer(datadir.remove)
+    gen.save_blkfile(str(datadir.join('blk0001.dat')), blocks)
+
+    gen.store = testdb.load('--datadir', json.dumps([{
+                    'dirname': str(datadir),
+                    'chain': chain.name,
+                    'loader': 'blkfile'}]))
     gen.chain = gen.store.get_chain_by_name(chain.name)
-    for block in blocks:
-        gen.store.import_block(block, chain = gen.chain)
-    gen.store.commit()
 
     return gen
 
