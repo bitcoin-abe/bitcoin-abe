@@ -27,6 +27,8 @@ def create(policy, **kwargs):
     if policy == "LegacyNoBit8":    return Sha256Chain(**kwargs)
     if policy == "NovaCoin":        return NovaCoin(**kwargs)
     if policy == "CryptoCash":      return CryptoCash(**kwargs)
+    if policy == "Hirocoin":        return Hirocoin(**kwargs)
+    if policy == "X11":             return X11Chain(**kwargs)
     return Sha256NmcAuxPowChain(**kwargs)
 
 
@@ -358,3 +360,22 @@ class CryptoCash(NvcChain):
 
     datadir_conf_file_name = "Cash.conf"
     datadir_rpcport = 3941
+
+class X11Chain(Chain):
+    def block_header_hash(chain, header):
+        import xcoin_hash
+        return xcoin_hash.getPoWHash(header)
+
+class Hirocoin(X11Chain):
+    def __init__(chain, **kwargs):
+        chain.name = 'Hirocoin'
+        chain.code3 = 'HIRO'
+        chain.address_version = '\x28'
+        chain.script_addr_vers = '\x05'
+        chain.magic = '\xfe\xc4\xb9\xde'
+        Chain.__init__(chain, **kwargs)
+
+    datadir_conf_file_name = 'hirocoin.conf'
+    datadir_rpcport = 9347
+    datadir_p2pport = 9348
+
