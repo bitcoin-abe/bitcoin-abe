@@ -2772,12 +2772,15 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         key = (datadir['id'], blkfile_number)
         entry = store._mmap_cache.get(key)
         if entry is None:
+            ds = BCDataStream.BCDataStream()
             fname = store.blkfile_name(datadir, blkfile_number)
             file = open(fname, 'rb')
             # XXX Should free the LRU entry while store.mmap_cache_used + file size > store.mmap_cache_size.
             # XXX Should catch address space exhaustion in map_file and likewise free old mappings.
-            ds = BCDataStream.BCDataStream()
-            ds.map_file(file, blkfile_offset)
+            try:
+                ds.map_file(file, blkfile_offset)
+            finally:
+                file.close()
             store._mmap_cache[key] = ds
         else:
             ds = entry
