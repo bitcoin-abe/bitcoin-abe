@@ -620,7 +620,7 @@ class Abe:
              body += ['<tr><td>','Proof of Stake' if is_stake_block else 'Proof of Work','</td><td>' if is_proof_of_stake else 'Proof of Work',': ',format_satoshis(b['generated'], chain), ' coins generated</td></tr>']
         body += ['<tr><td>Merkle Root</td><td>',b['hashMerkleRoot'], '</td></tr>']
         body += ['</tbody></table>']
-        body += ['<table class="table table-striped"><tbody><tr><th colspan="2">Advanced Summery</th></tr>']
+        body += ['<table class="table table-striped"><tbody><tr><th colspan="2">Advanced Summary</th></tr>']
         if b['chain_satoshis'] and (b['satoshi_seconds'] is not None) :
             body += ['<tr><td>Average Coin Age</td><td>',(b['satoshi_seconds'] / 86400.0 / b['chain_satoshis']),' days']
         if b['satoshis_destroyed'] is not None:
