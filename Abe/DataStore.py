@@ -2042,12 +2042,14 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                     tx['value_in'] += txout['value']
 
             if store.conf_external_tx:
-                txin_id = tx_id + txin['__offset__'] - tx['__offset__']
-                pubkey_id = txout and txout['pubkey_id']
-                store.sql("""
-                    INSERT INTO txin (txin_id, tx_id, pubkey_id)
-                    VALUES (?, ?, ?)""",
-                          (txin_id, txout and txout['tx_id'], pubkey_id))
+                if not is_coinbase:
+                    txin_id = tx_id + txin['__offset__'] - tx['__offset__']
+                    pubkey_id = txout and txout['pubkey_id']
+                    store.sql("""
+                        INSERT INTO txin (txin_id, tx_id, pubkey_id)
+                        VALUES (?, ?, ?)""",
+                              (txin_id, txout and txout['tx_id'], pubkey_id))
+
             else:
                 txout_id = txout and txout['txout_id']
                 txin_id = store.new_id("txin")
