@@ -1828,6 +1828,10 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         tx['value_out'] = value_out
         tx['value_destroyed'] = 0  # XXX
 
+    def get_external_txin_tx_id(store, txin_id):
+        (tx_id,) = store.selectrow("SELECT MAX(tx_id) FROM txin WHERE tx_id < ?", (txin_id,))
+        return tx_id
+
     def tx_find_id_and_value(store, tx, is_coinbase, chain):
         if store.conf_external_tx:
             ext = store.get_external_tx_by_hash(tx['hash'], chain)
@@ -2316,7 +2320,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             redeemed = {}
 
             for (txin_id,) in store.selectall("SELECT txin.txin_id FROM txin WHERE txin.tx_id = ?", (tx_id,)):
-                (next_tx_id,) = store.selectrow("SELECT MAX(tx_id) FROM txin WHERE tx_id < ?", (txin_id,))
+                next_tx_id = store.get_external_txin_tx_id(txin_id)
                 if next_tx_id is None:
                     store.log.debug("Failed to find tx_id of txin_id %s", txin_id)
                     continue
@@ -2483,101 +2487,202 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         dbhash = store.binin(binaddr)
         txpoints = []
 
-        def parse_row(is_out, row_type, nTime, chain_id, height, blk_hash, tx_hash, pos, value, script=None):
-            chain = store.get_chain_by_id(chain_id)
-            txpoint = {
-                'type':     row_type,
-                'is_out':   int(is_out),
-                'nTime':    int(nTime),
-                'chain':    chain,
-                'height':   int(height),
-                'blk_hash': store.hashout_hex(blk_hash),
-                'tx_hash':  store.hashout_hex(tx_hash),
-                'pos':      int(pos),
-                'value':    int(value),
-                }
-            if script is not None:
-                store._export_scriptPubKey(txpoint, chain, store.binout(script))
+        if store.conf_external_tx:
+            row = store.selectrow("SELECT pubkey_id FROM txin WHERE pubkey_hash = ?", (dbhash,))
+            if row is not None:
+                pubkey_id = row[0]
+                rows = []
 
-            return txpoint
+                def get_tx_chains(tx_id):
+                    return [
+                        (store.get_chain_by_id(chain_id), int(nTime), int(height), store.hashout_hex(blk_hash))
+                        for chain_id, nTime, height, blk_hash in store.selectall("""
+                            SELECT cc.chain_id,
+                                   b.block_nTime,
+                                   cc.block_height,
+                                   b.block_hash
+                              FROM chain_candidate cc
+                              JOIN block b ON (cc.block_id = b.block_id)
+                              JOIN block_tx bt ON (b.block_id = bt.block_id)
+                             WHERE bt.tx_id = ?
+                               AND cc.in_longest = 1""", (tx_id,))]
 
-        def parse_direct_in(row):  return parse_row(True, 'direct', *row)
-        def parse_direct_out(row): return parse_row(False, 'direct', *row)
-        def parse_escrow_in(row):  return parse_row(True, 'escrow', *row)
-        def parse_escrow_out(row): return parse_row(False, 'escrow', *row)
+                if 'direct' in types:
+                    # XXX Should respect max_rows.
+                    for txin_id, tx_id in store.selectall(
+                        "SELECT txin_id, tx_id FROM txin WHERE pubkey_id = ?", (pubkey_id,)):
+                        rows.append(('direct', txin_id, tx_id))
 
-        def get_received(escrow):
-            return store.selectall("""
-                SELECT
-                    b.block_nTime,
-                    cc.chain_id,
-                    b.block_height,
-                    b.block_hash,
-                    tx.tx_hash,
-                    txin.txin_pos,
-                    -prevout.txout_value""" + (""",
-                    prevout.txout_scriptPubKey""" if escrow else "") + """
-                  FROM chain_candidate cc
-                  JOIN block b ON (b.block_id = cc.block_id)
-                  JOIN block_tx ON (block_tx.block_id = b.block_id)
-                  JOIN tx ON (tx.tx_id = block_tx.tx_id)
-                  JOIN txin ON (txin.tx_id = tx.tx_id)
-                  JOIN txout prevout ON (txin.txout_id = prevout.txout_id)""" + ("""
-                  JOIN multisig_pubkey mp ON (mp.multisig_id = prevout.pubkey_id)""" if escrow else "") + """
-                  JOIN pubkey ON (pubkey.pubkey_id = """ + ("mp" if escrow else "prevout") + """.pubkey_id)
-                 WHERE pubkey.pubkey_hash = ?
-                   AND cc.in_longest = 1""" + ("" if max_rows < 0 else """
-                 LIMIT ?"""),
-                          (dbhash,)
-                          if max_rows < 0 else
-                          (dbhash, max_rows + 1))
+                if 'escrow' in types:
+                    # XXX Should respect max_rows.
+                    for txin_id, tx_id in store.selectall("""
+                        SELECT txin.txin_id,
+                               txin.tx_id
+                          FROM txin
+                          JOIN multisig_pubkey mp ON (mp.multisig_id = txin.pubkey_id)
+                         WHERE mp.pubkey_id = ?""", (pubkey_id,)):
+                        rows.append(('escrow', txin_id, tx_id))
 
-        def get_sent(escrow):
-            return store.selectall("""
-                SELECT
-                    b.block_nTime,
-                    cc.chain_id,
-                    b.block_height,
-                    b.block_hash,
-                    tx.tx_hash,
-                    txout.txout_pos,
-                    txout.txout_value""" + (""",
-                    txout.txout_scriptPubKey""" if escrow else "") + """
-                  FROM chain_candidate cc
-                  JOIN block b ON (b.block_id = cc.block_id)
-                  JOIN block_tx ON (block_tx.block_id = b.block_id)
-                  JOIN tx ON (tx.tx_id = block_tx.tx_id)
-                  JOIN txout ON (txout.tx_id = tx.tx_id)""" + ("""
-                  JOIN multisig_pubkey mp ON (mp.multisig_id = txout.pubkey_id)""" if escrow else "") + """
-                  JOIN pubkey ON (pubkey.pubkey_id = """ + ("mp" if escrow else "txout") + """.pubkey_id)
-                 WHERE pubkey.pubkey_hash = ?
-                   AND cc.in_longest = 1""" + ("" if max_rows < 0 else """
-                 LIMIT ?"""),
-                          (dbhash, max_rows + 1)
-                          if max_rows >= 0 else
-                          (dbhash,))
+                for row_type, txin_id, tx_id in rows:
+                    chain_tx = {}
 
-        if 'direct' in types:
-            in_rows = get_received(False)
-            if len(in_rows) > max_rows >= 0:
-                return None  # XXX Could still show address basic data.
-            txpoints += map(parse_direct_in, in_rows)
+                    if tx_id is not None:
+                        for chain, nTime, height, blk_hash in get_tx_chains(tx_id):
+                            tx = store.get_external_tx_by_id(tx_id, chain)
+                            tx['hash'] = chain.transaction_hash(tx['__data__'])
+                            tx_hash = tx['hash'][::-1].encode('hex')
+                            chain_tx[chain.id] = tx
 
-            out_rows = get_sent(False)
-            if len(out_rows) > max_rows >= 0:
-                return None
-            txpoints += map(parse_direct_out, out_rows)
+                            for pos, txout in enumerate(tx['txOut']):
+                                txpoint = {}
+                                store._export_scriptPubKey(txpoint, chain, txout['scriptPubKey'])
+                                if row_type == 'direct':
+                                    if txpoint['binaddr'] != binaddr:
+                                        continue
+                                elif row_type == 'escrow':
+                                    if binaddr not in txpoint['subbinaddr']:
+                                        continue
+                                txpoint.update({
+                                    'type':     row_type,
+                                    'is_out':   0,
+                                    'nTime':    nTime,
+                                    'chain':    chain,
+                                    'height':   height,
+                                    'blk_hash': blk_hash,
+                                    'tx_hash':  tx_hash,
+                                    'pos':      pos,
+                                    'value':    txout['value']})
+                                txpoints.append(txpoint)
 
-        if 'escrow' in types:
-            in_rows = get_received(True)
-            if len(in_rows) > max_rows >= 0:
-                return None
-            txpoints += map(parse_escrow_in, in_rows)
+                    if txin_id is not None:
+                        next_tx_id = store.get_external_txin_tx_id(txin_id)
+                        if next_tx_id is None:
+                            store.log.debug("Failed to find tx_id of txin_id %s", txin_id)
+                            continue
+                        for chain, nTime, height, blk_hash in get_tx_chains(next_tx_id):
+                            next_tx = store.get_external_tx_by_id(next_tx_id, chain)
+                            next_tx['hash'] = chain.transaction_hash(next_tx['__data__'])
+                            next_tx_hash = next_tx['hash'][::-1].encode('hex')
 
-            out_rows = get_sent(True)
-            if len(out_rows) > max_rows >= 0:
-                return None
-            txpoints += map(parse_escrow_out, out_rows)
+                            for pos, txin in enumerate(next_tx['txIn']):
+                                if txin_id != next_tx_id + txin['__offset__'] - next_tx['__offset__']:
+                                    continue
+                                tx = chain_tx.get(chain.id)
+                                if tx is None:
+                                    value = None
+                                else:
+                                    txout = tx['txOut'][txin['prevout_n']]
+                                    value = txout['value']
+
+                                txpoint = {
+                                    'type':     row_type,
+                                    'is_out':   1,
+                                    'nTime':    nTime,
+                                    'chain':    chain,
+                                    'height':   height,
+                                    'blk_hash': blk_hash,
+                                    'tx_hash':  next_tx_hash,
+                                    'pos':      pos,
+                                    'value':    value}
+                                if tx is not None:
+                                    store._export_scriptPubKey(txpoint, chain, txout['scriptPubKey'])
+
+        else:
+            def parse_row(is_out, row_type, nTime, chain_id, height, blk_hash, tx_hash, pos, value, script=None):
+                chain = store.get_chain_by_id(chain_id)
+                txpoint = {
+                    'type':     row_type,
+                    'is_out':   int(is_out),
+                    'nTime':    int(nTime),
+                    'chain':    chain,
+                    'height':   int(height),
+                    'blk_hash': store.hashout_hex(blk_hash),
+                    'tx_hash':  store.hashout_hex(tx_hash),
+                    'pos':      int(pos),
+                    'value':    int(value),
+                    }
+                if script is not None:
+                    store._export_scriptPubKey(txpoint, chain, store.binout(script))
+
+                return txpoint
+
+            def parse_direct_in(row):  return parse_row(True, 'direct', *row)
+            def parse_direct_out(row): return parse_row(False, 'direct', *row)
+            def parse_escrow_in(row):  return parse_row(True, 'escrow', *row)
+            def parse_escrow_out(row): return parse_row(False, 'escrow', *row)
+
+            def get_received(escrow):
+                return store.selectall("""
+                    SELECT
+                        b.block_nTime,
+                        cc.chain_id,
+                        b.block_height,
+                        b.block_hash,
+                        tx.tx_hash,
+                        txin.txin_pos,
+                        -prevout.txout_value""" + (""",
+                        prevout.txout_scriptPubKey""" if escrow else "") + """
+                      FROM chain_candidate cc
+                      JOIN block b ON (b.block_id = cc.block_id)
+                      JOIN block_tx ON (block_tx.block_id = b.block_id)
+                      JOIN tx ON (tx.tx_id = block_tx.tx_id)
+                      JOIN txin ON (txin.tx_id = tx.tx_id)
+                      JOIN txout prevout ON (txin.txout_id = prevout.txout_id)""" + ("""
+                      JOIN multisig_pubkey mp ON (mp.multisig_id = prevout.pubkey_id)""" if escrow else "") + """
+                      JOIN pubkey ON (pubkey.pubkey_id = """ + ("mp" if escrow else "prevout") + """.pubkey_id)
+                     WHERE pubkey.pubkey_hash = ?
+                       AND cc.in_longest = 1""" + ("" if max_rows < 0 else """
+                     LIMIT ?"""),
+                              (dbhash,)
+                              if max_rows < 0 else
+                              (dbhash, max_rows + 1))
+
+            def get_sent(escrow):
+                return store.selectall("""
+                    SELECT
+                        b.block_nTime,
+                        cc.chain_id,
+                        b.block_height,
+                        b.block_hash,
+                        tx.tx_hash,
+                        txout.txout_pos,
+                        txout.txout_value""" + (""",
+                        txout.txout_scriptPubKey""" if escrow else "") + """
+                      FROM chain_candidate cc
+                      JOIN block b ON (b.block_id = cc.block_id)
+                      JOIN block_tx ON (block_tx.block_id = b.block_id)
+                      JOIN tx ON (tx.tx_id = block_tx.tx_id)
+                      JOIN txout ON (txout.tx_id = tx.tx_id)""" + ("""
+                      JOIN multisig_pubkey mp ON (mp.multisig_id = txout.pubkey_id)""" if escrow else "") + """
+                      JOIN pubkey ON (pubkey.pubkey_id = """ + ("mp" if escrow else "txout") + """.pubkey_id)
+                     WHERE pubkey.pubkey_hash = ?
+                       AND cc.in_longest = 1""" + ("" if max_rows < 0 else """
+                     LIMIT ?"""),
+                              (dbhash, max_rows + 1)
+                              if max_rows >= 0 else
+                              (dbhash,))
+
+            if 'direct' in types:
+                in_rows = get_received(False)
+                if len(in_rows) > max_rows >= 0:
+                    return None  # XXX Could still show address basic data.
+                txpoints += map(parse_direct_in, in_rows)
+
+                out_rows = get_sent(False)
+                if len(out_rows) > max_rows >= 0:
+                    return None
+                txpoints += map(parse_direct_out, out_rows)
+
+            if 'escrow' in types:
+                in_rows = get_received(True)
+                if len(in_rows) > max_rows >= 0:
+                    return None
+                txpoints += map(parse_escrow_in, in_rows)
+
+                out_rows = get_sent(True)
+                if len(out_rows) > max_rows >= 0:
+                    return None
+                txpoints += map(parse_escrow_out, out_rows)
 
         def cmp_txpoint(p1, p2):
             return cmp(p1['nTime'], p2['nTime']) \
@@ -2606,9 +2711,12 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         for (subbinaddr,) in store.selectall("""
             SELECT sub.pubkey_hash
               FROM multisig_pubkey mp
-              JOIN pubkey top ON (mp.multisig_id = top.pubkey_id)
-              JOIN pubkey sub ON (mp.pubkey_id = sub.pubkey_id)
-             WHERE top.pubkey_hash = ?""", (dbhash,)):
+              JOIN %(pubkey)s top ON (mp.multisig_id = top.pubkey_id)
+              JOIN %(pubkey)s sub ON (mp.pubkey_id = sub.pubkey_id)
+             WHERE top.pubkey_hash = ?
+               AND sub.pubkey_hash IS NOT NULL""" % {
+                'pubkey': 'txin' if store.conf_external_tx else 'pubkey' },
+                                             (dbhash,)):
             if 'subbinaddr' not in hist:
                 hist['subbinaddr'] = []
             hist['subbinaddr'].append(store.binout(subbinaddr))
