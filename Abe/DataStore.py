@@ -797,7 +797,7 @@ None if store.conf_external_tx else """CREATE INDEX x_txout_pubkey ON txout (pub
 None if store.conf_external_tx else """CREATE INDEX x_txin_txout ON txin (txout_id)""",
 #"""CREATE UNIQUE INDEX x_txin_txin ON txin (txin_id) WHERE txin_id IS NOT NULL""" if store.conf_external_tx else None,
 #"""CREATE UNIQUE INDEX x_txin_txin ON txin (txin_id)""" if store.conf_external_tx else None,
-#"""CREATE INDEX x_txin_tx ON txin (tx_id)""" if store.conf_external_tx else None,
+"""CREATE INDEX x_txin_tx ON txin (tx_id)""" if store.conf_external_tx else None,
 #"""CREATE INDEX x_txin_tx_hash ON txin (tx_hash) WHERE tx_hash IS NOT NULL""" if store.conf_external_tx else None,
 """CREATE INDEX x_txin_tx_hash ON txin (tx_hash)""" if store.conf_external_tx else None,
 """CREATE INDEX x_txin_pubkey ON txin (pubkey_id)""" if store.conf_external_tx else None,
@@ -1508,17 +1508,17 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         txout['address_version'] = chain.address_version
 
         if script_type == Chain.SCRIPT_TYPE_PUBKEY:
-            txout['binaddr'] = chain.pubkey_hash(data)
+            txout['binaddr'] = chain.pubkey_hash(data['pubkey'])
         elif script_type == Chain.SCRIPT_TYPE_ADDRESS:
-            txout['binaddr'] = data
+            txout['binaddr'] = data['pubkey_hash']
         elif script_type == Chain.SCRIPT_TYPE_P2SH:
             txout['address_version'] = chain.script_addr_vers
-            txout['binaddr'] = data
+            txout['binaddr'] = data['script_hash']
         elif script_type == Chain.SCRIPT_TYPE_MULTISIG:
             txout['required_signatures'] = data['m']
-            txout['binaddr'] = chain.pubkey_hash(scriptPubKey)
+            txout['binaddr'] = chain.script_hash(scriptPubKey)
             txout['subbinaddr'] = [
-                chain.pubkey_hash(pubkey)
+                chain.pubkey_hash(pubkey['pubkey'])
                 for pubkey in data['pubkeys']
                 ]
         elif script_type == Chain.SCRIPT_TYPE_BURN:
@@ -2042,12 +2042,14 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                     tx['value_in'] += txout['value']
 
             if store.conf_external_tx:
-                txin_id = tx_id + txin['__offset__'] - tx['__offset__']
-                pubkey_id = txout and txout['pubkey_id']
-                store.sql("""
-                    INSERT INTO txin (txin_id, tx_id, pubkey_id)
-                    VALUES (?, ?, ?)""",
-                          (txin_id, txout and txout['tx_id'], pubkey_id))
+                if not is_coinbase:
+                    txin_id = tx_id + txin['__offset__'] - tx['__offset__']
+                    pubkey_id = txout and txout['pubkey_id']
+                    store.sql("""
+                        INSERT INTO txin (txin_id, tx_id, pubkey_id)
+                        VALUES (?, ?, ?)""",
+                              (txin_id, txout and txout['tx_id'], pubkey_id))
+
             else:
                 txout_id = txout and txout['txout_id']
                 txin_id = store.new_id("txin")
@@ -2310,15 +2312,48 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             tx['value_in'] = 0
             tx['out'] = []
             tx['in'] = []
+            tx_hash = store.hashout(dbhash)
+            redeemed = {}
+
+            for (txin_id,) in store.selectall("SELECT txin.txin_id FROM txin WHERE txin.tx_id = ?", (tx_id,)):
+                (next_tx_id,) = store.selectrow("SELECT MAX(tx_id) FROM txin WHERE tx_id < ?", (txin_id,))
+                if next_tx_id is None:
+                    store.log.debug("Failed to find tx_id of txin_id %s", txin_id)
+                    continue
+                next_tx = store.get_external_tx_by_id(next_tx_id, chain)
+                next_tx_hash = chain.transaction_hash(next_tx['__data__'])
+
+                for txin_pos, txin in enumerate(next_tx['txIn']):
+                    if txin_id == next_tx_id + txin['__offset__'] - next_tx['__offset__'] and \
+                            txin['prevout_hash'] == tx_hash:
+                        in_longest = store.selectrow("""
+                            SELECT 1
+                              FROM block_tx bt
+                              JOIN chain_candidate cc ON (bt.block_id = cc.block_id)
+                             WHERE bt.tx_id = ?
+                               AND cc.chain_id = ?
+                               AND cc.in_longest = 1""", (next_tx_id, chain.id))
+                        n = txin['prevout_n']
+                        redeemed[n] = redeemed.get(n, [])
+                        if in_longest:
+                            redeemed[n].insert(0, (next_tx_hash, txin_pos, True))
+                        else:
+                            redeemed[n].append((next_tx_hash, txin_pos, False))
 
             for pos, data in enumerate(tx['txOut']):
-                nexttx, nextpos = None, None  # XXX need to index txin.txout_id?
+                if redeemed.get(pos):
+                    # XXX would be nice to report on multiple redeeming txins, if they exist.
+                    nexttx, nextpos, in_longest = redeemed[pos][0]
+                    nexttx = nexttx[::-1].encode('hex')
+                else:
+                    nexttx, nextpos, in_longest = None, None, False
                 txout = {
                     'pos': pos,
                     'binscript': data['scriptPubKey'],
                     'value': data['value'],
                     'o_hash': nexttx,
                     'o_pos': nextpos,
+                    'o_in_longest': in_longest,
                     }
                 tx['value_out'] += txout['value']
                 store._export_scriptPubKey(txout, chain, data['scriptPubKey'])
@@ -2388,6 +2423,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             """, (tx_id,)))
 
             # XXX Only one outer join needed.
+            # XXX Wrong if nexttx yields more than one row.
             tx['out'] = map(parse_row, store.selectall("""
                 SELECT
                     txout.txout_pos,
@@ -2916,7 +2952,8 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
 
                         if pubkey_id is None:
                             pubkey_id = new_id
-                            store.sql("INSERT INTO txin (pubkey_id, pubkey_hash) VALUES (?, ?)", (pubkey_id, pubkey_hash))
+                            store.sql("INSERT INTO txin (pubkey_id, pubkey_hash) VALUES (?, ?)",
+                                      (pubkey_id, store.binin(pubkey_hash)))
 
                         store.sql("INSERT INTO multisig_pubkey (multisig_id, pubkey_id) VALUES (?, ?)""",
                                   (multisig_id, pubkey_id))

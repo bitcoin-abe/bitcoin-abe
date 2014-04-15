@@ -77,7 +77,8 @@ def test_coinbase_ver(coinbase_200):
 def b182t1(btc200):
     return btc200.export_tx(
         tx_hash = '591e91f809d716912ca1d4a9295e70c3e78bab077683f79350f101da64588073',
-        format = 'browser')
+        format = 'browser',
+        chain=btc200.get_chain_by_name('Bitcoin'))
 
 def test_tx_hash(b182t1):
     assert b182t1['hash'] == '591e91f809d716912ca1d4a9295e70c3e78bab077683f79350f101da64588073'
