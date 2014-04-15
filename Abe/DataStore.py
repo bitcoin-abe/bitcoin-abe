@@ -1508,17 +1508,17 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         txout['address_version'] = chain.address_version
 
         if script_type == Chain.SCRIPT_TYPE_PUBKEY:
-            txout['binaddr'] = chain.pubkey_hash(data)
+            txout['binaddr'] = chain.pubkey_hash(data['pubkey'])
         elif script_type == Chain.SCRIPT_TYPE_ADDRESS:
-            txout['binaddr'] = data
+            txout['binaddr'] = data['pubkey_hash']
         elif script_type == Chain.SCRIPT_TYPE_P2SH:
             txout['address_version'] = chain.script_addr_vers
-            txout['binaddr'] = data
+            txout['binaddr'] = data['script_hash']
         elif script_type == Chain.SCRIPT_TYPE_MULTISIG:
             txout['required_signatures'] = data['m']
-            txout['binaddr'] = chain.pubkey_hash(scriptPubKey)
+            txout['binaddr'] = chain.script_hash(scriptPubKey)
             txout['subbinaddr'] = [
-                chain.pubkey_hash(pubkey)
+                chain.pubkey_hash(pubkey['pubkey'])
                 for pubkey in data['pubkeys']
                 ]
         elif script_type == Chain.SCRIPT_TYPE_BURN:
