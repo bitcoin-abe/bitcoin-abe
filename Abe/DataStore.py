@@ -2310,15 +2310,48 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             tx['value_in'] = 0
             tx['out'] = []
             tx['in'] = []
+            tx_hash = store.hashout(dbhash)
+            redeemed = {}
+
+            for (txin_id,) in store.selectall("SELECT txin.txin_id FROM txin WHERE txin.tx_id = ?", (tx_id,)):
+                (next_tx_id,) = store.selectrow("SELECT MAX(tx_id) FROM txin WHERE tx_id < ?", (txin_id,))
+                if next_tx_id is None:
+                    store.log.debug("Failed to find tx_id of txin_id %s", txin_id)
+                    continue
+                next_tx = store.get_external_tx_by_id(next_tx_id, chain)
+                next_tx_hash = chain.transaction_hash(next_tx['__data__'])
+
+                for txin_pos, txin in enumerate(next_tx['txIn']):
+                    if txin_id == next_tx_id + txin['__offset__'] - next_tx['__offset__'] and \
+                            txin['prevout_hash'] == tx_hash:
+                        in_longest = store.selectrow("""
+                            SELECT 1
+                              FROM block_tx bt
+                              JOIN chain_candidate cc ON (bt.block_id = cc.block_id)
+                             WHERE bt.tx_id = ?
+                               AND cc.chain_id = ?
+                               AND cc.in_longest = 1""", (next_tx_id, chain.id))
+                        n = txin['prevout_n']
+                        redeemed[n] = redeemed.get(n, [])
+                        if in_longest:
+                            redeemed[n].insert(0, (next_tx_hash, txin_pos, True))
+                        else:
+                            redeemed[n].append((next_tx_hash, txin_pos, False))
 
             for pos, data in enumerate(tx['txOut']):
-                nexttx, nextpos = None, None  # XXX need to index txin.txout_id?
+                if redeemed.get(pos):
+                    # XXX would be nice to report on multiple redeeming txins, if they exist.
+                    nexttx, nextpos, in_longest = redeemed[pos][0]
+                    nexttx = nexttx[::-1].encode('hex')
+                else:
+                    nexttx, nextpos, in_longest = None, None, False
                 txout = {
                     'pos': pos,
                     'binscript': data['scriptPubKey'],
                     'value': data['value'],
                     'o_hash': nexttx,
                     'o_pos': nextpos,
+                    'o_in_longest': in_longest,
                     }
                 tx['value_out'] += txout['value']
                 store._export_scriptPubKey(txout, chain, data['scriptPubKey'])
@@ -2388,6 +2421,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             """, (tx_id,)))
 
             # XXX Only one outer join needed.
+            # XXX Wrong if nexttx yields more than one row.
             tx['out'] = map(parse_row, store.selectall("""
                 SELECT
                     txout.txout_pos,
