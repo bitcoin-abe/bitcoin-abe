@@ -2611,7 +2611,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             def parse_escrow_in(row):  return parse_row(True, 'escrow', *row)
             def parse_escrow_out(row): return parse_row(False, 'escrow', *row)
 
-            def get_received(escrow):
+            def get_sent_from_address(escrow):
                 return store.selectall("""
                     SELECT
                         b.block_nTime,
@@ -2637,7 +2637,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                               if max_rows < 0 else
                               (dbhash, max_rows + 1))
 
-            def get_sent(escrow):
+            def get_received_by_address(escrow):
                 return store.selectall("""
                     SELECT
                         b.block_nTime,
@@ -2663,23 +2663,23 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                               (dbhash,))
 
             if 'direct' in types:
-                in_rows = get_received(False)
+                in_rows = get_sent_from_address(False)
                 if len(in_rows) > max_rows >= 0:
                     return None  # XXX Could still show address basic data.
                 txpoints += map(parse_direct_in, in_rows)
 
-                out_rows = get_sent(False)
+                out_rows = get_received_by_address(False)
                 if len(out_rows) > max_rows >= 0:
                     return None
                 txpoints += map(parse_direct_out, out_rows)
 
             if 'escrow' in types:
-                in_rows = get_received(True)
+                in_rows = get_sent_from_address(True)
                 if len(in_rows) > max_rows >= 0:
                     return None
                 txpoints += map(parse_escrow_in, in_rows)
 
-                out_rows = get_sent(True)
+                out_rows = get_received_by_address(True)
                 if len(out_rows) > max_rows >= 0:
                     return None
                 txpoints += map(parse_escrow_out, out_rows)
