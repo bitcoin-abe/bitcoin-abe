@@ -122,12 +122,15 @@ NETHASH_SVG_TEMPLATE = """\
 <svg xmlns="http://www.w3.org/2000/svg"
      xmlns:xlink="http://www.w3.org/1999/xlink"
      xmlns:abe="http://abe.bit/abe"
-     viewBox="0 0 1 100"
+     viewBox="0 0 300 200"
      preserveAspectRatio="none"
      onload="Abe.draw(this)">
 
   <style>
-    #chart polyline { stroke-width: 0.1%%; fill-opacity: 0; }
+    #chart polyline {
+        stroke-width: 0.1%%;
+        fill-opacity: 0;
+        stroke-opacity: 0.5;
   </style>
 
   <script type="application/ecmascript"
@@ -1496,6 +1499,7 @@ class Abe:
 
         elif fmt == "svg":
             page['template'] = NETHASH_SVG_TEMPLATE
+            page['template_vars']['block_time'] = 600;  # XXX BTC-specific
             ret = ""
 
         else:
@@ -1536,8 +1540,8 @@ class Abe:
                             difficulty, work, chain_work])
 
                 elif fmt == "svg":
-                    ret += '<abe:nethash t="%d" d="%.3f"' \
-                        ' w="%d"/>\n' % (nTime, difficulty, interval_work)
+                    ret += '<abe:nethash t="%d" d="%d"' \
+                        ' w="%d"/>\n' % (nTime, work, interval_work)
 
             prev_nTime, prev_chain_work = nTime, chain_work
 

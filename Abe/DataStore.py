@@ -16,15 +16,17 @@
 # License along with this program.  If not, see
 # <http://www.gnu.org/licenses/agpl.html>.
 
-# This module combines four functions that might be better split up:
-# 1. A feature-detecting, SQL-transforming database abstraction layer
-# 2. Abe's schema
-# 3. Abstraction over the schema for importing blocks, etc.
-# 4. Code to load data by scanning blockfiles or using JSON-RPC.
+# This module combines three functions that might be better split up:
+# 1. Abe's schema
+# 2. Abstraction over the schema for importing blocks, etc.
+# 3. Code to load data by scanning blockfiles or using JSON-RPC.
 
 import os
 import re
 import errno
+import logging
+
+import SqlAbstraction
 
 import Chain
 
@@ -32,10 +34,10 @@ import Chain
 import BCDataStream
 import deserialize
 import util
-import logging
 import base58
 
-SCHEMA_VERSION = "Abe38"
+SCHEMA_TYPE = "Abe"
+SCHEMA_VERSION = SCHEMA_TYPE + "39"
 
 CONFIG_DEFAULTS = {
     "dbtype":             None,
@@ -109,7 +111,7 @@ class MalformedAddress(ValueError):
 class DataStore(object):
 
     """
-    Bitcoin data storage class based on DB-API 2 and SQL1992 with
+    Bitcoin data storage class based on DB-API 2 and standard SQL with
     workarounds to support SQLite3, PostgreSQL/psycopg2, MySQL,
     Oracle, ODBC, and IBM DB2.
     """
@@ -135,24 +137,32 @@ class DataStore(object):
 
         store.args = args
         store.log = logging.getLogger(__name__)
-        store.sqllog = logging.getLogger(__name__ + ".sql")
-        if not args.log_sql:
-            store.sqllog.setLevel(logging.ERROR)
+
         store.rpclog = logging.getLogger(__name__ + ".rpc")
         if not args.log_rpc:
             store.rpclog.setLevel(logging.ERROR)
 
         if args.dbtype is None:
             store.log.warn("dbtype not configured, see abe.conf for examples");
-            store.module = None
+            store.dbmodule = None
             store.config = CONFIG_DEFAULTS.copy()
             store.datadirs = []
             store.use_firstbits = CONFIG_DEFAULTS['use_firstbits']
             return
+        store.dbmodule = __import__(args.dbtype)
 
-        store.module = __import__(args.dbtype)
-        store.auto_reconnect = False
-        store.init_conn()
+        sql_args = lambda: 1
+        sql_args.module = store.dbmodule
+        sql_args.connect_args = args.connect_args
+        sql_args.binary_type = args.binary_type
+        sql_args.int_type = args.int_type
+        sql_args.log_sql = args.log_sql
+        sql_args.prefix = "abe_"
+        sql_args.config = {}
+        store.sql_args = sql_args
+        store.set_db(None)
+        store.init_sql()
+
         store._blocks = {}
 
         # Read the CONFIG and CONFIGVAR tables if present.
@@ -169,20 +179,20 @@ class DataStore(object):
 
         if store.config is None:
             store.initialize()
-        elif store.config['schema_version'] == SCHEMA_VERSION:
-            pass
-        elif args.upgrade:
-            store._set_sql_flavour()
-            import upgrade
-            upgrade.upgrade_schema(store)
         else:
-            raise Exception(
-                "Database schema version (%s) does not match software"
-                " (%s).  Please run with --upgrade to convert database."
-                % (store.config['schema_version'], SCHEMA_VERSION))
+            store.init_sql()
 
-        store._set_sql_flavour()
-        store.auto_reconnect = True
+            if store.config['schema_version'] == SCHEMA_VERSION:
+                pass
+            elif args.upgrade:
+                import upgrade
+                upgrade.upgrade_schema(store)
+            else:
+                raise Exception(
+                    "Database schema version (%s) does not match software"
+                    " (%s).  Please run with --upgrade to convert database."
+                    % (store.config['schema_version'], SCHEMA_VERSION))
+        store._sql.auto_reconnect = True
 
         if args.rescan:
             store.sql("UPDATE datadir SET blkfile_number=1, blkfile_offset=0")
@@ -208,84 +218,89 @@ class DataStore(object):
 
         store.default_loader = args.default_loader
 
-        if store.in_transaction:
-            store.commit()
+        store.commit()
 
+    def set_db(store, db):
+        store._sql = db
 
-    def init_conn(store):
-        store.conn = store.connect()
-        store.cursor = store.conn.cursor()
-        store.in_transaction = False
+    def get_db(store):
+        return store._sql
 
     def connect(store):
-        cargs = store.args.connect_args
-
-        if cargs is None:
-            conn = store.module.connect()
-        else:
-            try:
-                conn = store._connect(cargs)
-            except UnicodeError:
-                # Perhaps this driver needs its strings encoded.
-                # Python's default is ASCII.  Let's try UTF-8, which
-                # should be the default anyway.
-                #import locale
-                #enc = locale.getlocale()[1] or locale.getdefaultlocale()[1]
-                enc = 'UTF-8'
-                def to_utf8(obj):
-                    if isinstance(obj, dict):
-                        for k in obj.keys():
-                            obj[k] = to_utf8(obj[k])
-                    if isinstance(obj, list):
-                        return map(to_utf8, obj)
-                    if isinstance(obj, unicode):
-                        return obj.encode(enc)
-                    return obj
-                conn = store._connect(to_utf8(cargs))
-                store.log.info("Connection required conversion to UTF-8")
-
-        return conn
-
-    def _connect(store, cargs):
-        if isinstance(cargs, dict):
-            if ""  in cargs:
-                cargs = cargs.copy()
-                nkwargs = cargs[""]
-                del(cargs[""])
-                if isinstance(nkwargs, list):
-                    return store.module.connect(*nkwargs, **cargs)
-                return store.module.connect(nkwargs, **cargs)
-            else:
-                return store.module.connect(**cargs)
-        if isinstance(cargs, list):
-            return store.module.connect(*cargs)
-        return store.module.connect(cargs)
+        return store._sql.connect()
 
     def reconnect(store):
-        store.log.info("Reconnecting to database.")
-        try:
-            store.cursor.close()
-        except Exception:
-            pass
-        try:
-            store.conn.close()
-        except Exception:
-            pass
-        store.init_conn()
+        return store._sql.reconnect()
+
+    def close(store):
+        store._sql.close()
+
+    def commit(store):
+        store._sql.commit()
+
+    def rollback(store):
+        store._sql.rollback()
+
+    def sql(store, stmt, params=()):
+        store._sql.sql(stmt, params)
+
+    def ddl(store, stmt):
+        store._sql.ddl(stmt)
+
+    def selectrow(store, stmt, params=()):
+        return store._sql.selectrow(stmt, params)
+
+    def selectall(store, stmt, params=()):
+        return store._sql.selectall(stmt, params)
+
+    def rowcount(store):
+        return store._sql.rowcount()
+
+    def create_sequence(store, key):
+        store._sql.create_sequence(key)
+
+    def drop_sequence(store, key):
+        store._sql.drop_sequence(key)
+
+    def new_id(store, key):
+        return store._sql.new_id(key)
+
+    def init_sql(store):
+        sql_args = store.sql_args
+        if hasattr(store, 'config'):
+            for name in store.config.keys():
+                if name.startswith('sql.'):
+                    sql_args.config[name[len('sql.'):]] = store.config[name]
+        if store._sql:
+            store._sql.close()  # XXX Could just set_flavour.
+        store.set_db(SqlAbstraction.SqlAbstraction(sql_args))
+        store.init_binfuncs()
+
+    def init_binfuncs(store):
+        store.binin       = store._sql.binin
+        store.binin_hex   = store._sql.binin_hex
+        store.binin_int   = store._sql.binin_int
+        store.binout      = store._sql.binout
+        store.binout_hex  = store._sql.binout_hex
+        store.binout_int  = store._sql.binout_int
+        store.intin       = store._sql.intin
+        store.hashin      = store._sql.revin
+        store.hashin_hex  = store._sql.revin_hex
+        store.hashout     = store._sql.revout
+        store.hashout_hex = store._sql.revout_hex
 
     def _read_config(store):
         # Read table CONFIGVAR if it exists.
         config = {}
         try:
-            store.cursor.execute("""
+            for name, value in store.selectall("""
                 SELECT configvar_name, configvar_value
-                  FROM configvar""")
-            for name, value in store.cursor.fetchall():
+                  FROM configvar"""):
                 config[name] = '' if value is None else value
             if config:
                 return config
 
-        except store.module.DatabaseError:
+        except store.dbmodule.DatabaseError:
             try:
                 store.rollback()
             except Exception:
@@ -293,11 +308,10 @@ class DataStore(object):
 
         # Read legacy table CONFIG if it exists.
         try:
-            store.cursor.execute("""
+            row = store.selectrow("""
                 SELECT schema_version, binary_type
                   FROM config
                  WHERE config_id = 1""")
-            row = store.cursor.fetchone()
             sv, btype = row
             return { 'schema_version': sv, 'binary_type': btype }
         except Exception:
@@ -308,346 +322,6 @@ class DataStore(object):
 
         # Return None to indicate no schema found.
         return None
-
-    # Accommodate SQL quirks.
-    def _set_sql_flavour(store):
-        def identity(x):
-            return x
-        transform = identity
-        selectall = store._selectall
-
-        if store.module.paramstyle in ('format', 'pyformat'):
-            transform = store._qmark_to_format(transform)
-        elif store.module.paramstyle == 'named':
-            transform = store._qmark_to_named(transform)
-        elif store.module.paramstyle != 'qmark':
-            store.log.warning("Database parameter style is "
-                              "%s, trying qmark", module.paramstyle)
-            pass
-
-        # Binary I/O with the database.
-        # Hashes are a special type; since the protocol treats them as
-        # 256-bit integers and represents them as little endian, we
-        # have to reverse them in hex to satisfy human expectations.
-        def rev(x):
-            return None if x is None else x[::-1]
-        def to_hex(x):
-            return None if x is None else str(x).encode('hex')
-        def from_hex(x):
-            return None if x is None else x.decode('hex')
-        def to_hex_rev(x):
-            return None if x is None else str(x)[::-1].encode('hex')
-        def from_hex_rev(x):
-            return None if x is None else x.decode('hex')[::-1]
-
-        val = store.config.get('binary_type')
-
-        if val in (None, 'str', "binary"):
-            binin       = identity
-            binin_hex   = from_hex
-            binout      = identity
-            binout_hex  = to_hex
-            hashin      = rev
-            hashin_hex  = from_hex
-            hashout     = rev
-            hashout_hex = to_hex
-
-            if val == "binary":
-                transform = store._sql_binary_as_binary(transform)
-
-        elif val in ("buffer", "bytearray", "pg-bytea"):
-            if val == "bytearray":
-                def to_btype(x):
-                    return None if x is None else bytearray(x)
-            else:
-                def to_btype(x):
-                    return None if x is None else buffer(x)
-
-            def to_str(x):
-                return None if x is None else str(x)
-
-            binin       = to_btype
-            binin_hex   = lambda x: to_btype(from_hex(x))
-            binout      = to_str
-            binout_hex  = to_hex
-            hashin      = lambda x: to_btype(rev(x))
-            hashin_hex  = lambda x: to_btype(from_hex(x))
-            hashout     = rev
-            hashout_hex = to_hex
-
-            if val == "pg-bytea":
-                transform = store._sql_binary_as_bytea(transform)
-
-        elif val == "hex":
-            transform = store._sql_binary_as_hex(transform)
-            binin       = to_hex
-            binin_hex   = identity
-            binout      = from_hex
-            binout_hex  = identity
-            hashin      = to_hex_rev
-            hashin_hex  = identity
-            hashout     = from_hex_rev
-            hashout_hex = identity
-
-        else:
-            raise Exception("Unsupported binary-type %s" % (val,))
-
-        val = store.config.get('int_type')
-
-        if val in (None, 'int'):
-            intin = identity
-
-        elif val == 'decimal':
-            import decimal
-            def _intin(x):
-                return None if x is None else decimal.Decimal(x)
-            intin = _intin
-
-        elif val == 'str':
-            def _intin(x):
-                return None if x is None else str(x)
-            intin = _intin
-            # Work around sqlite3's integer overflow.
-            transform = store._approximate_txout(transform)
-
-        else:
-            raise Exception("Unsupported int-type %s" % (val,))
-
-        val = store.config.get('sequence_type')
-        if val in (None, 'update'):
-            new_id = lambda key: store._new_id_update(key)
-            create_sequence = lambda key: store._create_sequence_update(key)
-            drop_sequence = lambda key: store._drop_sequence_update(key)
-
-        elif val == 'mysql':
-            new_id = lambda key: store._new_id_mysql(key)
-            create_sequence = lambda key: store._create_sequence_mysql(key)
-            drop_sequence = lambda key: store._drop_sequence_mysql(key)
-
-        else:
-            create_sequence = lambda key: store._create_sequence(key)
-            drop_sequence = lambda key: store._drop_sequence(key)
-
-            if val == 'oracle':
-                new_id = lambda key: store._new_id_oracle(key)
-            elif val == 'nvf':
-                new_id = lambda key: store._new_id_nvf(key)
-            elif val == 'postgres':
-                new_id = lambda key: store._new_id_postgres(key)
-            elif val == 'db2':
-                new_id = lambda key: store._new_id_db2(key)
-                create_sequence = lambda key: store._create_sequence_db2(key)
-            else:
-                raise Exception("Unsupported sequence-type %s" % (val,))
-
-        # Convert Oracle LOB to str.
-        if hasattr(store.module, "LOB") and isinstance(store.module.LOB, type):
-            def fix_lob(fn):
-                def ret(x):
-                    return None if x is None else fn(str(x))
-                return ret
-            binout = fix_lob(binout)
-            binout_hex = fix_lob(binout_hex)
-
-        val = store.config.get('limit_style')
-        if val in (None, 'native'):
-            pass
-        elif val == 'emulated':
-            selectall = store.emulate_limit(selectall)
-
-        store.sql_transform = transform
-        store.selectall = selectall
-        store._sql_cache = {}
-
-        store.binin       = binin
-        store.binin_hex   = binin_hex
-        store.binout      = binout
-        store.binout_hex  = binout_hex
-        store.hashin      = hashin
-        store.hashin_hex  = hashin_hex
-        store.hashout     = hashout
-        store.hashout_hex = hashout_hex
-
-        # Might reimplement these someday...
-        def binout_int(x):
-            if x is None:
-                return None
-            return int(binout_hex(x), 16)
-        def binin_int(x, bits):
-            if x is None:
-                return None
-            return binin_hex(("%%0%dx" % (bits / 4)) % x)
-        store.binout_int  = binout_int
-        store.binin_int   = binin_int
-
-        store.intin       = intin
-        store.new_id      = new_id
-        store.create_sequence = create_sequence
-        store.drop_sequence = drop_sequence
-
-    def _execute(store, stmt, params):
-        try:
-            store.cursor.execute(stmt, params)
-        except (store.module.OperationalError, store.module.InternalError,
-                store.module.ProgrammingError) as e:
-            if store.in_transaction or not store.auto_reconnect:
-                raise
-
-            store.log.warning("Replacing possible stale cursor: %s", e)
-
-            try:
-                store.reconnect()
-            except Exception:
-                store.log.exception("Failed to reconnect")
-                raise e
-
-            store.cursor.execute(stmt, params)
-
-    def sql(store, stmt, params=()):
-        cached = store._sql_cache.get(stmt)
-        if cached is None:
-            cached = store.sql_transform(stmt)
-            store._sql_cache[stmt] = cached
-        store.sqllog.info("EXEC: %s %s", cached, params)
-        try:
-            store._execute(cached, params)
-        except Exception, e:
-            store.sqllog.info("EXCEPTION: %s", e)
-            raise
-        finally:
-            store.in_transaction = True
-
-    def ddl(store, stmt):
-        if stmt.lstrip().startswith("CREATE TABLE "):
-            stmt += store.config['create_table_epilogue']
-        stmt = store._sql_fallback_to_lob(store.sql_transform(stmt))
-        store.sqllog.info("DDL: %s", stmt)
-        try:
-            store.cursor.execute(stmt)
-        except Exception, e:
-            store.sqllog.info("EXCEPTION: %s", e)
-            raise
-        if store.config['ddl_implicit_commit'] == 'false':
-            store.commit()
-        else:
-            store.in_transaction = False
-
-    # Convert standard placeholders to Python "format" style.
-    def _qmark_to_format(store, fn):
-        def ret(stmt):
-            # XXX Simplified by assuming no literals contain "?".
-            return fn(stmt.replace('%', '%%').replace("?", "%s"))
-        return ret
-
-    # Convert standard placeholders to Python "named" style.
-    def _qmark_to_named(store, fn):
-        def ret(stmt):
-            i = [0]
-            def newname(m):
-                i[0] += 1
-                return ":p%d" % (i[0],)
-            # XXX Simplified by assuming no literals contain "?".
-            return fn(re.sub("\\?", newname, stmt))
-        return ret
-
-    # Convert the standard BIT type to a hex string for databases
-    # and drivers that don't support BIT.
-    def _sql_binary_as_hex(store, fn):
-        patt = re.compile("BIT((?: VARYING)?)\\(([0-9]+)\\)")
-        def fixup(match):
-            # XXX This assumes no string literals match.
-            return (("VARCHAR(" if match.group(1) else "CHAR(") +
-                    str(int(match.group(2)) / 4) + ")")
-        def ret(stmt):
-            # XXX This assumes no string literals match.
-            return fn(patt.sub(fixup, stmt).replace("X'", "'"))
-        return ret
-
-    # Convert the standard BIT type to a binary string for databases
-    # and drivers that don't support BIT.
-    def _sql_binary_as_binary(store, fn):
-        patt = re.compile("BIT((?: VARYING)?)\\(([0-9]+)\\)")
-        def fixup(match):
-            # XXX This assumes no string literals match.
-            return (("VARBINARY(" if match.group(1) else "BINARY(") +
-                    str(int(match.group(2)) / 8) + ")")
-        def ret(stmt):
-            # XXX This assumes no string literals match.
-            return fn(patt.sub(fixup, stmt))
-        return ret
-
-    # Convert the standard BIT type to the PostgreSQL BYTEA type.
-    def _sql_binary_as_bytea(store, fn):
-        type_patt = re.compile("BIT((?: VARYING)?)\\(([0-9]+)\\)")
-        lit_patt = re.compile("X'((?:[0-9a-fA-F][0-9a-fA-F])*)'")
-        def fix_type(match):
-            # XXX This assumes no string literals match.
-            return "BYTEA"
-        def fix_lit(match):
-            ret = "'"
-            for i in match.group(1).decode('hex'):
-                ret += r'\\%03o' % ord(i)
-            ret += "'::bytea"
-            return ret
-        def ret(stmt):
-            stmt = type_patt.sub(fix_type, stmt)
-            stmt = lit_patt.sub(fix_lit, stmt)
-            return fn(stmt)
-        return ret
-
-    # Converts VARCHAR types that are too long to CLOB or similar.
-    def _sql_fallback_to_lob(store, stmt):
-        try:
-            max_varchar = int(store.config['max_varchar'])
-            clob_type = store.config['clob_type']
-        except Exception:
-            return stmt
-
-        patt = re.compile("VARCHAR\\(([0-9]+)\\)")
-
-        def fixup(match):
-            # XXX This assumes no string literals match.
-            width = int(match.group(1))
-            if width > max_varchar and clob_type != NO_CLOB:
-                return clob_type
-            return "VARCHAR(%d)" % (width,)
-
-        return patt.sub(fixup, stmt)
-
-    def _approximate_txout(store, fn):
-        def ret(stmt):
-            return fn(re.sub(
-                    r'\btxout_value txout_approx_value\b',
-                    'CAST(txout_value AS DOUBLE PRECISION) txout_approx_value',
-                    stmt))
-        return ret
-
-    def emulate_limit(store, selectall):
-        limit_re = re.compile(r"(.*)\bLIMIT\s+(\?|\d+)\s*\Z", re.DOTALL)
-        def ret(stmt, params=()):
-            match = limit_re.match(stmt)
-            if match:
-                if match.group(2) == '?':
-                    n = params[-1]
-                    params = params[:-1]
-                else:
-                    n = int(match.group(2))
-                store.sql(match.group(1), params)
-                return [ store.cursor.fetchone() for i in xrange(n) ]
-            return selectall(stmt, params)
-        return ret
-
-    def selectrow(store, stmt, params=()):
-        store.sql(stmt, params)
-        ret = store.cursor.fetchone()
-        store.sqllog.debug("FETCH: %s", ret)
-        return ret
-
-    def _selectall(store, stmt, params=()):
-        store.sql(stmt, params)
-        ret = store.cursor.fetchall()
-        store.sqllog.debug("FETCHALL: %s", ret)
-        return ret
 
     def _init_datadirs(store):
         """Parse store.args.datadir, create store.datadirs."""
@@ -808,7 +482,7 @@ class DataStore(object):
 
             store.chains_by.id[chain.id] = chain
             store.chains_by.name[chain.name] = chain
-            store.chains_by.magic[chain.magic] = chain
+            store.chains_by.magic[bytes(chain.magic)] = chain
 
     def get_chain_by_id(store, chain_id):
         return store.chains_by.id[int(chain_id)]
@@ -819,124 +493,6 @@ class DataStore(object):
     def get_default_chain(store):
         store.log.debug("Falling back to default (Bitcoin) policy.")
         return Chain.create(None)
-
-    def _new_id_update(store, key):
-        """
-        Allocate a synthetic identifier by updating a table.
-        """
-        while True:
-            row = store.selectrow(
-                "SELECT nextid FROM abe_sequences WHERE sequence_key = ?",
-                (key,))
-            if row is None:
-                raise Exception("Sequence %s does not exist" % (key,))
-
-            ret = row[0]
-            store.sql("UPDATE abe_sequences SET nextid = nextid + 1"
-                      " WHERE sequence_key = ? AND nextid = ?",
-                      (key, ret))
-            if store.cursor.rowcount == 1:
-                return ret
-            store.log.info('Contention on abe_sequences %s:%d', key, ret)
-
-    def _get_sequence_initial_value(store, key):
-        (ret,) = store.selectrow("SELECT MAX(" + key + "_id) FROM " + key)
-        ret = 1 if ret is None else ret + 1
-        return ret
-
-    def _create_sequence_update(store, key):
-        store.commit()
-        ret = store._get_sequence_initial_value(key)
-        try:
-            store.sql("INSERT INTO abe_sequences (sequence_key, nextid)"
-                      " VALUES (?, ?)", (key, ret))
-        except store.module.DatabaseError, e:
-            store.rollback()
-            try:
-                store.ddl(store._ddl['abe_sequences'])
-            except Exception:
-                store.rollback()
-                raise e
-            store.sql("INSERT INTO abe_sequences (sequence_key, nextid)"
-                      " VALUES (?, ?)", (key, ret))
-
-    def _drop_sequence_update(store, key):
-        store.commit()
-        store.sql("DELETE FROM abe_sequences WHERE sequence_key = ?", (key,))
-        store.commit()
-
-    def _new_id_oracle(store, key):
-        (ret,) = store.selectrow("SELECT " + key + "_seq.NEXTVAL FROM DUAL")
-        return ret
-
-    def _create_sequence(store, key):
-        store.ddl("CREATE SEQUENCE %s_seq START WITH %d"
-                  % (key, store._get_sequence_initial_value(key)))
-
-    def _drop_sequence(store, key):
-        store.ddl("DROP SEQUENCE %s_seq" % (key,))
-
-    def _new_id_nvf(store, key):
-        (ret,) = store.selectrow("SELECT NEXT VALUE FOR " + key + "_seq")
-        return ret
-
-    def _new_id_postgres(store, key):
-        (ret,) = store.selectrow("SELECT NEXTVAL('" + key + "_seq')")
-        return ret
-
-    def _create_sequence_db2(store, key):
-        store.commit()
-        try:
-            rows = store.selectall("SELECT 1 FROM abe_dual")
-            if len(rows) != 1:
-                store.sql("INSERT INTO abe_dual(x) VALUES ('X')")
-        except store.module.DatabaseError, e:
-            store.rollback()
-            store.drop_table_if_exists('abe_dual')
-            store.ddl("CREATE TABLE abe_dual (x CHAR(1))")
-            store.sql("INSERT INTO abe_dual(x) VALUES ('X')")
-            store.log.info("Created silly table abe_dual")
-        store._create_sequence(key)
-
-    def _new_id_db2(store, key):
-        (ret,) = store.selectrow("SELECT NEXTVAL FOR " + key + "_seq"
-                                 " FROM abe_dual")
-        return ret
-
-    def _create_sequence_mysql(store, key):
-        store.ddl("CREATE TABLE %s_seq (id BIGINT AUTO_INCREMENT PRIMARY KEY)"
-                  " AUTO_INCREMENT=%d"
-                  % (key, store._get_sequence_initial_value(key)))
-
-    def _drop_sequence_mysql(store, key):
-        store.ddl("DROP TABLE %s_seq" % (key,))
-
-    def _new_id_mysql(store, key):
-        store.sql("INSERT INTO " + key + "_seq () VALUES ()")
-        (ret,) = store.selectrow("SELECT LAST_INSERT_ID()")
-        if ret % 1000 == 0:
-            store.sql("DELETE FROM " + key + "_seq WHERE id < ?", (ret,))
-        return ret
-
-    def commit(store):
-        store.sqllog.info("COMMIT")
-        store.conn.commit()
-        store.in_transaction = False
-
-    def rollback(store):
-        if store.module is None:
-            return
-        store.sqllog.info("ROLLBACK")
-        try:
-            store.conn.rollback()
-            store.in_transaction = False
-        except store.module.OperationalError, e:
-            store.log.warning("Reconnecting after rollback error: %s", e)
-            store.reconnect()
-
-    def close(store):
-        store.sqllog.info("CLOSE")
-        store.conn.close()
 
     def get_ddl(store, key):
         return store._ddl[key]
@@ -1062,6 +618,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         """
         Create the database schema.
         """
+        store.config = {}
         store.configure()
 
         for stmt in (
@@ -1079,16 +636,16 @@ store._ddl['configvar'],
 # A block of the type used by Bitcoin.
 """CREATE TABLE block (
     block_id      NUMERIC(14) NOT NULL PRIMARY KEY,
-    block_hash    BIT(256)    UNIQUE NOT NULL,
+    block_hash    BINARY(32)  UNIQUE NOT NULL,
     block_version NUMERIC(10),
-    block_hashMerkleRoot BIT(256),
+    block_hashMerkleRoot BINARY(32),
     block_nTime   NUMERIC(20),
     block_nBits   NUMERIC(10),
     block_nNonce  NUMERIC(10),
     block_height  NUMERIC(14) NULL,
     prev_block_id NUMERIC(14) NULL,
     search_block_id NUMERIC(14) NULL,
-    block_chain_work BIT(""" + str(WORK_BITS) + """),
+    block_chain_work BINARY(""" + str(WORK_BITS / 8) + """),
     block_value_in NUMERIC(30) NULL,
     block_value_out NUMERIC(30),
     block_total_satoshis NUMERIC(26) NULL,
@@ -1109,10 +666,10 @@ store._ddl['configvar'],
 """CREATE TABLE chain (
     chain_id    NUMERIC(10) NOT NULL PRIMARY KEY,
     chain_name  VARCHAR(100) UNIQUE NOT NULL,
-    chain_code3 VARCHAR(4)     NULL,
-    chain_address_version BIT VARYING(800) NOT NULL,
-    chain_script_addr_vers BIT VARYING(800) NULL,
-    chain_magic BIT(32)     NULL,
+    chain_code3 VARCHAR(4)  NULL,
+    chain_address_version VARBINARY(100) NOT NULL,
+    chain_script_addr_vers VARBINARY(100) NULL,
+    chain_magic BINARY(4)     NULL,
     chain_policy VARCHAR(255) NOT NULL,
     chain_decimals NUMERIC(2) NULL,
     chain_last_block_id NUMERIC(14) NULL,
@@ -1140,7 +697,7 @@ store._ddl['configvar'],
 # An orphan block must remember its hashPrev.
 """CREATE TABLE orphan_block (
     block_id      NUMERIC(14) NOT NULL PRIMARY KEY,
-    block_hashPrev BIT(256)   NOT NULL,
+    block_hashPrev BINARY(32) NOT NULL,
     FOREIGN KEY (block_id) REFERENCES block (block_id)
 )""",
 """CREATE INDEX x_orphan_block_hashPrev ON orphan_block (block_hashPrev)""",
@@ -1157,7 +714,7 @@ store._ddl['configvar'],
 # A transaction of the type used by Bitcoin.
 """CREATE TABLE tx (
     tx_id         NUMERIC(26) NOT NULL PRIMARY KEY,
-    tx_hash       BIT(256)    UNIQUE NOT NULL,
+    tx_hash       BINARY(32)  UNIQUE NOT NULL,
     tx_version    NUMERIC(10),
     tx_lockTime   NUMERIC(10),
     tx_size       NUMERIC(10)
@@ -1181,8 +738,8 @@ store._ddl['configvar'],
 # Bitcoin or Testnet address.
 """CREATE TABLE pubkey (
     pubkey_id     NUMERIC(26) NOT NULL PRIMARY KEY,
-    pubkey_hash   BIT(160)    UNIQUE NOT NULL,
-   pubkey        BIT(""" + str(8 * MAX_PUBKEY) + """)    NULL
+    pubkey_hash   BINARY(20)  UNIQUE NOT NULL,
+    pubkey        VARBINARY(""" + str(MAX_PUBKEY) + """) NULL
 )""",
 
 """CREATE TABLE multisig_pubkey (
@@ -1200,7 +757,7 @@ store._ddl['configvar'],
     tx_id         NUMERIC(26) NOT NULL,
     txout_pos     NUMERIC(10) NOT NULL,
     txout_value   NUMERIC(30) NOT NULL,
-    txout_scriptPubKey BIT VARYING(""" + str(8 * MAX_SCRIPT) + """),
+    txout_scriptPubKey VARBINARY(""" + str(MAX_SCRIPT) + """),
     pubkey_id     NUMERIC(26),
     UNIQUE (tx_id, txout_pos),
     FOREIGN KEY (pubkey_id)
@@ -1214,7 +771,7 @@ store._ddl['configvar'],
     tx_id         NUMERIC(26) NOT NULL,
     txin_pos      NUMERIC(10) NOT NULL,
     txout_id      NUMERIC(26)""" + (""",
-    txin_scriptSig BIT VARYING(""" + str(8 * MAX_SCRIPT) + """),
+    txin_scriptSig VARBINARY(""" + str(MAX_SCRIPT) + """),
     txin_sequence NUMERIC(10)""" if store.keep_scriptsig else "") + """,
     UNIQUE (tx_id, txin_pos),
     FOREIGN KEY (tx_id)
@@ -1226,7 +783,7 @@ store._ddl['configvar'],
 # a.k.a. PREVOUT_N.
 """CREATE TABLE unlinked_txin (
     txin_id       NUMERIC(26) NOT NULL PRIMARY KEY,
-    txout_tx_hash BIT(256)    NOT NULL,
+    txout_tx_hash BINARY(32)  NOT NULL,
     txout_pos     NUMERIC(10) NOT NULL,
     FOREIGN KEY (txin_id) REFERENCES txin (txin_id)
 )""",
@@ -1283,7 +840,7 @@ store._ddl['txout_approx'],
                 """CREATE TABLE abe_firstbits (
                     pubkey_id       NUMERIC(26) NOT NULL,
                     block_id        NUMERIC(14) NOT NULL,
-                    address_version BIT VARYING(80) NOT NULL,
+                    address_version VARBINARY(10) NOT NULL,
                     firstbits       VARCHAR(50) NOT NULL,
                     PRIMARY KEY (address_version, pubkey_id, block_id),
                     FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id),
@@ -1349,332 +906,17 @@ store._ddl['txout_approx'],
 
     def version_below(store, vers):
         try:
-            sv = float(store.config['schema_version'].replace('Abe', ''))
+            sv = float(store.config['schema_version'].replace(SCHEMA_TYPE, ''))
         except ValueError:
             return False
-        vers = float(vers.replace('Abe', ''))
+        vers = float(vers.replace(SCHEMA_TYPE, ''))
         return sv < vers
 
     def configure(store):
-        store.config = {}
-
-        store.configure_ddl_implicit_commit()
-        store.configure_create_table_epilogue()
-        store.configure_max_varchar()
-        store.configure_clob_type()
-        store.configure_binary_type()
-        store.configure_int_type()
-        store.configure_sequence_type()
-        store.configure_limit_style()
-
-    def configure_binary_type(store):
-        for val in (
-            ['str', 'bytearray', 'buffer', 'hex', 'pg-bytea', 'binary']
-            if store.args.binary_type is None else
-            [ store.args.binary_type ]):
-
-            store.config['binary_type'] = val
-            store._set_sql_flavour()
-            if store._test_binary_type():
-                store.log.info("binary_type=%s", val)
-                return
-        raise Exception(
-            "No known binary data representation works"
-            if store.args.binary_type is None else
-            "Binary type " + store.args.binary_type + " fails test")
-
-    def configure_int_type(store):
-        for val in (
-            ['int', 'decimal', 'str']
-            if store.args.int_type is None else
-            [ store.args.int_type ]):
-            store.config['int_type'] = val
-            store._set_sql_flavour()
-            if store._test_int_type():
-                store.log.info("int_type=%s", val)
-                return
-        raise Exception("No known large integer representation works")
-
-    def configure_sequence_type(store):
-        for val in ['oracle', 'postgres', 'nvf', 'db2', 'mysql', 'update']:
-            store.config['sequence_type'] = val
-            store._set_sql_flavour()
-            if store._test_sequence_type():
-                store.log.info("sequence_type=%s", val)
-                return
-        raise Exception("No known sequence type works")
-
-    def _drop_if_exists(store, otype, name):
-        try:
-            store.sql("DROP " + otype + " " + name)
-            store.commit()
-        except store.module.DatabaseError:
-            store.rollback()
-
-    def drop_table_if_exists(store, obj):
-        store._drop_if_exists("TABLE", obj)
-    def drop_view_if_exists(store, obj):
-        store._drop_if_exists("VIEW", obj)
-
-    def drop_sequence_if_exists(store, key):
-        try:
-            store.drop_sequence(key)
-        except store.module.DatabaseError:
-            store.rollback()
-
-    def drop_column_if_exists(store, table, column):
-        try:
-            store.ddl("ALTER TABLE " + table + " DROP COLUMN " + column)
-        except store.module.DatabaseError:
-            store.rollback()
-
-    def configure_ddl_implicit_commit(store):
-        if 'create_table_epilogue' not in store.config:
-            store.config['create_table_epilogue'] = ''
-        for val in ['true', 'false']:
-            store.config['ddl_implicit_commit'] = val
-            store._set_sql_flavour()
-            if store._test_ddl():
-                store.log.info("ddl_implicit_commit=%s", val)
-                return
-        raise Exception("Can not test for DDL implicit commit.")
-
-    def _test_ddl(store):
-        """Test whether DDL performs implicit commit."""
-
-        store.drop_table_if_exists("abe_test_1")
-        store.ddl(
-            "CREATE TABLE abe_test_1 ("
-            " abe_test_1_id NUMERIC(12) NOT NULL PRIMARY KEY,"
-            " foo VARCHAR(10))")
-        store.rollback()
-
-        try:
-            store.selectall("SELECT MAX(abe_test_1_id) FROM abe_test_1")
-            return True
-        except store.module.DatabaseError, e:
-            store.rollback()
-            return False
-        except Exception:
-            store.rollback()
-            return False
-        finally:
-            store.drop_table_if_exists("abe_test_1")
-
-    def configure_create_table_epilogue(store):
-        for val in ['', ' ENGINE=InnoDB']:
-            store.config['create_table_epilogue'] = val
-            store._set_sql_flavour()
-            if store._test_transaction():
-                store.log.info("create_table_epilogue='%s'", val)
-                return
-        raise Exception("Can not create a transactional table.")
-
-    def _test_transaction(store):
-        """Test whether CREATE TABLE needs ENGINE=InnoDB for rollback."""
-        store.drop_table_if_exists("abe_test_1")
-        try:
-            store.ddl(
-                "CREATE TABLE abe_test_1 (a NUMERIC(12))")
-            store.sql("INSERT INTO abe_test_1 (a) VALUES (4)")
-            store.commit()
-            store.sql("INSERT INTO abe_test_1 (a) VALUES (5)")
-            store.rollback()
-            data = [int(row[0]) for row in store.selectall(
-                    "SELECT a FROM abe_test_1")]
-            return data == [4]
-        except store.module.DatabaseError, e:
-            store.rollback()
-            return False
-        except Exception, e:
-            store.rollback()
-            return False
-        finally:
-            store.drop_table_if_exists("abe_test_1")
-
-    def configure_max_varchar(store):
-        """Find the maximum VARCHAR width, up to 0xffffffff"""
-        lo = 0
-        hi = 1 << 32
-        mid = hi - 1
-        store.config['max_varchar'] = str(mid)
-        store.drop_table_if_exists("abe_test_1")
-        while True:
-            store.drop_table_if_exists("abe_test_1")
-            try:
-                store.ddl("""CREATE TABLE abe_test_1
-                           (a VARCHAR(%d), b VARCHAR(%d))""" % (mid, mid))
-                store.sql("INSERT INTO abe_test_1 (a, b) VALUES ('x', 'y')")
-                row = store.selectrow("SELECT a, b FROM abe_test_1")
-                if [x for x in row] == ['x', 'y']:
-                    lo = mid
-                else:
-                    hi = mid
-            except store.module.DatabaseError, e:
-                store.rollback()
-                hi = mid
-            except Exception, e:
-                store.rollback()
-                hi = mid
-            if lo + 1 == hi:
-                store.config['max_varchar'] = str(lo)
-                store.log.info("max_varchar=%s", store.config['max_varchar'])
-                break
-            mid = (lo + hi) / 2
-        store.drop_table_if_exists("abe_test_1")
-
-    def configure_clob_type(store):
-        """Find the name of the CLOB type, if any."""
-        long_str = 'x' * 10000
-        store.drop_table_if_exists("abe_test_1")
-        for val in ['CLOB', 'LONGTEXT', 'TEXT', 'LONG']:
-            try:
-                store.ddl("CREATE TABLE abe_test_1 (a %s)" % (val,))
-                store.sql("INSERT INTO abe_test_1 (a) VALUES (?)",
-                          (store.binin(long_str),))
-                out = store.selectrow("SELECT a FROM abe_test_1")[0]
-                if store.binout(out) == long_str:
-                    store.config['clob_type'] = val
-                    store.log.info("clob_type=%s", val)
-                    return
-                else:
-                    store.log.debug("out=%s", repr(out))
-            except store.module.DatabaseError, e:
-                store.rollback()
-            except Exception, e:
-                try:
-                    store.rollback()
-                except Exception:
-                    # Fetching a CLOB really messes up Easysoft ODBC Oracle.
-                    store.reconnect()
-            finally:
-                store.drop_table_if_exists("abe_test_1")
-        store.log.info("No native type found for CLOB.")
-        store.config['clob_type'] = NO_CLOB
-
-    def _test_binary_type(store):
-        store.drop_table_if_exists("abe_test_1")
-        try:
-            store.ddl(
-                "CREATE TABLE abe_test_1 (test_id NUMERIC(2) NOT NULL PRIMARY KEY,"
-                " test_bit BIT(256), test_varbit BIT VARYING(" + str(8 * MAX_SCRIPT) + "))")
-            val = str(''.join(map(chr, range(0, 256, 8))))
-            store.sql("INSERT INTO abe_test_1 (test_id, test_bit, test_varbit)"
-                      " VALUES (?, ?, ?)",
-                      (1, store.hashin(val), store.binin(val)))
-            (bit, vbit) = store.selectrow(
-                "SELECT test_bit, test_varbit FROM abe_test_1")
-            if store.hashout(bit) != val:
-                return False
-            if store.binout(vbit) != val:
-                return False
-            return True
-        except store.module.DatabaseError, e:
-            store.rollback()
-            return False
-        except Exception, e:
-            store.rollback()
-            return False
-        finally:
-            store.drop_table_if_exists("abe_test_1")
-
-    def _test_int_type(store):
-        store.drop_view_if_exists("abe_test_v1")
-        store.drop_table_if_exists("abe_test_1")
-        try:
-            store.ddl(
-                """CREATE TABLE abe_test_1 (test_id NUMERIC(2) NOT NULL PRIMARY KEY,
-                 txout_value NUMERIC(30), i2 NUMERIC(20))""")
-            store.ddl(
-                """CREATE VIEW abe_test_v1 AS SELECT test_id,
-                 txout_value txout_approx_value, txout_value i1, i2
-                 FROM abe_test_1""")
-            v1 = 2099999999999999
-            v2 = 1234567890
-            store.sql("INSERT INTO abe_test_1 (test_id, txout_value, i2)"
-                      " VALUES (?, ?, ?)",
-                      (1, store.intin(v1), v2))
-            store.commit()
-            prod, o1 = store.selectrow(
-                "SELECT txout_approx_value * i2, i1 FROM abe_test_v1")
-            prod = int(prod)
-            o1 = int(o1)
-            if prod < v1 * v2 * 1.0001 and prod > v1 * v2 * 0.9999 and o1 == v1:
-                v3 = 9226543405000000000L
-                store.sql("""INSERT INTO abe_test_1 (test_id, txout_value)
-                           VALUES (2, ?)""", (store.intin(v3),))
-                (v3o,) = store.selectrow("SELECT txout_value FROM abe_test_1"
-                                         " WHERE test_id = 2")
-                return abs(float(int(v3o)) / v3 - 1.0) < 0.0001
-            return False
-        except store.module.DatabaseError, e:
-            store.rollback()
-            return False
-        except Exception, e:
-            store.rollback()
-            return False
-        finally:
-            store.drop_view_if_exists("abe_test_v1")
-            store.drop_table_if_exists("abe_test_1")
-
-    def _test_sequence_type(store):
-        store.drop_table_if_exists("abe_test_1")
-        store.drop_sequence_if_exists("abe_test_1")
-
-        try:
-            store.ddl(
-                """CREATE TABLE abe_test_1 (
-                    abe_test_1_id NUMERIC(12) NOT NULL PRIMARY KEY,
-                    foo VARCHAR(10))""")
-            store.create_sequence('abe_test_1')
-            id1 = store.new_id('abe_test_1')
-            id2 = store.new_id('abe_test_1')
-            if int(id1) != int(id2):
-                return True
-            return False
-        except store.module.DatabaseError, e:
-            store.rollback()
-            return False
-        except Exception, e:
-            store.rollback()
-            return False
-        finally:
-            store.drop_table_if_exists("abe_test_1")
-            try:
-                store.drop_sequence("abe_test_1")
-            except store.module.DatabaseError:
-                store.rollback()
-
-    def configure_limit_style(store):
-        for val in ['native', 'emulated']:
-            store.config['limit_style'] = val
-            store._set_sql_flavour()
-            if store._test_limit_style():
-                store.log.info("limit_style=%s", val)
-                return
-        raise Exception("Can not emulate LIMIT.")
-
-    def _test_limit_style(store):
-        store.drop_table_if_exists("abe_test_1")
-        try:
-            store.ddl(
-                """CREATE TABLE abe_test_1 (
-                    abe_test_1_id NUMERIC(12) NOT NULL PRIMARY KEY)""")
-            for id in (2, 4, 6, 8):
-                store.sql("INSERT INTO abe_test_1 (abe_test_1_id) VALUES (?)",
-                          (id,))
-            rows = store.selectall(
-                """SELECT abe_test_1_id FROM abe_test_1 ORDER BY abe_test_1_id
-                    LIMIT 3""")
-            return [int(row[0]) for row in rows] == [2, 4, 6]
-        except store.module.DatabaseError, e:
-            store.rollback()
-            return False
-        except Exception, e:
-            store.rollback()
-            return False
-        finally:
-            store.drop_table_if_exists("abe_test_1")
+        config = store._sql.configure()
+        store.init_binfuncs()
+        for name in config.keys():
+            store.config['sql.' + name] = config[name]
 
     def save_config(store):
         store.config['schema_version'] = SCHEMA_VERSION
@@ -1684,7 +926,7 @@ store._ddl['txout_approx'],
     def save_configvar(store, name):
         store.sql("UPDATE configvar SET configvar_value = ?"
                   " WHERE configvar_name = ?", (store.config[name], name))
-        if store.cursor.rowcount == 0:
+        if store.rowcount() == 0:
             store.sql("INSERT INTO configvar (configvar_name, configvar_value)"
                       " VALUES (?, ?)", (name, store.config[name]))
 
@@ -1886,7 +1128,7 @@ store._ddl['txout_approx'],
                  store.intin(b['total_ss']),
                  len(b['transactions']), b['search_block_id']))
 
-        except store.module.DatabaseError:
+        except store.dbmodule.DatabaseError:
 
             if store.commit_bytes == 0:
                 # Rollback won't undo any previous changes, since we
@@ -2610,7 +1852,7 @@ store._ddl['txout_approx'],
             tx_id = store.import_tx(tx, is_coinbase, chain)
             store.commit()
 
-        except store.module.DatabaseError:
+        except store.dbmodule.DatabaseError:
             store.rollback()
             # Violation of tx_hash uniqueness?
             tx_id = store.tx_find_id_and_value(tx, is_coinbase)
@@ -3686,7 +2928,7 @@ store._ddl['txout_approx'],
              WHERE datadir_id = ?""",
                   (dircfg['blkfile_number'], store.intin(offset),
                    dircfg['id']))
-        if store.cursor.rowcount == 0:
+        if store.rowcount() == 0:
             store.sql("""
                 INSERT INTO datadir (datadir_id, dirname, blkfile_number,
                     blkfile_offset, chain_id)
