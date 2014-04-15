@@ -2952,7 +2952,8 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
 
                         if pubkey_id is None:
                             pubkey_id = new_id
-                            store.sql("INSERT INTO txin (pubkey_id, pubkey_hash) VALUES (?, ?)", (pubkey_id, pubkey_hash))
+                            store.sql("INSERT INTO txin (pubkey_id, pubkey_hash) VALUES (?, ?)",
+                                      (pubkey_id, store.binin(pubkey_hash)))
 
                         store.sql("INSERT INTO multisig_pubkey (multisig_id, pubkey_id) VALUES (?, ?)""",
                                   (multisig_id, pubkey_id))
