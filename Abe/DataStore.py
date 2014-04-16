@@ -2048,11 +2048,21 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             if store.conf_external_tx:
                 if not is_coinbase:
                     txin_id = tx_id + txin['__offset__'] - tx['__offset__']
-                    pubkey_id = txout and txout['pubkey_id']
-                    store.sql("""
-                        INSERT INTO txin (txin_id, tx_id, pubkey_id)
-                        VALUES (?, ?, ?)""",
-                              (txin_id, txout and txout['tx_id'], pubkey_id))
+                    if txout is None:
+                        store.sql("""
+                            INSERT INTO txin (txin_id, tx_hash)
+                            VALUES (?, ?)""",
+                                  (txin_id, store.hashin(txin['prevout_hash'])))
+                    else:
+                        store.sql("""
+                            UPDATE txin SET txin_id = ?
+                             WHERE tx_id = ? AND pubkey_id = ? AND txin_id IS NULL""",
+                                  (txin_id, txout['tx_id'], txout['pubkey_id']))
+                        if store.rowcount() == 0:
+                            store.sql("""
+                                INSERT INTO txin (txin_id, tx_id, pubkey_id)
+                                VALUES (?, ?, ?)""",
+                                      (txin_id, txout['tx_id'], txout['pubkey_id']))
 
             else:
                 txout_id = txout and txout['txout_id']
@@ -2319,10 +2329,15 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             tx_hash = store.hashout(dbhash)
             redeemed = {}
 
-            for (txin_id,) in store.selectall("SELECT txin.txin_id FROM txin WHERE txin.tx_id = ?", (tx_id,)):
+            for (txin_id,) in store.selectall("""
+                SELECT txin_id
+                  FROM txin
+                 WHERE tx_id = ?
+                   AND txin_id IS NOT NULL""", (tx_id,)):
+
                 next_tx_id = store.get_external_txin_tx_id(txin_id)
                 if next_tx_id is None:
-                    store.log.debug("Failed to find tx_id of txin_id %s", txin_id)
+                    store.log.debug("export_tx: Failed to find tx_id of txin_id %s", txin_id)
                     continue
                 next_tx = store.get_external_tx_by_id(next_tx_id, chain)
                 next_tx_hash = chain.transaction_hash(next_tx['__data__'])
@@ -2523,10 +2538,14 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                          WHERE mp.pubkey_id = ?""", (pubkey_id,)):
                         rows.append(('escrow', txin_id, tx_id))
 
+                seen_tx = set()
                 for row_type, txin_id, tx_id in rows:
-                    chain_tx = {}
-
                     if tx_id is not None:
+                        if tx_id in seen_tx:
+                            continue
+                        seen_tx.add(tx_id)
+                        chain_tx = {}
+
                         for chain, nTime, height, blk_hash in get_tx_chains(tx_id):
                             tx = store.get_external_tx_by_id(tx_id, chain)
                             tx['hash'] = chain.transaction_hash(tx['__data__'])
@@ -2557,7 +2576,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                     if txin_id is not None:
                         next_tx_id = store.get_external_txin_tx_id(txin_id)
                         if next_tx_id is None:
-                            store.log.debug("Failed to find tx_id of txin_id %s", txin_id)
+                            store.log.debug("export_address_history: Failed to find tx_id of txin_id %s", txin_id)
                             continue
                         for chain, nTime, height, blk_hash in get_tx_chains(next_tx_id):
                             next_tx = store.get_external_tx_by_id(next_tx_id, chain)
@@ -2572,7 +2591,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                                     value = None
                                 else:
                                     txout = tx['txOut'][txin['prevout_n']]
-                                    value = txout['value']
+                                    value = -txout['value']
 
                                 txpoint = {
                                     'type':     row_type,
