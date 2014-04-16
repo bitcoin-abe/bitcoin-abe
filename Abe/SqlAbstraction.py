@@ -197,6 +197,9 @@ class SqlAbstraction(object):
         transform = sql._fallback_to_lob(transform)
         transform = sql._fallback_to_approximate(transform)
 
+        if sql.config.get('partial_index', 'false') == 'false':
+            transform_stmt = sql._make_partial_indexes_full(transform_stmt)
+
         sql.transform_chunk = transform
         sql.transform_stmt = transform_stmt
         sql.selectall = selectall
@@ -447,6 +450,14 @@ class SqlAbstraction(object):
             return fn(stmt)
         return ret
 
+    def _make_partial_indexes_full(sql, fn):
+        patt = re.compile(r"(\s*CREATE(?:\s+UNIQUE)?\s+INDEX\b(?:[^']+'[^']*')*[^']*)\bWHERE\b.*", re.DOTALL)
+        def ret(stmt):
+            match = patt.match(stmt)
+            sql.log.debug('_make_partial_indexes_full: %s %r', stmt, match)
+            return fn(match.group(1) if match else stmt)
+        return ret
+
     def transform_stmt_cached(sql, stmt):
         cached = sql._cache.get(stmt)
         if cached is None:
@@ -643,6 +654,7 @@ class SqlAbstraction(object):
         sql.configure_int64_type()
         sql.configure_sequence_type()
         sql.configure_limit_style()
+        sql.configure_partial_index()
 
         return sql.config
 
@@ -1001,6 +1013,30 @@ class SqlAbstraction(object):
                 SELECT %stest_1_id FROM %stest_1 ORDER BY %stest_1_id
                  LIMIT 3""" % (sql.prefix, sql.prefix, sql.prefix))
             return [int(row[0]) for row in rows] == [2, 4, 6]
+        except sql.module.DatabaseError as e:
+            sql.rollback()
+            return False
+        except Exception as e:
+            sql.rollback()
+            return False
+        finally:
+            sql.drop_table_if_exists("%stest_1" % sql.prefix)
+
+    def configure_partial_index(sql):
+        for val in ['true', 'false']:
+            sql.config['partial_index'] = val
+            sql._set_flavour()
+            if sql._test_partial_index():
+                sql.log.info("partial_index=%s", val)
+                return
+        raise Exception("Can not create indexes.")
+
+    def _test_partial_index(sql):
+        sql.drop_table_if_exists("%stest_1" % sql.prefix)
+        try:
+            sql.ddl("CREATE TABLE %stest_1 (foo INTEGER)" % (sql.prefix))
+            sql.ddl("CREATE INDEX %sx_test_1 ON %stest_1 (foo) WHERE foo IS NOT NULL" % (sql.prefix, sql.prefix))
+            return True
         except sql.module.DatabaseError as e:
             sql.rollback()
             return False
