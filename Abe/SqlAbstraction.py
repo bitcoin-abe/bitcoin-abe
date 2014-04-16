@@ -454,7 +454,6 @@ class SqlAbstraction(object):
         patt = re.compile(r"(\s*CREATE(?:\s+UNIQUE)?\s+INDEX\b(?:[^']+'[^']*')*[^']*)\bWHERE\b.*", re.DOTALL)
         def ret(stmt):
             match = patt.match(stmt)
-            sql.log.debug('_make_partial_indexes_full: %s %r', stmt, match)
             return fn(match.group(1) if match else stmt)
         return ret
 
