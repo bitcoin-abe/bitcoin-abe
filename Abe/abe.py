@@ -789,7 +789,7 @@ class Abe:
                 or not is_hash_prefix(tx_hash):
             return 'ERROR: Not in correct format'  # BBE compatible
 
-        tx = abe.store.export_tx(tx_hash=tx_hash.lower())
+        tx = abe.store.export_tx(tx_hash=tx_hash.lower(), chain=page['chain'])
         if tx is None:
             return 'ERROR: Transaction does not exist.'  # BBE compatible
         return json.dumps(tx, sort_keys=True, indent=2)
