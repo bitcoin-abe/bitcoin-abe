@@ -2351,8 +2351,8 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                 next_tx_hash = chain.transaction_hash(next_tx['__data__'])
 
                 for txin_pos, txin in enumerate(next_tx['txIn']):
-                    if txin_id == next_tx_id + txin['__offset__'] - next_tx['__offset__'] and \
-                            txin['prevout_hash'] == tx_hash:
+                    this_txin_id = next_tx_id + txin['__offset__'] - next_tx['__offset__']
+                    if txin_id == this_txin_id and txin['prevout_hash'] == tx_hash:
                         in_longest = store.selectrow("""
                             SELECT 1
                               FROM block_tx bt
@@ -2592,7 +2592,8 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                             next_tx_hash = next_tx['hash'][::-1].encode('hex')
 
                             for pos, txin in enumerate(next_tx['txIn']):
-                                if txin_id != next_tx_id + txin['__offset__'] - next_tx['__offset__']:
+                                this_txin_id = next_tx_id + txin['__offset__'] - next_tx['__offset__']
+                                if txin_id != this_txin_id:
                                     continue
                                 tx = chain_tx.get(chain.id)
                                 if tx is None:
@@ -2613,6 +2614,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                                     'value':    value}
                                 if tx is not None:
                                     store._export_scriptPubKey(txpoint, chain, txout['scriptPubKey'])
+                                txpoints.append(txpoint)
 
         else:
             def parse_row(is_out, row_type, nTime, chain_id, height, blk_hash, tx_hash, pos, value, script=None):
