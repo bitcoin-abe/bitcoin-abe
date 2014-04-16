@@ -751,7 +751,6 @@ None if store.conf_external_tx else """CREATE TABLE pubkey (
     pubkey        VARBINARY(""" + str(MAX_PUBKEY) + """) NULL""" if store.conf_pubkey_pubkey else "") + """
 )""",
 
-# XXX Should remove cascades for conf_external_tx since txin.pubkey_id is not unique.
 """CREATE TABLE multisig_pubkey (
     multisig_id   BIGINT NOT NULL,
     pubkey_id     BIGINT NOT NULL""" + ("" if store.conf_external_tx else """,
