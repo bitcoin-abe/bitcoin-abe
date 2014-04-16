@@ -33,9 +33,18 @@ def testdb_params():
         return ['sqlite']
     return ['sqlite', 'mysql', 'postgres']
 
+# XXX
+def ignore_errors(thunk):
+    def doit():
+        try:
+            thunk()
+        except Exception:
+            pass
+    return doit
+
 @pytest.fixture(scope="module")
 def testdb(request, db_server):
-    request.addfinalizer(db_server.dropdb)
+    request.addfinalizer(ignore_errors(db_server.dropdb))
     return db_server
 
 def create_server(dbtype=None):
