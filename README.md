@@ -6,10 +6,10 @@ https://github.com/bitcoin-abe/bitcoin-abe
     Portions Copyright (c) 2010 Gavin Andresen, see bct-LICENSE.txt.
 
 Branch 'small' is an experimental attempt to reduce the database size
-and load time.  As of this writing, it works only with SQLite, only in
-blkfile mode (no RPC loading), and the following API functions do not
-work: addressbalance, getreceivedbyaddress, getsentbyaddress.  I hope
-to fix all of these shortcomings.
+and load time.  As of this writing, it works only in blkfile mode (no
+RPC loading), and the following API functions do not work:
+addressbalance, getreceivedbyaddress, getsentbyaddress.  I hope to fix
+these shortcomings.
 
 Welcome to Abe!
 ===============
