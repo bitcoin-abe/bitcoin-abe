@@ -2935,12 +2935,13 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         def make(datadir_id, blkfile_number, blkfile_offset):
             assert 0 <= datadir_id <= ~(-1 << datadir_id_bits)
             assert 0 <= blkfile_offset <= ~(-1 << blkfile_offset_bits)
-            tx_id = blkfile_number
-            tx_id = (tx_id << datadir_id_bits)     | datadir_id
-            tx_id = (tx_id << blkfile_offset_bits) | blkfile_offset
+            tx_id = int(blkfile_number)
+            tx_id = (tx_id << datadir_id_bits)     | int(datadir_id)
+            tx_id = (tx_id << blkfile_offset_bits) | int(blkfile_offset)
             return tx_id
 
         def parse(tx_id):
+            tx_id = int(tx_id)
             blkfile_offset = tx_id & ~(-1 << blkfile_offset_bits); tx_id >>= blkfile_offset_bits
             datadir_id     = tx_id & ~(-1 << datadir_id_bits)    ; tx_id >>= datadir_id_bits
             blkfile_number = tx_id
