@@ -67,6 +67,7 @@ class DB(object):
         pass
 
     def load(db, *args):
+        db.createdb()
         db.store, argv = Abe.util.CmdLine(db.cmdline + args).init()
         assert len(argv) == 0
         db.store.catch_up()
