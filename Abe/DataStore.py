@@ -1899,6 +1899,9 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                 store.selectall("SELECT txin_id FROM txin WHERE tx_hash = ?", (dbhash,))]
 
             assert len(tx['txOut']) > 0  # need a txout to store tx_hash.
+
+            seen_pubkey = set()
+
         else:
             store.sql("""
                 INSERT INTO tx (tx_id, tx_hash, tx_version, tx_lockTime, tx_size)
@@ -1919,6 +1922,11 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                 txout['script_id'] = tx_id + txout['__script_offset__'] - tx['__offset__']
 
             pubkey_id = store.txout_to_pubkey_id(chain, txout)
+            if pubkey_id is None:
+                new_pubkey = True
+                pubkey_id = txout['pubkey_id']
+            else:
+                new_pubkey = False
 
             if store.conf_external_tx:
                 to_link = [ u[0] for u in unlinked_txins if u[1] == pos ]
@@ -1928,9 +1936,8 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                     # This is the first output, so store tx_hash.
                     if len(to_link) > 0:
                         # This output matches one or more unlinked inputs.  Reuse the first one's row.
-                        if pubkey_id is None:
+                        if new_pubkey:
                             # First sighting of this pubkey, so give it an id.
-                            pubkey_id = txout['pubkey_id']
                             pubkey_hash = txout['pubkey_hash']
                             store.sql("""
                                 UPDATE txin
@@ -1953,13 +1960,13 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                                       (tx_id, pubkey_id, txin_id))
                     else:
                         # No unlinked inputs to link.  Insert tx_hash and a null txin_id.
-                        if pubkey_id is None:
+                        if new_pubkey:
                             # First sighting of this pubkey, so store its hash.
                             pubkey_hash = txout['pubkey_hash']
                             store.sql("""
                                 INSERT INTO txin (tx_id, tx_hash, pubkey_id, pubkey_hash)
                                 VALUES (?, ?, ?, ?)""",
-                                      (tx_id, dbhash, txout['pubkey_id'], store.binin(pubkey_hash)))
+                                      (tx_id, dbhash, pubkey_id, store.binin(pubkey_hash)))
                         else:
                             # Same as above, without pubkey_hash.
                             store.sql("""
@@ -1970,9 +1977,8 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                     # This is not the first output, so do not store tx_hash.
                     if len(to_link) > 0:
                         # This output matches one or more unlinked inputs.  Reuse the first one's row.
-                        if pubkey_id is None:
+                        if new_pubkey:
                             # First sighting of this pubkey, so give it an id.
-                            pubkey_id = txout['pubkey_id']
                             pubkey_hash = txout['pubkey_hash']
                             store.sql("""
                                 UPDATE txin
@@ -1995,19 +2001,23 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                                       (tx_id, pubkey_id, txin_id))
                     else:
                         # No unlinked inputs to link.  Insert tx_hash and a null txin_id.
-                        if pubkey_id is None:
+                        if new_pubkey:
                             # First sighting of this pubkey, so store its hash.
                             pubkey_hash = txout['pubkey_hash']
                             store.sql("""
                                 INSERT INTO txin (tx_id, pubkey_id, pubkey_hash)
                                 VALUES (?, ?, ?)""",
-                                      (tx_id, txout['pubkey_id'], store.binin(pubkey_hash)))
-                        else:
+                                      (tx_id, pubkey_id, store.binin(pubkey_hash)))
+
+                        elif pubkey_id not in seen_pubkey:
                             # This pubkey is not new.  Use the found pubkey_id.
                             store.sql("""
                                 INSERT INTO txin (tx_id, pubkey_id)
                                 VALUES (?, ?)""",
                                       (tx_id, pubkey_id))
+
+                seen_pubkey.add(pubkey_id)
+
             else:
                 if pubkey_id is not None:
                     pubkey_ids.add(pubkey_id)
