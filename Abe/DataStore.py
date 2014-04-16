@@ -1965,7 +1965,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                             store.sql("""
                                 INSERT INTO txin (tx_id, tx_hash, pubkey_id)
                                 VALUES (?, ?, ?)""",
-                                      (tx_id, dbhash, txout['pubkey_id']))
+                                      (tx_id, dbhash, pubkey_id))
                 else:
                     # This is not the first output, so do not store tx_hash.
                     if len(to_link) > 0:
@@ -2003,11 +2003,11 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                                 VALUES (?, ?, ?)""",
                                       (tx_id, txout['pubkey_id'], store.binin(pubkey_hash)))
                         else:
-                            # Same as above, without pubkey_hash.
+                            # This pubkey is not new.  Use the found pubkey_id.
                             store.sql("""
                                 INSERT INTO txin (tx_id, pubkey_id)
                                 VALUES (?, ?)""",
-                                      (tx_id, txout['pubkey_id']))
+                                      (tx_id, pubkey_id))
             else:
                 if pubkey_id is not None:
                     pubkey_ids.add(pubkey_id)
@@ -2991,7 +2991,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
     def get_external_tx_by_dbhash(store, dbhash, chain):
         assert store.conf_external_tx
         row = store.selectrow("SELECT tx_id FROM txin WHERE tx_hash = ?", (dbhash,))
-        if row is None:
+        if row is None or row[0] is None:
             return None
         return store.get_external_tx_by_id(row[0], chain)
 
