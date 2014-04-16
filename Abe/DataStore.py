@@ -2569,7 +2569,8 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                                     if txpoint['binaddr'] != binaddr:
                                         continue
                                 elif row_type == 'escrow':
-                                    if binaddr not in txpoint['subbinaddr']:
+                                    if txpoint['script_type'] != Chain.SCRIPT_TYPE_MULTISIG or \
+                                            binaddr not in txpoint['subbinaddr']:
                                         continue
                                 txpoint.update({
                                     'type':     row_type,
@@ -3076,8 +3077,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             ret = store._pubkey_id(txout['pubkey_hash'], script, txout['pubkey_id'], chain)
             multisig_id = script_id if ret is None else ret
 
-            if ret is not None and \
-                    store.selectrow("SELECT 1 FROM multisig_pubkey WHERE multisig_id = ?", (multisig_id,)) is None:
+            if store.selectrow("SELECT 1 FROM multisig_pubkey WHERE multisig_id = ?", (multisig_id,)) is None:
 
                 ops_id += data['offset']
                 pubkeys_seen = set()
