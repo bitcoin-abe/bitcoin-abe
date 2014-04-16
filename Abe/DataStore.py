@@ -795,13 +795,10 @@ None if store.conf_external_tx else """CREATE INDEX x_txout_pubkey ON txout (pub
 )""",
 None if store.conf_external_tx else """CREATE INDEX x_txin_txout ON txin (txout_id)""",
 """CREATE UNIQUE INDEX x_txin_txin ON txin (txin_id) WHERE txin_id IS NOT NULL""" if store.conf_external_tx else None,
-#"""CREATE UNIQUE INDEX x_txin_txin ON txin (txin_id)""" if store.conf_external_tx else None,
-"""CREATE INDEX x_txin_tx ON txin (tx_id)""" if store.conf_external_tx else None,
-#"""CREATE INDEX x_txin_tx_hash ON txin (tx_hash) WHERE tx_hash IS NOT NULL""" if store.conf_external_tx else None,
-"""CREATE INDEX x_txin_tx_hash ON txin (tx_hash)""" if store.conf_external_tx else None,
-"""CREATE INDEX x_txin_pubkey ON txin (pubkey_id)""" if store.conf_external_tx else None,
-#"""CREATE UNIQUE INDEX x_txin_pubkey_hash ON txin (pubkey_hash) WHERE pubkey_hash IS NOT NULL""" if store.conf_external_tx else None,
-"""CREATE UNIQUE INDEX x_txin_pubkey_hash ON txin (pubkey_hash)""" if store.conf_external_tx else None,
+"""CREATE INDEX x_txin_tx ON txin (tx_id, pubkey_id) WHERE tx_id IS NOT NULL""" if store.conf_external_tx else None,
+"""CREATE INDEX x_txin_tx_hash ON txin (tx_hash) WHERE tx_hash IS NOT NULL""" if store.conf_external_tx else None,
+"""CREATE INDEX x_txin_pubkey ON txin (pubkey_id) WHERE pubkey_id IS NOT NULL""" if store.conf_external_tx else None,
+"""CREATE UNIQUE INDEX x_txin_pubkey_hash ON txin (pubkey_hash) WHERE pubkey_hash IS NOT NULL""" if store.conf_external_tx else None,
 
 # While TXIN.TXOUT_ID can not be found, we must remember TXOUT_POS,
 # a.k.a. PREVOUT_N.
