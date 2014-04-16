@@ -2063,6 +2063,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                             VALUES (?, ?)""",
                                   (txin_id, store.hashin(txin['prevout_hash'])))
                     else:
+                        # XXX This UPDATE is very hot code, at least with SQLite.
                         store.sql("""
                             UPDATE txin SET txin_id = ?
                              WHERE tx_id = ? AND pubkey_id = ? AND txin_id IS NULL""",
