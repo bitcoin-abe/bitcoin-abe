@@ -639,6 +639,7 @@ class SqlAbstraction(object):
             sql.sqllog.info("CLOSE")
             conn.close()
             sql._conn = None
+            sql._cursor = None
 
     def configure(sql, **config):
         sql.config = config
