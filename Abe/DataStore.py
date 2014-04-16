@@ -1672,10 +1672,11 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
 
         if store.conf_external_tx:
             for tx_id, tx_hash in store.selectall("""
-                SELECT tx.tx_id, tx.tx_hash
+                SELECT txin.tx_id, txin.tx_hash
                   FROM block_tx bt
-                  JOIN tx ON (bt.tx_id = tx.tx_id)
+                  JOIN txin ON (bt.tx_id = txin.tx_id)
                  WHERE bt.block_id = ?
+                   AND txin.tx_hash IS NOT NULL
                  ORDER BY bt.tx_pos""", (block_id,)):
 
                 tx = store.get_external_tx_by_id(tx_id, found_chain)
@@ -1705,6 +1706,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                                 tx['value_in'] += txin['value']
                             scriptPubKey = prevout['scriptPubKey']
                         store._export_scriptPubKey(txin, found_chain, scriptPubKey)
+                    block_in += tx['value_in']
 
         else:
             for row in store.selectall("""
