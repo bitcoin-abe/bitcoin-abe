@@ -795,7 +795,7 @@ None if store.conf_external_tx else """CREATE INDEX x_txout_pubkey ON txout (pub
     txin_sequence NUMERIC(10)""" if store.conf_keep_scriptsig and not store.conf_external_tx else "") + """
 )""",
 None if store.conf_external_tx else """CREATE INDEX x_txin_txout ON txin (txout_id)""",
-#"""CREATE UNIQUE INDEX x_txin_txin ON txin (txin_id) WHERE txin_id IS NOT NULL""" if store.conf_external_tx else None,
+"""CREATE UNIQUE INDEX x_txin_txin ON txin (txin_id) WHERE txin_id IS NOT NULL""" if store.conf_external_tx else None,
 #"""CREATE UNIQUE INDEX x_txin_txin ON txin (txin_id)""" if store.conf_external_tx else None,
 """CREATE INDEX x_txin_tx ON txin (tx_id)""" if store.conf_external_tx else None,
 #"""CREATE INDEX x_txin_tx_hash ON txin (tx_hash) WHERE tx_hash IS NOT NULL""" if store.conf_external_tx else None,
