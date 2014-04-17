@@ -933,17 +933,15 @@ class SqlAbstraction(object):
     def _test_intb_type(sql, type, bits):
         sql.drop_table_if_exists("%stest_1" % sql.prefix)
         try:
-            sql.ddl("CREATE TABLE %stest_1 (i1 %s)" % (sql.prefix, type))
+            sql.ddl("CREATE TABLE %stest_1 (i1 %s, i2 %s)" % (sql.prefix, type, type))
             max = (1 << (bits - 1)) - 1
             min = -1 - max
-            sql.sql("INSERT INTO %stest_1 (i1) VALUES (?)" % sql.prefix, (min,))
-            sql.sql("INSERT INTO %stest_1 (i1) VALUES (?)" % sql.prefix, (max,))
+            sql.sql("INSERT INTO %stest_1 (i1, i2) VALUES (?, ?)" % sql.prefix, (min, max))
             sql.commit()
-            rows = sql.selectall("""
-                SELECT i1, -1-i1, i1+1, i1-1
+            got = tuple(sql.selectrow("""
+                SELECT i1, i2, i1+1, -1-i1, -1-i2, i2-1
                   FROM %stest_1
-                 ORDER BY i1""" % sql.prefix)
-            got = (rows[0][0], rows[0][1], rows[0][2], rows[1][0], rows[1][1], rows[1][3])
+                 ORDER BY i1""" % sql.prefix))
             want = (min, max, min+1, max, min, max-1)
             return got == want
         except sql.module.DatabaseError as e:
