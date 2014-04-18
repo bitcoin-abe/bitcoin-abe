@@ -648,16 +648,16 @@ store._ddl['configvar'],
 
 # A block of the type used by Bitcoin.
 """CREATE TABLE block (
-    block_id      NUMERIC(14) NOT NULL PRIMARY KEY,
+    block_id      BIGINT NOT NULL PRIMARY KEY,
     block_hash    BINARY(32)  UNIQUE NOT NULL,
     block_version NUMERIC(10),
     block_hashMerkleRoot BINARY(32),
     block_nTime   NUMERIC(20),
     block_nBits   NUMERIC(10),
     block_nNonce  NUMERIC(10),
-    block_height  NUMERIC(14) NULL,
-    prev_block_id NUMERIC(14) NULL,
-    search_block_id NUMERIC(14) NULL,
+    block_height  BIGINT NULL,
+    prev_block_id BIGINT NULL,
+    search_block_id BIGINT NULL,
     block_chain_work BINARY(""" + str(WORK_BITS / 8) + """),
     block_value_in NUMERIC(30) NULL,
     block_value_out NUMERIC(30),
@@ -683,7 +683,7 @@ store._ddl['configvar'],
     chain_magic BINARY(4)     NULL,
     chain_policy VARCHAR(255) NOT NULL,
     chain_decimals NUMERIC(2) NULL,
-    chain_last_block_id NUMERIC(14) NULL,
+    chain_last_block_id BIGINT NULL,
     FOREIGN KEY (chain_last_block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE SET NULL
 )""",
 
@@ -693,9 +693,9 @@ store._ddl['configvar'],
 # CHAIN.CHAIN_LAST_BLOCK_ID and BLOCK.PREV_BLOCK_ID.
 """CREATE TABLE chain_candidate (
     chain_id      NUMERIC(10) NOT NULL,
-    block_id      NUMERIC(14) NOT NULL,
+    block_id      BIGINT NOT NULL,
     in_longest    NUMERIC(1),
-    block_height  NUMERIC(14),
+    block_height  BIGINT,
     PRIMARY KEY (chain_id, block_id),
     FOREIGN KEY (block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE
 )""",
@@ -706,7 +706,7 @@ store._ddl['configvar'],
 
 # An orphan block must remember its hashPrev.
 """CREATE TABLE orphan_block (
-    block_id      NUMERIC(14) NOT NULL PRIMARY KEY,
+    block_id      BIGINT NOT NULL PRIMARY KEY,
     block_hashPrev BINARY(32) NOT NULL,
     FOREIGN KEY (block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE
 )""",
@@ -714,8 +714,8 @@ store._ddl['configvar'],
 
 # Denormalize the relationship inverse to BLOCK.PREV_BLOCK_ID.
 """CREATE TABLE block_next (
-    block_id      NUMERIC(14) NOT NULL,
-    next_block_id NUMERIC(14) NOT NULL,
+    block_id      BIGINT NOT NULL,
+    next_block_id BIGINT NOT NULL,
     PRIMARY KEY (block_id, next_block_id),
     FOREIGN KEY (block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE,
     FOREIGN KEY (next_block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE
@@ -732,7 +732,7 @@ None if store.conf_external_tx else """CREATE TABLE tx (
 
 # Presence of transactions in blocks is many-to-many.
 """CREATE TABLE block_tx (
-    block_id      NUMERIC(14) NOT NULL,
+    block_id      BIGINT NOT NULL,
     tx_id         BIGINT NOT NULL,
     tx_pos        NUMERIC(10) NOT NULL,
     PRIMARY KEY (block_id, tx_id),
@@ -812,9 +812,9 @@ None if store.conf_external_tx else """CREATE INDEX x_unlinked_txin_outpoint
     ON unlinked_txin (txout_tx_hash, txout_pos)""",
 
 """CREATE TABLE block_txin (
-    block_id      NUMERIC(14) NOT NULL,
+    block_id      BIGINT NOT NULL,
     txin_id       BIGINT NOT NULL,
-    out_block_id  NUMERIC(14) NOT NULL,
+    out_block_id  BIGINT NOT NULL,
     PRIMARY KEY (block_id, txin_id),
     FOREIGN KEY (block_id) REFERENCES block (block_id) ON UPDATE CASCADE ON DELETE CASCADE,
     FOREIGN KEY (txin_id) REFERENCES txin (txin_id) ON UPDATE CASCADE ON DELETE CASCADE,
@@ -865,7 +865,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             store.ddl(
                 """CREATE TABLE abe_firstbits (
                     pubkey_id       BIGINT NOT NULL,
-                    block_id        NUMERIC(14) NOT NULL,
+                    block_id        BIGINT NOT NULL,
                     address_version VARBINARY(10) NOT NULL,
                     firstbits       VARCHAR(50) NOT NULL,
                     PRIMARY KEY (address_version, pubkey_id, block_id)""" + ("" if store.conf_external_tx else """,
