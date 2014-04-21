@@ -25,6 +25,7 @@ import os
 import re
 import errno
 import logging
+from collections import OrderedDict
 
 import SqlAbstraction
 
@@ -226,7 +227,9 @@ class DataStore(object):
             store.clear_mempool()
             store._mempool = {}
             store._mempool_size = 0
-            store._mmap_cache = {}
+            store._mmap_cache = OrderedDict()
+            store.mmap_cache_size = float('inf')  # XXX Should be configurable.
+            store.mmap_cache_used = 0
 
         store.commit()
 
@@ -3051,24 +3054,57 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         txin['txin_id'] = txin_id
         return txin
 
-    def map_blkfile(store, datadir, blkfile_number, blkfile_offset):
+    def map_blkfile(store, datadir, blkfile_number, blkfile_offset, file=None):
         key = (datadir['id'], blkfile_number)
-        entry = store._mmap_cache.get(key)
-        if entry is None:
+        c = store._mmap_cache
+
+        if key in c and file is None:
+            #c.move_to_end(key)  # Python 3.2
+            ds = c.pop(key)
+            c[key] = ds
+            ds.read_cursor = blkfile_offset
+        else:
+
+            def release(ods):
+                store.mmap_cache_used -= len(ods.input)
+                try:
+                    ods.close_file()
+                except Exception as e:
+                    store.log.info("BCDataStream: close_file: %s", e)
+
+            def discard():
+                okey, ods = c.popitem(False)
+                store.log.debug('discarding mmap %s', okey)
+                release(ods)
+
             ds = BCDataStream.BCDataStream()
-            fname = store.blkfile_name(datadir, blkfile_number)
-            file = open(fname, 'rb')
-            # XXX Should free the LRU entry while store.mmap_cache_used + file size > store.mmap_cache_size.
-            # XXX Should catch address space exhaustion in map_file and likewise free old mappings.
-            # XXX Should make catch_up_dir share this cache.
+
+            if file is None:
+                fname = store.blkfile_name(datadir, blkfile_number)
+                file = open(fname, 'rb')
+            else:
+                if key in c:
+                    release(c.pop(key))
+
             try:
-                ds.map_file(file, blkfile_offset)
+                while True:
+                    try:
+                        ds.map_file(file, blkfile_offset)
+                    except mmap.error as e:
+                        if e.errno != errno.ENOMEM or len(c) == 0:
+                            raise
+                        discard()
+                    else:
+                        c[key] = ds
+                        store.mmap_cache_used += len(ds.input)
+                        store.log.debug('created mmap %s', key)
+                        break
             finally:
                 file.close()
-            store._mmap_cache[key] = ds
-        else:
-            ds = entry
-            ds.read_cursor = blkfile_offset
+
+            while store.mmap_cache_used > store.mmap_cache_size:
+                discard()
+
         return ds
 
     def get_external_tx_by_dbhash(store, dbhash, chain):
@@ -3441,7 +3477,6 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         def open_blkfile(number):
             store._refresh_dircfg(dircfg)
             blkfile = {
-                'stream': BCDataStream.BCDataStream(),
                 'name': store.blkfile_name(dircfg, number),
                 'number': number
                 }
@@ -3463,26 +3498,22 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                 file = open(blkfile['name'], "rb")
                 blkfile['number'] = new_number
 
+            def map_it():
+                blkfile['stream'] = store.map_blkfile(dircfg, blkfile['number'], 0, file)
+
             try:
-                blkfile['stream'].map_file(file, 0)
+                map_it()
             except Exception:
                 # mmap can fail on an empty file, but empty files are okay.
                 file.seek(0, os.SEEK_END)
                 if file.tell() == 0:
-                    blkfile['stream'].input = ""
-                    blkfile['stream'].read_cursor = 0
+                    blkfile['stream'] = BCDataStream.BCDataStream()
+                    blkfile['stream'].write(bytes())
                 else:
-                    blkfile['stream'].map_file(file, 0)
-            finally:
-                file.close()
+                    map_it()
+
             store.log.info("Opened %s", blkfile['name'])
             return blkfile
-
-        def try_close_file(ds):
-            try:
-                ds.close_file()
-            except Exception, e:
-                store.log.info("BCDataStream: close_file: %s", e)
 
         try:
             blkfile = open_blkfile(dircfg['blkfile_number'])
@@ -3499,7 +3530,6 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                 store.import_blkdat(dircfg, ds, blkfile['name'])
             except Exception:
                 store.log.warning("Exception at %d" % ds.read_cursor)
-                try_close_file(ds)
                 raise
 
             if next_blkfile is None:
@@ -3517,14 +3547,10 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                         store.log.warning(
                             "Cannot allocate memory for next blockfile: "
                             "skipping safety check")
-                        try_close_file(ds)
                         blkfile = open_blkfile(dircfg['blkfile_number'] + 1)
                         dircfg['blkfile_offset'] = 0
                         continue
                     raise
-                finally:
-                    if next_blkfile is None:
-                        try_close_file(ds)
 
                 # Load any data written to the last file since we checked.
                 store.import_blkdat(dircfg, ds, blkfile['name'])
@@ -3532,7 +3558,6 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                 # Continue with the new file.
                 blkfile = next_blkfile
 
-            try_close_file(ds)
             dircfg['blkfile_offset'] = 0
 
     # Load all blocks from the given data stream.

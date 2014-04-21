@@ -31,11 +31,11 @@ Issue:
 
 or simply run Abe from the directory containing setup.py.
 
-Abe depends on Python 2.7 (or 2.6), the pycrypto package, and an SQL
-database supporting ROLLBACK.  Abe runs on PostgreSQL, MySQL's InnoDB
-engine, and SQLite.  Other SQL databases may work with minor changes.
-Abe formerly ran on some ODBC configurations, Oracle, and IBM DB2, but
-we have not tested to be sure it still works.  See the comments in
+Abe depends on Python 2.7, the pycrypto package, and an SQL database
+supporting ROLLBACK.  Abe runs on PostgreSQL, MySQL's InnoDB engine,
+and SQLite.  Other SQL databases may work with minor changes.  Abe
+formerly ran on some ODBC configurations, Oracle, and IBM DB2, but we
+have not tested to be sure it still works.  See the comments in
 abe.conf about dbtype for configuration examples.
 
 Abe works with files created by the original (Satoshi) Bitcoin client.
