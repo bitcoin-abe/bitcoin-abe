@@ -3660,10 +3660,11 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                         assert 0 <= offset <= 0xffffffff
                         tx['tx_id'] = id_base + offset
 
-                store.import_block(b, chain = chain)
                 if ds.read_cursor != end:
                     store.log.debug("Skipped %d bytes at block end",
                                     end - ds.read_cursor)
+
+                store.import_block(b, chain = chain)
 
             ds.read_cursor = end
 
