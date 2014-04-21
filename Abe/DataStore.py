@@ -3055,7 +3055,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         return txin
 
     def map_blkfile(store, datadir, blkfile_number, blkfile_offset, file=None):
-        key = (datadir['id'], blkfile_number)
+        key = (int(datadir['id']), int(blkfile_number))
         c = store._mmap_cache
 
         if key in c and file is None:
@@ -3093,7 +3093,12 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                     except mmap.error as e:
                         if e.errno != errno.ENOMEM or len(c) == 0:
                             raise
+                        osize = store.mmap_cache_size
                         discard()
+                        if store.mmap_cache_size == float('inf'):
+                            # Leave some room for allocations other than blkfile maps.
+                            store.mmap_cache_size = (osize - 0x8000000) & ~0x7ffffff
+                            store.log.debug('set mmap_cache_size to %dMiB', store.mmap_cache_size >> 20)
                     else:
                         c[key] = ds
                         store.mmap_cache_used += len(ds.input)
@@ -3102,7 +3107,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
             finally:
                 file.close()
 
-            while store.mmap_cache_used > store.mmap_cache_size:
+            while store.mmap_cache_used > store.mmap_cache_size and len(c) > 0:
                 discard()
 
         return ds
