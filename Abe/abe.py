@@ -871,7 +871,7 @@ class Abe:
 
             body += ['<br />\nEscrow']
             for subbinaddr in history['subbinaddr']:
-                body += [' ', hash_to_address_link(chain.address_version, subbinaddr, '', 10) ]
+                body += [' ', hash_to_address_link(chain.address_version, subbinaddr, '../', 10) ]
 
         for chain in chains:
             balance[chain.id] = 0  # Reset for history traversal.
@@ -936,10 +936,11 @@ class Abe:
             return
 
         found = []
+        limit = 100  # XXX hardcoded limit
         if HEIGHT_RE.match(q):      found += abe.search_number(int(q))
         if util.possible_address(q):found += abe.search_address(q)
-        elif ADDR_PREFIX_RE.match(q):found += abe.search_address_prefix(q)
-        if is_hash_prefix(q):       found += abe.search_hash_prefix(q)
+        elif ADDR_PREFIX_RE.match(q):found += abe.search_address_prefix(q, limit)
+        if is_hash_prefix(q):       found += abe.search_hash_prefix(q, limit)
         found += abe.search_general(q)
         abe.show_search_results(page, found)
 
@@ -988,39 +989,29 @@ class Abe:
              ORDER BY c.chain_name, cc.in_longest DESC
         """, (n,)))
 
-    def search_hash_prefix(abe, q, types = ('tx', 'block', 'pubkey')):
+    def search_tx_hash_prefix(abe, q, limit):
+        return [{'name': 'Transaction ' + hash, 'uri': 'tx/' + hash}
+                for hash in abe.store.search_tx_hash_prefix(q, limit)]
+
+    def search_block_hash_prefix(abe, q, limit):
+        return [{'name': 'Block ' + hash, 'uri': 'block/' + hash}
+                for hash in abe.store.search_block_hash_prefix(q, limit)]
+
+    def search_pubkey_hash_prefix(abe, q, limit):
+        return [
+            # XXX Use Bitcoin address version until we implement /pubkey/... for this to link to.
+            abe._found_address(util.hash_to_address('\0', hash.decode('hex')))
+            for hash in abe.store.search_pubkey_hash_prefix(q, limit)
+            ]
+
+    def search_hash_prefix(abe, q, limit):
         q = q.lower()
-        ret = []
-        for t in types:
-            def process(row):
-                if   t == 'tx':    name = 'Transaction'
-                elif t == 'block': name = 'Block'
-                else:
-                    # XXX Use Bitcoin address version until we implement
-                    # /pubkey/... for this to link to.
-                    return abe._found_address(
-                        util.hash_to_address('\0', abe.store.binout(row[0])))
-                hash = abe.store.hashout_hex(row[0])
-                return {
-                    'name': name + ' ' + hash,
-                    'uri': t + '/' + hash,
-                    }
 
-            if t == 'pubkey':
-                if len(q) > 40:
-                    continue
-                lo = abe.store.binin_hex(q + '0' * (40 - len(q)))
-                hi = abe.store.binin_hex(q + 'f' * (40 - len(q)))
-            else:
-                lo = abe.store.hashin_hex(q + '0' * (64 - len(q)))
-                hi = abe.store.hashin_hex(q + 'f' * (64 - len(q)))
-
-            ret += map(process, abe.store.selectall(
-                "SELECT " + t + "_hash FROM " + t + " WHERE " + t +
-                # XXX hardcoded limit.
-                "_hash BETWEEN ? AND ? LIMIT 100",
-                (lo, hi)))
-        return ret
+        # XXX Should pass along chain if given.
+        return (
+            abe.search_tx_hash_prefix(q, limit) +
+            abe.search_block_hash_prefix(q, limit) +
+            abe.search_pubkey_hash_prefix(q, limit))
 
     def _found_address(abe, address):
         return { 'name': 'Address ' + address, 'uri': 'address/' + address }
@@ -1032,7 +1023,7 @@ class Abe:
             return abe.search_address_prefix(address)
         return [abe._found_address(address)]
 
-    def search_address_prefix(abe, ap):
+    def search_address_prefix(abe, ap, limit):
         ret = []
         ones = 0
         for c in ap:
@@ -1052,8 +1043,7 @@ class Abe:
                     return s[:i] + chr(ord(s[i])+1) + ('\0' * (len(s) - i - 1))
             return '\1' + ('\0' * len(s))
 
-        def process(row):
-            hash = abe.store.binout(row[0])
+        def process(hash):
             address = util.hash_to_address(vl, hash)
             if address.startswith(ap):
                 v = vl
@@ -1077,17 +1067,7 @@ class Abe:
                 break
             elif vh != vl and vh != incr_str(vl):
                 continue
-            if hl <= hh:
-                neg = ""
-            else:
-                neg = " NOT"
-                hl, hh = hh, hl
-            bl = abe.store.binin(hl)
-            bh = abe.store.binin(hh)
-            ret += filter(None, map(process, abe.store.selectall(
-                "SELECT pubkey_hash FROM pubkey WHERE pubkey_hash" +
-                # XXX hardcoded limit.
-                neg + " BETWEEN ? AND ? LIMIT 100", (bl, bh))))
+            ret += filter(None, map(process, abe.store.search_pubkey_hash(hl, hh, limit)))
             l -= 1
             al = al[:-1]
             ah = ah[:-1]
@@ -1112,9 +1092,8 @@ class Abe:
     def handle_t(abe, page):
         abe.show_search_results(
             page,
-            abe.search_hash_prefix(
-                b58hex(wsgiref.util.shift_path_info(page['env'])),
-                ('tx',)))
+            abe.search_tx_hash_prefix(
+                b58hex(wsgiref.util.shift_path_info(page['env']))))
 
     def handle_b(abe, page):
         if page.get('chain') is not None:
@@ -1137,9 +1116,8 @@ class Abe:
 
         abe.show_search_results(
             page,
-            abe.search_hash_prefix(
-                shortlink_block(wsgiref.util.shift_path_info(page['env'])),
-                ('block',)))
+            abe.search_block_hash_prefix(
+                shortlink_block(wsgiref.util.shift_path_info(page['env']))))
 
     def handle_a(abe, page):
         arg = wsgiref.util.shift_path_info(page['env'])

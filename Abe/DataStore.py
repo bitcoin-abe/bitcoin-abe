@@ -2752,6 +2752,76 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
 
         return hist
 
+    def search_tx_hash_prefix(store, prefix, max=None):
+        """Return the tx hex hashes that start with prefix."""
+        try:
+            lo, hi = store._hex_prefix_range(prefix, 64)
+        except TypeError:
+            raise MalformedHash()
+        if lo is None:
+            return []
+
+        params, limit = store._search_helper(store.hashin(lo), store.hashin(hi), max)
+
+        return [ store.hashout_hex(hash) for (hash,) in store.selectall("""
+            SELECT DISTINCT tx_hash
+              FROM """ + ("txin" if store.conf_external_tx else "tx") + """
+             WHERE tx_hash BETWEEN ? AND ?""" + limit, params) ]
+
+    def search_block_hash_prefix(store, prefix, max=None):
+        """Return the block hex hashes that start with prefix."""
+        try:
+            lo, hi = store._hex_prefix_range(prefix, 64)
+        except TypeError:
+            raise MalformedHash()
+        if lo is None:
+            return []
+
+        params, limit = store._search_helper(store.hashin(lo), store.hashin(hi), max)
+
+        return [ store.hashout_hex(hash) for (hash,) in store.selectall("""
+            SELECT block_hash
+              FROM block
+             WHERE block_hash BETWEEN ? AND ?""" + limit, params) ]
+
+    def search_pubkey_hash_prefix(store, prefix, max=None):
+        """Return the pubkey hex hashes that start with prefix."""
+        try:
+            lo, hi = store._hex_prefix_range(prefix, 40)
+        except TypeError:
+            raise MalformedHash()
+        if lo is None:
+            return []
+
+        return [hash.encode('hex') for hash in store.search_pubkey_hash(lo, hi, max)]
+
+    def _hex_prefix_range(store, prefix, length):
+        if len(prefix) > length:
+            return None, None
+        lo = prefix + '0' * (length - len(prefix))
+        hi = prefix + 'f' * (length - len(prefix))
+        return (lo.decode('hex'), hi.decode('hex'))
+
+    def search_pubkey_hash(store, lo, hi, max=None):
+        """Return a list of up to max pubkey binary hashes in the range [lo, hi]."""
+        if lo <= hi:
+            neg = ""
+        else:
+            neg = " NOT"
+            lo, hi = hi, lo
+
+        params, limit = store._search_helper(store.binin(lo), store.binin(hi), max)
+
+        return [ store.binout(hash) for (hash,) in store.selectall("""
+            SELECT pubkey_hash
+              FROM """ + ("txin" if store.conf_external_tx else "pubkey") + """
+             WHERE pubkey_hash""" + neg + " BETWEEN ? AND ?" + limit, params) ]
+
+    def _search_helper(store, lo, hi, max):
+        if max is None:
+            return (lo, hi), ""
+        return (lo, hi, max), " LIMIT ?"
+
     # Called to indicate that the given block has the correct magic
     # number and policy for the given chains.  Updates CHAIN_CANDIDATE
     # and CHAIN.CHAIN_LAST_BLOCK_ID as appropriate.
