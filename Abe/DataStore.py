@@ -3053,16 +3053,20 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         return txin
 
     def map_blkfile(store, datadir, blkfile_number, blkfile_offset, file=None):
+        import mmap
         key = (int(datadir['id']), int(blkfile_number))
         c = store._mmap_cache
 
-        if key in c and file is None:
+        if key in c and (file is None or os.fstat(file.fileno()).st_size == len(c[key].input)):
+            if file is not None:
+                file.close()
+
             #c.move_to_end(key)  # Python 3.2
             ds = c.pop(key)
             c[key] = ds
             ds.read_cursor = blkfile_offset
-        else:
 
+        else:
             def release(ods):
                 store.mmap_cache_used -= len(ods.input)
                 try:
@@ -3095,6 +3099,7 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                         discard()
                         if store.mmap_cache_size == float('inf'):
                             # Leave some room for allocations other than blkfile maps.
+                            # XXX Should do this proactively or probe address space size.
                             store.mmap_cache_size = (osize - 0x8000000) & ~0x7ffffff
                             store.log.debug('set mmap_cache_size to %dMiB', store.mmap_cache_size >> 20)
                     else:
