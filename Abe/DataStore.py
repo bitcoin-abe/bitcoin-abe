@@ -3509,6 +3509,8 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                 map_it()
             except Exception:
                 # mmap can fail on an empty file, but empty files are okay.
+                if file.closed:
+                    file = open(blkfile['name'], "rb")
                 file.seek(0, os.SEEK_END)
                 if file.tell() == 0:
                     blkfile['stream'] = BCDataStream.BCDataStream()
