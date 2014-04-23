@@ -3577,6 +3577,10 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
         ds.read_cursor = dircfg['blkfile_offset']
 
         while filenum == dircfg['blkfile_number']:
+
+            # In case loading the last block discarded this file from the cache, refresh it.
+            ds = store.map_blkfile(dircfg, filenum, ds.read_cursor)
+
             if ds.read_cursor + 8 > len(ds.input):
                 break
 
