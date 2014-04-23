@@ -3095,12 +3095,12 @@ None if store.conf_external_tx else store._ddl['txout_approx'],
                     except mmap.error as e:
                         if e.errno != errno.ENOMEM or len(c) == 0:
                             raise
-                        osize = store.mmap_cache_size
+                        used = store.mmap_cache_used
                         discard()
                         if store.mmap_cache_size == float('inf'):
                             # Leave some room for allocations other than blkfile maps.
                             # XXX Should do this proactively or probe address space size.
-                            store.mmap_cache_size = (osize - 0x8000000) & ~0x7ffffff
+                            store.mmap_cache_size = (used - 0x8000000) & ~0x7ffffff
                             store.log.debug('set mmap_cache_size to %dMiB', store.mmap_cache_size >> 20)
                     else:
                         c[key] = ds
