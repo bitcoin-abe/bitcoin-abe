@@ -27,7 +27,7 @@ def commit(store):
     store.log.info("Commit.")
 
 def log_rowcount(store, msg):
-    store.log.info(msg, store.cursor.rowcount)
+    store.log.info(msg, store.rowcount())
 
 def link_txin(store):
     store.log.info(
@@ -211,7 +211,7 @@ def delete_chain_transactions(store, name, chain_id = None):
 
     for tx_id in tx_ids:
         store.sql("DELETE FROM tx WHERE tx_id = ?", (tx_id,))
-        cnt = store.cursor.rowcount
+        cnt = store.rowcount()
 
         if cnt > 0:
             deleted += 1
@@ -238,7 +238,7 @@ def del_chain_blocks_2(store, name, chain_id):
     deleted = 0
     for block_id in block_ids:
         store.sql("DELETE FROM block WHERE block_id = ?", (block_id,))
-        deleted += store.cursor.rowcount
+        deleted += store.rowcount()
     store.log.info("Deleted %d from block.", deleted)
 
     rewind_chain_blockfile(store, name, chain_id)
