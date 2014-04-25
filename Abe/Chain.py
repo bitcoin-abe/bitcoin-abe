@@ -383,6 +383,7 @@ class Bitleu(ScryptJaneChain, PpcPosChain):
         chain.name = 'Bitleu'
         chain.code3 = 'BTL'
         chain.address_version = "\x30"
+        chain.script_addr_vers = '\x1b'
         chain.magic = "\xd9\xe6\xe7\xe5"
         Chain.__init__(chain, **kwargs)
 
