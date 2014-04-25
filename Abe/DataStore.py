@@ -2595,10 +2595,12 @@ store._ddl['txout_approx'],
                     return None
 
             rpc_tx = rpc_tx_hex.decode('hex')
-            tx_hash = chain.transaction_hash(rpc_tx)
+            tx_hash = rpc_tx_hash.decode('hex')[::-1]
 
-            if tx_hash != rpc_tx_hash.decode('hex')[::-1]:
-                raise InvalidBlock('transaction hash mismatch')
+            computed_tx_hash = chain.transaction_hash(rpc_tx)
+            if tx_hash != computed_tx_hash:
+                #raise InvalidBlock('transaction hash mismatch')
+                store.log.debug('transaction hash mismatch: %r != %r', tx_hash, computed_tx_hash)
 
             tx = chain.parse_transaction(rpc_tx)
             tx['hash'] = tx_hash
