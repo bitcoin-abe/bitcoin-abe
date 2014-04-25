@@ -29,6 +29,7 @@ def create(policy, **kwargs):
     if policy == "CryptoCash":      return CryptoCash(**kwargs)
     if policy == "Hirocoin":        return Hirocoin(**kwargs)
     if policy == "X11":             return X11Chain(**kwargs)
+    if policy == "Bitleu":          return Bitleu(**kwargs)
     return Sha256NmcAuxPowChain(**kwargs)
 
 
@@ -156,6 +157,9 @@ class Chain(object):
                 out.append(chain.transaction_hash(hashes[i] + hashes[i2]))
             hashes = out
         return hashes and hashes[0]
+
+    def parse_block_header(chain, header):
+        return chain.ds_parse_block_header(util.str_to_ds(header))
 
     def parse_transaction(chain, binary_tx):
         return chain.ds_parse_transaction(util.str_to_ds(binary_tx))
@@ -366,3 +370,22 @@ class Hirocoin(X11Chain):
     datadir_rpcport = 9347
     datadir_p2pport = 9348
 
+YAC_START_TIME = 1377557832
+
+class ScryptJaneChain(Chain):
+    def block_header_hash(chain, header):
+        import yac_scrypt
+        b = chain.parse_block_header(header)
+        return yac_scrypt.getPoWHash(header, b['nTime'] + YAC_START_TIME - chain.start_time)
+
+class Bitleu(ScryptJaneChain, PpcPosChain):
+    def __init__(chain, **kwargs):
+        chain.name = 'Bitleu'
+        chain.code3 = 'BTL'
+        chain.address_version = "\x30"
+        chain.magic = "\xd9\xe6\xe7\xe5"
+        Chain.__init__(chain, **kwargs)
+
+    datadir_conf_file_name = "Bitleu.conf"
+    datadir_rpcport = 7997
+    start_time = 1394480376
