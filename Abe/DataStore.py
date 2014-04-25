@@ -148,6 +148,7 @@ class DataStore(object):
             store.config = CONFIG_DEFAULTS.copy()
             store.datadirs = []
             store.use_firstbits = CONFIG_DEFAULTS['use_firstbits']
+            store._sql = None
             return
         store.dbmodule = __import__(args.dbtype)
 
@@ -239,7 +240,8 @@ class DataStore(object):
         store._sql.commit()
 
     def rollback(store):
-        store._sql.rollback()
+        if store._sql is not None:
+            store._sql.rollback()
 
     def sql(store, stmt, params=()):
         store._sql.sql(stmt, params)
