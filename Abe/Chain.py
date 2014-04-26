@@ -385,6 +385,7 @@ class Bitleu(ScryptJaneChain, PpcPosChain):
         chain.address_version = "\x30"
         chain.script_addr_vers = '\x1b'
         chain.magic = "\xd9\xe6\xe7\xe5"
+        chain.decimals = 6
         Chain.__init__(chain, **kwargs)
 
     datadir_conf_file_name = "Bitleu.conf"
