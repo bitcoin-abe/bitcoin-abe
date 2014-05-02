@@ -60,7 +60,11 @@ def pubkey_to_hash(pubkey):
     return RIPEMD160.new(SHA256.new(pubkey).digest()).digest()
 
 def calculate_target(nBits):
-    return (nBits & 0xffffff) << (8 * (((nBits >> 24) & 0xff) - 3))
+    # cf. CBigNum::SetCompact in bignum.h
+    shift = 8 * (((nBits >> 24) & 0xff) - 3)
+    bits = nBits & 0x7fffff
+    sign = -1 if (nBits & 0x800000) else 1
+    return sign * (bits << shift if shift >= 0 else bits >> -shift)
 
 def target_to_difficulty(target):
     return ((1 << 224) - 1) * 1000 / (target + 1) / 1000.0
