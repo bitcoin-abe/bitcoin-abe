@@ -20,7 +20,7 @@ import BCDataStream
 import util
 
 def create(policy, **kwargs):
-    #print "create(%s, %r)" % (policy, kwargs)
+    # XXX It's about time to interpret policy as a module name.
     if policy in [None, "Bitcoin"]: return Bitcoin(**kwargs)
     if policy == "Testnet":         return Testnet(**kwargs)
     if policy == "Namecoin":        return Namecoin(**kwargs)
@@ -30,6 +30,8 @@ def create(policy, **kwargs):
     if policy == "Hirocoin":        return Hirocoin(**kwargs)
     if policy == "X11":             return X11Chain(**kwargs)
     if policy == "Bitleu":          return Bitleu(**kwargs)
+    if policy == "Keccak":          return KeccakChain(**kwargs)
+    if policy == "Maxcoin":         return Maxcoin(**kwargs)
     return Sha256NmcAuxPowChain(**kwargs)
 
 
@@ -391,3 +393,26 @@ class Bitleu(ScryptJaneChain, PpcPosChain):
     datadir_conf_file_name = "Bitleu.conf"
     datadir_rpcport = 7997
     start_time = 1394480376
+
+def _double_sha3_256(s):
+    import hashlib
+    import sys
+    if sys.version_info < (3, 4):
+        import sha3
+    return hashlib.sha3_256(hashlib.sha3_256(s).digest()).digest()
+
+class KeccakChain(Chain):
+    def block_header_hash(chain, header):
+        return _double_sha3_256(header)
+
+class Maxcoin(KeccakChain):
+    def __init__(chain, **kwargs):
+        chain.name = 'Maxcoin'
+        chain.code3 = 'MAX'
+        chain.address_version = '\x6e'
+        chain.script_addr_vers = '\x70'
+        chain.magic = "\xf9\xbe\xbb\xd2"
+        Chain.__init__(chain, **kwargs)
+
+    datadir_conf_file_name = 'maxcoin.conf'
+    datadir_rpcport = 8669

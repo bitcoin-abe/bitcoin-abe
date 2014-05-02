@@ -47,6 +47,11 @@ README-SCRYPT.txt).
 Hirocoin (and any other X11) support depends on the xcoin_hash module
 available from https://github.com/evan82/xcoin-hash.
 
+Bitleu (a Scrypt-Jane coin) depends on the yac_scrypt module.
+
+Copperlark (a Keccak coin) depends on the sha3 module available via
+"easy_install pysha3".
+
 License
 -------
 
