@@ -149,6 +149,9 @@ class Chain(object):
     def transaction_hash(chain, binary_tx):
         return util.double_sha256(binary_tx)
 
+    def merkle_hash(chain, hashes):
+        return util.double_sha256(hashes)
+
     # Based on CBlock::BuildMerkleTree().
     def merkle_root(chain, hashes):
         while len(hashes) > 1:
@@ -156,7 +159,7 @@ class Chain(object):
             out = []
             for i in xrange(0, size, 2):
                 i2 = min(i + 1, size - 1)
-                out.append(chain.transaction_hash(hashes[i] + hashes[i2]))
+                out.append(chain.merkle_hash(hashes[i] + hashes[i2]))
             hashes = out
         return hashes and hashes[0]
 
@@ -394,16 +397,19 @@ class Bitleu(ScryptJaneChain, PpcPosChain):
     datadir_rpcport = 7997
     start_time = 1394480376
 
-def _double_sha3_256(s):
+def _sha3_256(s):
     import hashlib
     import sys
     if sys.version_info < (3, 4):
         import sha3
-    return hashlib.sha3_256(hashlib.sha3_256(s).digest()).digest()
+    return hashlib.sha3_256(s).digest()
 
 class KeccakChain(Chain):
     def block_header_hash(chain, header):
-        return _double_sha3_256(header)
+        return _sha3_256(header)
+
+    def transaction_hash(chain, binary_tx):
+        return util.sha256(binary_tx)
 
 class Maxcoin(KeccakChain):
     def __init__(chain, **kwargs):

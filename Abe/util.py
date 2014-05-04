@@ -53,8 +53,11 @@ def short_hex(bytes):
 NULL_HASH = "\0" * 32
 GENESIS_HASH_PREV = NULL_HASH
 
+def sha256(s):
+    return SHA256.new(s).digest()
+
 def double_sha256(s):
-    return SHA256.new(SHA256.new(s).digest()).digest()
+    return sha256(sha256(s))
 
 def pubkey_to_hash(pubkey):
     return RIPEMD160.new(SHA256.new(pubkey).digest()).digest()
