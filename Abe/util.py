@@ -59,6 +59,13 @@ def sha256(s):
 def double_sha256(s):
     return sha256(sha256(s))
 
+def sha3_256(s):
+    import hashlib
+    import sys
+    if sys.version_info < (3, 4):
+        import sha3
+    return hashlib.sha3_256(s).digest()
+
 def pubkey_to_hash(pubkey):
     return RIPEMD160.new(SHA256.new(pubkey).digest()).digest()
 

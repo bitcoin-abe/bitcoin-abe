@@ -397,19 +397,9 @@ class Bitleu(ScryptJaneChain, PpcPosChain):
     datadir_rpcport = 7997
     start_time = 1394480376
 
-def _sha3_256(s):
-    import hashlib
-    import sys
-    if sys.version_info < (3, 4):
-        import sha3
-    return hashlib.sha3_256(s).digest()
-
 class KeccakChain(Chain):
     def block_header_hash(chain, header):
-        return _sha3_256(header)
-
-    def transaction_hash(chain, binary_tx):
-        return util.sha256(binary_tx)
+        return util.sha3_256(header)
 
 class Maxcoin(KeccakChain):
     def __init__(chain, **kwargs):
@@ -419,6 +409,9 @@ class Maxcoin(KeccakChain):
         chain.script_addr_vers = '\x70'
         chain.magic = "\xf9\xbe\xbb\xd2"
         Chain.__init__(chain, **kwargs)
+
+    def transaction_hash(chain, binary_tx):
+        return util.sha256(binary_tx)
 
     datadir_conf_file_name = 'maxcoin.conf'
     datadir_rpcport = 8669
