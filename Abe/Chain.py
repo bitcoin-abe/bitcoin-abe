@@ -32,6 +32,7 @@ def create(policy, **kwargs):
     if policy == "Bitleu":          return Bitleu(**kwargs)
     if policy == "Keccak":          return KeccakChain(**kwargs)
     if policy == "Maxcoin":         return Maxcoin(**kwargs)
+    if policy == "Animecoin":       return Animecoin(**kwargs)
     return Sha256NmcAuxPowChain(**kwargs)
 
 
@@ -415,3 +416,19 @@ class Maxcoin(KeccakChain):
 
     datadir_conf_file_name = 'maxcoin.conf'
     datadir_rpcport = 8669
+
+class Animecoin(Chain):
+    def __init__(chain, **kwargs):
+        chain.name = 'Animecoin'
+        chain.code3 = 'ANI'
+        chain.address_version = '\x17'
+        chain.magic = "\x41\x4e\x49\x4d"
+        chain.decimals = 5
+        Chain.__init__(chain, **kwargs)
+
+    def block_header_hash(chain, header):
+        import anime_hash
+        return anime_hash.getPoWHash(header)
+
+    datadir_conf_file_name = 'animecoin.conf'
+    datadir_rpcport = 8372
