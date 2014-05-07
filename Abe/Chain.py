@@ -431,4 +431,4 @@ class Animecoin(Chain):
         return anime_hash.getPoWHash(header)
 
     datadir_conf_file_name = 'animecoin.conf'
-    datadir_rpcport = 8372
+    datadir_rpcport = 2121
