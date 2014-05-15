@@ -29,6 +29,7 @@ def create(policy, **kwargs):
     if policy == "CryptoCash":      return CryptoCash(**kwargs)
     if policy == "Hirocoin":        return Hirocoin(**kwargs)
     if policy == "X11":             return X11Chain(**kwargs)
+    if policy == "X11Pos":          return X11PosChain(**kwargs)
     if policy == "Bitleu":          return Bitleu(**kwargs)
     if policy == "Keccak":          return KeccakChain(**kwargs)
     if policy == "Maxcoin":         return Maxcoin(**kwargs)
@@ -361,6 +362,9 @@ class X11Chain(Chain):
     def block_header_hash(chain, header):
         import xcoin_hash
         return xcoin_hash.getPoWHash(header)
+
+class X11PosChain(X11Chain, PpcPosChain):
+    pass
 
 class Hirocoin(X11Chain):
     def __init__(chain, **kwargs):
