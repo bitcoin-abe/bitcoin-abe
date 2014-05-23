@@ -77,6 +77,8 @@ CHAIN_CONFIG = [
     {"chain":"CryptoCash"},
     {"chain":"Anoncoin","code3":"ANC", "address_version":"\u0017", "magic":"\xFA\xCA\xBA\xDA" },
     {"chain":"Hirocoin"},
+    {"chain":"Bitleu"},
+    {"chain":"Maxcoin"},
     #{"chain":"",
     # "code3":"", "address_version":"\x", "magic":""},
     ]
@@ -148,6 +150,7 @@ class DataStore(object):
             store.config = CONFIG_DEFAULTS.copy()
             store.datadirs = []
             store.use_firstbits = CONFIG_DEFAULTS['use_firstbits']
+            store._sql = None
             return
         store.dbmodule = __import__(args.dbtype)
 
@@ -239,7 +242,8 @@ class DataStore(object):
         store._sql.commit()
 
     def rollback(store):
-        store._sql.rollback()
+        if store._sql is not None:
+            store._sql.rollback()
 
     def sql(store, stmt, params=()):
         store._sql.sql(stmt, params)
@@ -2592,10 +2596,12 @@ store._ddl['txout_approx'],
                     return None
 
             rpc_tx = rpc_tx_hex.decode('hex')
-            tx_hash = chain.transaction_hash(rpc_tx)
+            tx_hash = rpc_tx_hash.decode('hex')[::-1]
 
-            if tx_hash != rpc_tx_hash.decode('hex')[::-1]:
-                raise InvalidBlock('transaction hash mismatch')
+            computed_tx_hash = chain.transaction_hash(rpc_tx)
+            if tx_hash != computed_tx_hash:
+                #raise InvalidBlock('transaction hash mismatch')
+                store.log.debug('transaction hash mismatch: %r != %r', tx_hash, computed_tx_hash)
 
             tx = chain.parse_transaction(rpc_tx)
             tx['hash'] = tx_hash

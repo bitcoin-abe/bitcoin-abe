@@ -33,10 +33,18 @@ def testdb_params():
         return ['sqlite']
     return ['sqlite', 'mysql', 'postgres']
 
+# XXX
+def ignore_errors(thunk):
+    def doit():
+        try:
+            thunk()
+        except Exception:
+            pass
+    return doit
+
 @pytest.fixture(scope="module")
 def testdb(request, db_server):
-    db_server.createdb()
-    request.addfinalizer(db_server.dropdb)
+    request.addfinalizer(ignore_errors(db_server.dropdb))
     return db_server
 
 def create_server(dbtype=None):
@@ -52,16 +60,22 @@ class DB(object):
     def __init__(db, dbtype, connect_args):
         db.dbtype = dbtype
         db.connect_args = connect_args
-        db.cmdline = ['--dbtype', dbtype, '--connect-args', json.dumps(connect_args)]
+        db.cmdline = ('--dbtype', dbtype, '--connect-args', json.dumps(connect_args))
+        db.store = None
 
     def createdb(db):
-        #print('DB.createdb()')
-        store, argv = Abe.util.CmdLine(db.cmdline).init()
-        db.store = store
+        pass
+
+    def load(db, *args):
+        db.createdb()
+        db.store, argv = Abe.util.CmdLine(db.cmdline + args).init()
+        assert len(argv) == 0
+        db.store.catch_up()
+        return db.store
 
     def dropdb(db):
-        db.store.close()
-        #print('DB.dropdb()')
+        if db.store:
+            db.store.close()
 
     def delete(db):
         pass

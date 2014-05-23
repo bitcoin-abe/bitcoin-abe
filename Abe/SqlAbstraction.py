@@ -69,7 +69,7 @@ class SqlAbstraction(object):
         # as little endian, we have to reverse them in hex to satisfy
         # human expectations.
         def rev(x):
-            return x[::-1]
+            return None if x is None else x[::-1]
         def to_hex(x):
             return None if x is None else str(x).encode('hex')
         def from_hex(x):
@@ -608,6 +608,7 @@ class SqlAbstraction(object):
             sql.sqllog.info("CLOSE")
             conn.close()
             sql._conn = None
+            sql._cursor = None
 
     def configure(sql):
         sql.configure_ddl_implicit_commit()
