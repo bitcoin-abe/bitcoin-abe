@@ -741,7 +741,7 @@ class Abe:
             if row['binaddr'] is None:
                 body += no_link_text
             else:
-                body += hash_to_address_link(chain.address_version,row['binaddr'], '../')
+                body += abe.format_addresses(row, '../', chain)
             amount = (format_satoshis(row['value'], chain))
             
             body += ['<span class="pull-right"><span>(', amount, '  ',chain.code3,' - ',output_link,')</span></span></br>']
