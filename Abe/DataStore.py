@@ -70,6 +70,8 @@ CHAIN_CONFIG = [
      "code3":"SCN", "address_version":"\x7d", "magic":"\xde\xad\xba\xbe"},
     {"chain":"ScTestnet",
      "code3":"SC0", "address_version":"\x6f", "magic":"\xca\xfe\xba\xbe"},
+    {"chain":"PPcoin",
+     "code3":"PPC", "address_version":"\x37", "magic":"\xe6\xe8\xe9\xe5"},
     #{"chain":"",
     # "code3":"", "address_version":"\x", "magic":""},
     ]
@@ -2651,14 +2653,15 @@ store._ddl['txout_approx'],
         requires the txindex configuration option.  Requires chain_id
         in the datadir table.
         """
+	print dircfg
         chain_id = dircfg['chain_id']
         if chain_id is None:
-            store.log.debug("no chain_id")
-            return False
+	    chain_id = 8
+            #store.log.debug("no chain_id")
+            #return False
         chain_ids = frozenset([chain_id])
-
         conffile = dircfg.get("conf",
-                              os.path.join(dircfg['dirname'], "bitcoin.conf"))
+                              os.path.join(dircfg['dirname'], "ppcoin.conf"))
         try:
             conf = dict([line.strip().split("=", 1)
                          if "=" in line
@@ -2672,8 +2675,7 @@ store._ddl['txout_approx'],
         rpcuser     = conf.get("rpcuser", "")
         rpcpassword = conf["rpcpassword"]
         rpcconnect  = conf.get("rpcconnect", "127.0.0.1")
-        rpcport     = conf.get("rpcport",
-                               "18332" if "testnet" in conf else "8332")
+        rpcport     = conf.get("rpcport","9902")
         url = "http://" + rpcuser + ":" + rpcpassword + "@" + rpcconnect \
             + ":" + rpcport
 
@@ -2775,28 +2777,30 @@ store._ddl['txout_approx'],
                         rpc_block['previousblockhash'].decode('hex')[::-1] \
                         if 'previousblockhash' in rpc_block \
                         else GENESIS_HASH_PREV
-
+		    import time
+		    import datetime 
+	            nT = time.mktime(datetime.datetime.strptime(rpc_block['time'], "%Y-%m-%d %H:%M:%S %Z").timetuple()) 
                     block = {
                         'hash':     hash,
                         'version':  int(rpc_block['version']),
                         'hashPrev': prev_hash,
                         'hashMerkleRoot':
                             rpc_block['merkleroot'].decode('hex')[::-1],
-                        'nTime':    int(rpc_block['time']),
+                        'nTime':    int(nT),
                         'nBits':    int(rpc_block['bits'], 16),
                         'nNonce':   int(rpc_block['nonce']),
                         'transactions': [],
                         'size':     int(rpc_block['size']),
                         'height':   height,
                         }
-
                     if util.block_hash(block) != hash:
                         raise InvalidBlock('block hash mismatch')
 
                     for rpc_tx_hash in rpc_block['tx']:
                         tx = store.export_tx(tx_hash = str(rpc_tx_hash),
                                              format = "binary")
-                        if tx is None:
+                    	print tx
+		        if tx is None:
                             tx = get_tx(rpc_tx_hash)
                             if tx is None:
                                 return False
