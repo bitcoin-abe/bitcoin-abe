@@ -19,5 +19,8 @@ from .LtcScryptChain import LtcScryptChain
 from .PpcPosChain import PpcPosChain
 
 class NvcChain(LtcScryptChain, PpcPosChain):
+    """
+    Chain with NovaCoin-style proof of stake.
+    """
     def has_feature(chain, feature):
         return feature == 'nvc_proof_of_stake'

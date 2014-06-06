@@ -17,6 +17,9 @@
 from .Sha256Chain import Sha256Chain
 
 class Testnet(Sha256Chain):
+    """
+    The original bitcoin test blockchain.
+    """
     def __init__(chain, **kwargs):
         chain.name = 'Testnet'
         chain.code3 = 'BC0'

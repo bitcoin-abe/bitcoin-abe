@@ -17,6 +17,11 @@
 from . import BaseChain
 
 class X11Chain(BaseChain):
+    """
+    A blockchain that hashes block headers using the X11 algorithm.
+    The current implementation requires the xcoin_hash module.
+    """
+
     def block_header_hash(chain, header):
         import xcoin_hash
         return xcoin_hash.getPoWHash(header)

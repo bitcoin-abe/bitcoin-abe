@@ -18,6 +18,9 @@ from . import BaseChain
 from .. import deserialize
 
 class PpcPosChain(BaseChain):
+    """
+    A blockchain with proof-of-stake as in Peercoin.
+    """
     def ds_parse_transaction(chain, ds):
         return deserialize.parse_Transaction(ds, has_nTime=True)
 

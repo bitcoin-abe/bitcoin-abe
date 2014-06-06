@@ -19,6 +19,9 @@ from . import SCRIPT_TYPE_UNKNOWN
 from ..deserialize import opcodes
 
 class Namecoin(Sha256NmcAuxPowChain):
+    """
+    Namecoin represents name operations in transaction output scripts.
+    """
     def __init__(chain, **kwargs):
         chain.name = 'Namecoin'
         chain.code3 = 'NMC'

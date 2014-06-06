@@ -50,10 +50,11 @@ SCRIPT_TYPE_P2SH = 6
 
 
 class BaseChain(object):
-    def __init__(chain, src=None, **kwargs):
-        for attr in [
-            'id', 'policy', 'magic', 'name', 'code3', 'address_version', 'decimals', 'script_addr_vers']:
+    POLICY_ATTRS = ['magic', 'name', 'code3', 'address_version', 'decimals', 'script_addr_vers']
+    __all__ = ['id', 'policy'] + POLICY_ATTRS
 
+    def __init__(chain, src=None, **kwargs):
+        for attr in chain.__all__:
             if attr in kwargs:
                 val = kwargs.get(attr)
             elif hasattr(chain, attr):

@@ -19,6 +19,15 @@ from . import BaseChain
 YAC_START_TIME = 1377557832
 
 class ScryptJaneChain(BaseChain):
+    """
+    A blockchain that uses Scrypt-Jane to hash block headers.
+    The current implementation requires the yac_scrypt module.
+    The ScryptJaneChain policy must be subclassed to provide the start_time
+    parameter in Unix time_t format.
+    """
+
+    POLICY_ATTRS = BaseChain.POLICY_ATTRS + ['start_time']
+
     def block_header_hash(chain, header):
         import yac_scrypt
         b = chain.parse_block_header(header)

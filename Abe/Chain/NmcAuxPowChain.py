@@ -17,6 +17,9 @@
 from . import BaseChain
 
 class NmcAuxPowChain(BaseChain):
+    """
+    A blockchain that represents merge-mining proof-of-work in an "AuxPow" structure as does Namecoin.
+    """
     def __init__(chain, **kwargs):
         BaseChain.__init__(chain, **kwargs)
 

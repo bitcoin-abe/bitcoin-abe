@@ -18,5 +18,8 @@ from . import BaseChain
 from .. import util
 
 class KeccakChain(BaseChain):
+    """
+    A blockchain using 256-bit SHA3 (Keccak) as the block header hash.
+    """
     def block_header_hash(chain, header):
         return util.sha3_256(header)
