@@ -63,19 +63,20 @@ CHAIN_CONFIG = [
     {"chain":"Bitcoin"},
     {"chain":"Testnet"},
     {"chain":"Namecoin"},
-    {"chain":"Weeds", "network":"Weedsnet",
+    {"chain":"Weeds", "policy":"Sha256Chain",
      "code3":"WDS", "address_version":"\xf3", "magic":"\xf8\xbf\xb5\xda"},
-    {"chain":"BeerTokens",
+    {"chain":"BeerTokens", "policy":"Sha256Chain",
      "code3":"BER", "address_version":"\xf2", "magic":"\xf7\xbf\xb5\xdb"},
-    {"chain":"SolidCoin",
+    {"chain":"SolidCoin", "policy":"Sha256Chain",
      "code3":"SCN", "address_version":"\x7d", "magic":"\xde\xad\xba\xbe"},
-    {"chain":"ScTestnet",
+    {"chain":"ScTestnet", "policy":"Sha256Chain",
      "code3":"SC0", "address_version":"\x6f", "magic":"\xca\xfe\xba\xbe"},
-    {"chain":"Worldcoin",
+    {"chain":"Worldcoin", "policy":"Sha256Chain",
      "code3":"WDC", "address_version":"\x49", "magic":"\xfb\xc0\xb6\xdb"},
     {"chain":"NovaCoin"},
     {"chain":"CryptoCash"},
-    {"chain":"Anoncoin","code3":"ANC", "address_version":"\u0017", "magic":"\xFA\xCA\xBA\xDA" },
+    {"chain":"Anoncoin", "policy":"Sha256Chain",
+     "code3":"ANC", "address_version":"\x17", "magic":"\xFA\xCA\xBA\xDA" },
     {"chain":"Hirocoin"},
     {"chain":"Bitleu"},
     {"chain":"Maxcoin"},
@@ -830,8 +831,12 @@ store._ddl['txout_approx'],
         for conf in CHAIN_CONFIG:
             conf = conf.copy()
             conf["name"] = conf.pop("chain")
+            if 'policy' in conf:
+                policy = conf.pop('policy')
+            else:
+                policy = conf['name']
 
-            chain = Chain.create(policy=conf["name"], **conf)
+            chain = Chain.create(policy, **conf)
             store.insert_chain(chain)
 
         store.sql("""
@@ -871,7 +876,7 @@ store._ddl['txout_approx'],
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                   (chain.id, store.binin(chain.magic), chain.name,
                    chain.code3, store.binin(chain.address_version), store.binin(chain.script_addr_vers),
-                   chain.name, chain.decimals))
+                   chain.policy, chain.decimals))
 
     def get_lock(store):
         if store.version_below('Abe26'):
