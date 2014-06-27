@@ -1011,6 +1011,13 @@ def create_multisig_pubkey(store):
 def create_x_multisig_pubkey_multisig(store):
     store.ddl("CREATE INDEX x_multisig_pubkey_pubkey ON multisig_pubkey (pubkey_id)")
 
+def update_chain_policy(store):
+    store.sql("""
+        UPDATE chain
+           SET chain_policy = 'Sha256Chain'
+         WHERE chain_policy = chain_name
+           AND chain_name IN ('Weeds', 'BeerTokens', 'SolidCoin', 'ScTestnet', 'Worldcoin', 'Anoncoin')""")
+
 def populate_multisig_pubkey(store):
     store.init_chains()
     store.log.info("Finding new address types.")
@@ -1140,7 +1147,8 @@ upgrades = [
     ('Abe37.2', populate_chain_script_addr_vers), # Fast
     ('Abe37.3', create_multisig_pubkey), # Fast
     ('Abe37.4', create_x_multisig_pubkey_multisig), # Fast
-    ('Abe37.5', populate_multisig_pubkey), # Minutes-hours
+    ('Abe37.5', update_chain_policy),    # Fast
+    ('Abe37.6', populate_multisig_pubkey), # Minutes-hours
     ('Abe38',   abstract_sql),           # Fast
     ('Abe39', None)
 ]
