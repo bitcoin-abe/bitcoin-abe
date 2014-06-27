@@ -1,6 +1,7 @@
 #
 # enum-like type
 # From the Python Cookbook, downloaded from http://code.activestate.com/recipes/67107/
+# Created by Will Ware, 2001, licensed under PSF http://www.python.org/psf/license/
 #
 import types, string, exceptions
 

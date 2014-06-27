@@ -58,33 +58,78 @@ EPOCH1970 = calendar.timegm(TIME1970)
 # under Internet Explorer.
 DEFAULT_CONTENT_TYPE = "text/html; charset=utf-8"
 DEFAULT_HOMEPAGE = "chains";
-DEFAULT_TEMPLATE = """
-<!DOCTYPE html>
+DEFAULT_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel="stylesheet" type="text/css"
-     href="%(dotdot)s%(STATIC_PATH)sabe.css" />
-    <link rel="shortcut icon" href="%(dotdot)s%(STATIC_PATH)sfavicon.ico" />
-    <title>%(title)s</title>
+<meta charset="utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="">
+<meta name="author" content="">
+<title>%(title)s</title>
+<link rel="icon" type="image/x-icon" href="%(dotdot)s%(STATIC_PATH)sfavicon.ico" />
+
+<link href="%(dotdot)s%(STATIC_PATH)scss/bootstrap.min.css" rel="stylesheet">
+<link href="%(dotdot)s%(STATIC_PATH)scss/font-awesome.min.css" rel="stylesheet" type="text/css">
+<link href="%(dotdot)s%(STATIC_PATH)scss/jquery.dataTables.min.css" rel="stylesheet" type="text/css">
+<!-- Replace the above with this for better performance if you trust cdnjs.cloudflare.com:
+<link rel="stylesheet" href="http://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.1.1/css/bootstrap.min.css">
+<link href="http://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.0.3/css/font-awesome.min.css" rel="stylesheet" type="text/css">
+<link href="http://cdnjs.cloudflare.com/ajax/libs/datatables/1.9.4/css/jquery.dataTables.min.css" rel="stylesheet" type="text/css">
+-->
+
+<!-- Custom styles for this template -->
+<link href="%(dotdot)s%(STATIC_PATH)scss/abe.css" rel="stylesheet" type="text/css">
+
+<!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries -->
+<!--[if lt IE 9]>
+      <script src="%(dotdot)s%(STATIC_PATH)shtml5shiv.js"></script>
+      <script src="%(dotdot)s%(STATIC_PATH)srespond.min.js"></script>
+    <![endif]-->
+<!-- Replace the above IE <script>s with this for better performance if you trust cdnjs.cloudflare.com:
+      <script src="http://cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7/html5shiv.js"></script>
+      <script src="http://cdnjs.cloudflare.com/ajax/libs/respond.js/1.4.2/respond.min.js"></script> -->
+
 </head>
+
 <body>
-    <h1><a href="%(dotdot)s%(HOMEPAGE)s"><img
-     src="%(dotdot)s%(STATIC_PATH)slogo32.png" alt="Abe logo" /></a> %(h1)s
-    </h1>
+<header class="navbar navbar-inverse" role="navigation">
+  <div class="container">
+    <div class="navbar-header">
+      <button type="button" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse"> <span class="sr-only">Toggle navigation</span> <span class="icon-bar"></span> <span class="icon-bar"></span> <span class="icon-bar"></span> </button>
+      <a class="logo navbar-brand" href="%(dotdot)s%(HOMEPAGE)s">%(APPNAME)s Block Explorer</a> </div>
+    <div class="collapse navbar-collapse"> 
+      <form class="navbar-form navbar-right" role="search" action="%(dotdot)ssearch">
+        <div class="form-group">
+        <input name="q" type="text" class="form-control" placeholder="Search" id="searchfld">
+        </div>
+      </form>
+    </div> 
+  </div>
+</header>
+<div class="container">
+  <div class="inner-container">
+ <div class="row">
     %(body)s
-    <p><a href="%(dotdot)sq">API</a> (machine-readable pages)</p>
+ </div> </div>
+  <hr>
+  <footer class="col-lg-12">
     <p style="font-size: smaller">
+    
         <span style="font-style: italic">
-            Powered by <a href="%(ABE_URL)s">%(APPNAME)s</a>
+            Powered by <a href="%(ABE_URL)s">%(APPNAME)s</a> , eXplorer theme by <a href="http://ancblockchain.com/static/support.php">geekz</a>
         </span>
-        %(download)s
-        Tips appreciated!
-        <a href="%(dotdot)saddress/%(DONATIONS_BTC)s">BTC</a>
-        <a href="%(dotdot)saddress/%(DONATIONS_NMC)s">NMC</a>
+        |  <a href="%(dotdot)sq">API</a> (machine-readable pages)
     </p>
+  </footer>
+</div>
+<!--/.container-->
+<script src="%(dotdot)s%(STATIC_PATH)sjs/jquery.min.js"></script>
+<script src="%(dotdot)s%(STATIC_PATH)sjs/bootstrap.min.js"></script>
+<script src="%(dotdot)s%(STATIC_PATH)sjs/jquery.dataTables.min.js"></script>
+<script src="%(dotdot)s%(STATIC_PATH)sjs/scripts.js"></script>
 </body>
-</html>
-"""
+</html>"""
 
 DEFAULT_LOG_FORMAT = "%(message)s"
 
@@ -185,9 +230,7 @@ class Abe:
         abe.log = logging.getLogger(__name__)
         abe.log.info('Abe initialized.')
         abe.home = str(abe.template_vars.get("HOMEPAGE", DEFAULT_HOMEPAGE))
-        if not args.auto_agpl:
-            abe.template_vars['download'] = (
-                abe.template_vars.get('download', ''))
+        abe.template_vars['download'] = (abe.template_vars.get('download', ''))  # legacy
         abe.base_url = args.base_url
         abe.address_history_rows_max = int(
             args.address_history_rows_max or 1000)
@@ -250,13 +293,10 @@ class Abe:
             handler(page)
         except PageNotFound:
             status = '404 Not Found'
-            page['body'] = ['<p class="error">Sorry, ', env['SCRIPT_NAME'],
-                            env['PATH_INFO'],
-                            ' does not exist on this server.</p>']
+            page['body'] = abe.page_error(page,'Page not found')
+            
         except NoSuchChainError, e:
-            page['body'] += [
-                '<p class="error">'
-                'Sorry, I don\'t know about that chain!</p>\n']
+            page['body'] += abe.page_error(page,'That chain not found')
         except Redirect:
             return redirect(page)
         except Streamed:
@@ -273,9 +313,6 @@ class Abe:
         tvars['title'] = flatten(page['title'])
         tvars['h1'] = flatten(page.get('h1') or page['title'])
         tvars['body'] = flatten(page['body'])
-        if abe.args.auto_agpl:
-            tvars['download'] = (
-                ' <a href="' + page['dotdot'] + 'download">Source</a>')
 
         content = page['template'] % tvars
         if isinstance(content, unicode):
@@ -288,15 +325,13 @@ class Abe:
     def handle_chains(abe, page):
         page['title'] = ABE_APPNAME + ' Search'
         body = page['body']
-        body += [
-            abe.search_form(page),
-            '<table>\n',
-            '<tr><th>Currency</th><th>Code</th><th>Block</th><th>Time</th>',
+        body += ['<div class="col-lg-12"><table class="table table-striped table-hover" id="chains">\n',
+            '<thead><tr><th>Currency</th><th>Code</th><th>Block</th><th>Time</th>',
             '<th>Started</th><th>Age (days)</th><th>Coins Created</th>',
             '<th>Avg Coin Age</th><th>',
             '% <a href="https://en.bitcoin.it/wiki/Bitcoin_Days_Destroyed">',
             'CoinDD</a></th>',
-            '</tr>\n']
+            '</tr></thead>\n']
         now = time.time() - EPOCH1970
 
         rows = abe.store.selectall("""
@@ -363,6 +398,7 @@ class Abe:
         body += ['</table>\n']
         if len(rows) == 0:
             body += ['<p>No block data found.</p>\n']
+        body += ['</div><div class="col-lg-9"><div class="well"><h2>Search</h2>',abe.search_form(page),'</div>']
 
     def chain_lookup_by_name(abe, symbol):
         if symbol is None:
@@ -412,9 +448,10 @@ class Abe:
         page['title'] = chain.name
 
         body = page['body']
-        body += abe.search_form(page)
+        body += ['<script type="text/javascript" > //<![CDATA[ \n var block_data_url = location.href+"/q/get_blocks_data"; ']
+        body += ['var latest_transactions_url = location.href+"/q/get_latest_transactions"; //]]></script>']
 
-        count = get_int_param(page, 'count') or 20
+        count = get_int_param(page, 'count') or 10
         hi = get_int_param(page, 'hi')
         orig_hi = hi
 
@@ -453,35 +490,11 @@ class Abe:
             hi = int(rows[0][1])
         basename = os.path.basename(page['env']['PATH_INFO'])
 
-        nav = ['<a href="',
-               basename, '?count=', str(count), '">&lt;&lt;</a>']
-        nav += [' <a href="', basename, '?hi=', str(hi + count),
-                 '&amp;count=', str(count), '">&lt;</a>']
-        nav += [' ', '&gt;']
-        if hi >= count:
-            nav[-1] = ['<a href="', basename, '?hi=', str(hi - count),
-                        '&amp;count=', str(count), '">', nav[-1], '</a>']
-        nav += [' ', '&gt;&gt;']
-        if hi != count - 1:
-            nav[-1] = ['<a href="', basename, '?hi=', str(count - 1),
-                        '&amp;count=', str(count), '">', nav[-1], '</a>']
-        for c in (20, 50, 100, 500, 2016):
-            nav += [' ']
-            if c != count:
-                nav += ['<a href="', basename, '?count=', str(c)]
-                if hi is not None:
-                    nav += ['&amp;hi=', str(max(hi, c - 1))]
-                nav += ['">']
-            nav += [' ', str(c)]
-            if c != count:
-                nav += ['</a>']
-
-        nav += [' <a href="', page['dotdot'], '">Search</a>']
 
         extra = False
         #extra = True
-        body += ['<p>', nav, '</p>\n',
-                 '<table><tr><th>Block</th><th>Approx. Time</th>',
+        body += ['<div class="transaction-wrap col-lg-12"><h1>Recently mined ',chain.name,' blocks</h1>',
+                 '<table class="table table-striped table-hover" id="chain"><thead><tr><th>Block</th><th class="hide">Hash</th><th>Approx. Time</th>',
                  '<th>Transactions</th><th>Value Out</th>',
                  '<th>Difficulty</th><th>Outstanding</th>',
                  '<th>Average Age</th><th>Chain Age</th>',
@@ -491,7 +504,7 @@ class Abe:
                  ['<th>Satoshi-seconds</th>',
                   '<th>Total ss</th>']
                  if extra else '',
-                 '</tr>\n']
+                 '</tr></thead><tbody>']
         for row in rows:
             (hash, height, nTime, num_tx, nBits, value_out,
              seconds, ss, satoshis, destroyed, total_ss) = row
@@ -528,7 +541,20 @@ class Abe:
                  '</td><td>', '%8g' % total_ss] if extra else '',
                 '</td></tr>\n']
 
-        body += ['</table>\n<p>', nav, '</p>\n']
+        body += ['</tbody></table>\n']
+        body += ['</div><div class="col-lg-8"><h3>Search</h3><div class="well">',abe.search_form(page),'</div></div>']
+        body += ['<div class="col-lg-4" style="padding:0; margin:0;"><h3>Latest Transactions</h3><table class="table table-striped table-condensed" id="txs"><thead><tr><th>Hash</th><th class="hidden">hash</th><th>size(in bytes)</th></tr></thead><tbody>']
+        
+        rows = abe.store.selectall("""
+            SELECT tx_id,tx_hash,tx_size
+            FROM tx
+            ORDER BY tx_id DESC
+            LIMIT 10
+        """)
+        for row in rows:
+            tx_id, tx_hash, tx_size = (row[0], abe.store.hashout_hex(row[1]),row[2])
+            body+='<tr><td><a href="',basename,'/tx/',tx_hash,'">',tx_hash[:14],'</a></td><td class="hidden">',tx_hash,'</td><td>',tx_size,'(bytes)</td></tr>';
+        body += ['</tbody></table></div>']
 
     def _show_block(abe, page, dotdotblock, chain, **kwargs):
         body = page['body']
@@ -536,11 +562,11 @@ class Abe:
         try:
             b = abe.store.export_block(chain, **kwargs)
         except DataStore.MalformedHash:
-            body += ['<p class="error">Not in correct format.</p>']
+            body += abe.page_error(page,'Not in correct format.')
             return
 
         if b is None:
-            body += ['<p class="error">Block not found.</p>']
+            body += abe.page_error(page,'Block not found.')
             return
 
         in_longest = False
@@ -557,90 +583,88 @@ class Abe:
                           escape(chain.name), '</a> ', b['height']]
         else:
             page['title'] = ['Block ', b['hash'][:4], '...', b['hash'][-10:]]
-
-        body += abe.short_link(page, 'b/' + block_shortlink(b['hash']))
-
+        def get_block_reward(blocknumber,chain_code):
+            if chain_code == 'ANC' :
+                if blocknumber < 77777 :
+                    return 7
+                else:
+                    return 5 / (2 ** int((blocknumber + 1) / 306600))
+            return None
+        block_reward = get_block_reward(b['height'],escape(chain.code3))
+        
         is_stake_chain = chain.has_feature('nvc_proof_of_stake')
         is_stake_block = is_stake_chain and b['is_proof_of_stake']
-
-        body += ['<p>']
-        if is_stake_chain:
-            body += [
-                'Proof of Stake' if is_stake_block else 'Proof of Work',
-                ': ',
-                format_satoshis(b['generated'], chain), ' coins generated<br />\n']
-        body += ['Hash: ', b['hash'], '<br />\n']
-
+        
+        body += ['<div class="block-wrap"><div class="col-lg-12"><h1>', chain.name, ' Block #',b['height'],'</h1></div><div class="col-lg-5"><table class="table table-striped"><tbody><tr><th colspan="2">Summary</th></tr>']
+        if b['height'] is not None:
+            body += ['<tr><td>Height</td><td> ', b['height'], '</td></tr>']
+        body += ['<tr><td>Number Of Transactions</td><td>',len(b['transactions']), '</td></tr>']
+        body += ['<tr><td>Value Out</td><td>', format_satoshis(b['value_out'], chain),' ',escape(chain.code3),'</td></tr>']
+        body += ['<tr><td>Transaction Fees</td><td>',format_satoshis(b['fees'], chain),' ',escape(chain.code3),'</td></tr>']
+        body += ['<tr><td>Timestamp</td><td> ',format_time( b['nTime']),'</td></tr>']
+        body += ['<tr><td>Difficulty</td><td> ',format_difficulty(util.calculate_difficulty(b['nBits'])), '</td></tr>']
+        if b['chain_work'] is not None:
+            body += ['<tr><td>Cumulative Difficulty</td><td>',format_difficulty(util.work_to_difficulty(b['chain_work'])), '</td></tr>']
+        body += ['<tr><td>Bits</td><td> ',b['nBits'], '</td></tr>']
+        body += ['<tr><td>Version</td><td> ', b['version'], '</td></tr>']
+        body += ['<tr><td>Nonce</td><td> ',b['nNonce'], '</td></tr>']
+        if block_reward is not None:
+            body += ['<tr><td>Block Reward</td><td>',block_reward,' ',escape(chain.code3),'</td></tr>']
+        body += ['</table></div>']
+        body += ['<div class="col-lg-7"><table class="table table-striped"><tbody><tr><th colspan="2">Hashes</th></tr>']
+        body += ['<tr><td>Hash</td><td>', b['hash'], '</td></tr>']
         if b['hashPrev'] is not None:
-            body += ['Previous Block: <a href="', dotdotblock,
-                     b['hashPrev'], '">', b['hashPrev'], '</a><br />\n']
+            body += ['<tr><td>Previous Block</td><td> <a href="',dotdotblock,b['hashPrev'], '">', b['hashPrev'], '</a></td></tr>']
         if b['next_block_hashes']:
-            body += ['Next Block: ']
-        for hash in b['next_block_hashes']:
-            body += ['<a href="', dotdotblock, hash, '">', hash, '</a><br />\n']
+            body += ['<tr><td>Next Block</td><td> ']
+            for hash in b['next_block_hashes']:
+                body += ['<a href="', dotdotblock, hash, '">', hash, '</a></td></tr>']
+        if is_stake_chain:
+             body += ['<tr><td>','Proof of Stake' if is_stake_block else 'Proof of Work','</td><td>' if is_proof_of_stake else 'Proof of Work',': ',format_satoshis(b['generated'], chain), ' coins generated</td></tr>']
+        body += ['<tr><td>Merkle Root</td><td>',b['hashMerkleRoot'], '</td></tr>']
+        body += ['</tbody></table>']
+        body += ['<table class="table table-striped"><tbody><tr><th colspan="2">Advanced Summary</th></tr>']
+        if b['chain_satoshis'] and (b['satoshi_seconds'] is not None) :
+            body += ['<tr><td>Average Coin Age</td><td>',(b['satoshi_seconds'] / 86400.0 / b['chain_satoshis']),' days']
+        if b['satoshis_destroyed'] is not None:
+            body += ['<tr><td>Coin-days Destroyed</td><td>',format_satoshis(b['satoshis_destroyed'] / 86400.0, chain),'</td></tr>']
+        if b['chain_satoshi_seconds'] is not None:
+            body += ['<tr><td>Cumulative Coin-days Destroyed</td><td>',(100 * (1 - float(b['satoshi_seconds']) / b['chain_satoshi_seconds']))]
+        body += ['<tr><td>Short Link</td><td>', abe.short_link(page, 'b/' + block_shortlink(b['hash'])), '</td></tr>']
+        body += ['</tbody></table></div>']
 
-        body += [
-            ['Height: ', b['height'], '<br />\n']
-            if b['height'] is not None else '',
-
-            'Version: ', b['version'], '<br />\n',
-            'Transaction Merkle Root: ', b['hashMerkleRoot'], '<br />\n',
-            'Time: ', b['nTime'], ' (', format_time(b['nTime']), ')<br />\n',
-            'Difficulty: ', format_difficulty(util.calculate_difficulty(b['nBits'])),
-            ' (Bits: %x)' % (b['nBits'],), '<br />\n',
-
-            ['Cumulative Difficulty: ', format_difficulty(
-                    util.work_to_difficulty(b['chain_work'])), '<br />\n']
-            if b['chain_work'] is not None else '',
-
-            'Nonce: ', b['nNonce'], '<br />\n',
-            'Transactions: ', len(b['transactions']), '<br />\n',
-            'Value out: ', format_satoshis(b['value_out'], chain), '<br />\n',
-            'Transaction Fees: ', format_satoshis(b['fees'], chain), '<br />\n',
-
-            ['Average Coin Age: %6g' % (b['satoshi_seconds'] / 86400.0 / b['chain_satoshis'],),
-             ' days<br />\n']
-            if b['chain_satoshis'] and (b['satoshi_seconds'] is not None) else '',
-
-            '' if b['satoshis_destroyed'] is None else
-            ['Coin-days Destroyed: ',
-             format_satoshis(b['satoshis_destroyed'] / 86400.0, chain), '<br />\n'],
-
-            ['Cumulative Coin-days Destroyed: %6g%%<br />\n' %
-             (100 * (1 - float(b['satoshi_seconds']) / b['chain_satoshi_seconds']),)]
-            if b['chain_satoshi_seconds'] else '',
-
-            ['sat=',b['chain_satoshis'],';sec=',seconds,';ss=',b['satoshi_seconds'],
+        body +=[['sat=',b['chain_satoshis'],';sec=',seconds,';ss=',b['satoshi_seconds'],
              ';total_ss=',b['chain_satoshi_seconds'],';destroyed=',b['satoshis_destroyed']]
             if abe.debug else '',
-
-            '</p>\n']
-
-        body += ['<h3>Transactions</h3>\n']
-
-        body += ['<table><tr><th>Transaction</th><th>Fee</th>'
-                 '<th>Size (kB)</th><th>From (amount)</th><th>To (amount)</th>'
-                 '</tr>\n']
-
+            ]
+        body += ['<div class="col-lg-12"><h2>Transactions <small>Transactions contained within this block</small></h2>']
+        body += ['<div class="transaction_section">']
         for tx in b['transactions']:
-            body += ['<tr><td><a href="../tx/' + tx['hash'] + '">',
-                     tx['hash'][:10], '...</a>'
-                     '</td><td>', format_satoshis(tx['fees'], chain),
-                     '</td><td>', tx['size'] / 1000.0,
-                     '</td><td>']
-
+            vout=0
+            body += ['<div class="transaction">']
+            body += ['<div class="transaction_hash"><a class="nos-link" href="../tx/' + tx['hash'] + '">',
+                     tx['hash'], '</a>',
+                     '<span class="pull-right"><span class="tx_size">(Size: ',(tx['size'] / 1000.0),' KB)</span></span>',
+                     '</div>']
+                    #format_satoshis(tx['fees'], chain),
+            body += ['<div class="tx_input">']
             if tx is b['transactions'][0]:
                 body += [
                     'POS ' if is_stake_block else '',
-                    'Generation: ', format_satoshis(b['generated'], chain), ' + ',
-                    format_satoshis(b['fees'], chain), ' total fees']
+                    'Newly Generated Coins: ', format_satoshis(b['generated'], chain),' ',escape(chain.code3) ,' + ',
+                    format_satoshis(b['fees'], chain),' ',escape(chain.code3), ' total fees']
             else:
                 for txin in tx['in']:
-                    body += [abe.format_addresses(txin, page['dotdot'], chain), ': ',
-                             format_satoshis(txin['value'], chain), '<br />']
+                    body += abe.format_addresses(txin, page['dotdot'], chain)
+                    body += [' (', format_satoshis(txin['value'], chain), ' ',escape(chain.code3),')<br />']
 
-            body += ['</td><td>']
+            body += ['</div>']
+            body += ['<div class="tx_arrow"><i class="fa fa-arrow-right fa-3x"></i></div>']
+            body += ['<div class="tx_output">']
             for txout in tx['out']:
+                amount = format_satoshis(txout['value'], chain)
+                if amount!='':
+                    vout = float(vout)+float(amount)
                 if is_stake_block:
                     if tx is b['transactions'][0]:
                         assert txout['value'] == 0
@@ -652,11 +676,12 @@ class Abe:
                     if txout['value'] == 0:
                         continue
 
-                body += [abe.format_addresses(txout, page['dotdot'], chain), ': ',
-                         format_satoshis(txout['value'], chain), '<br />']
-
-            body += ['</td></tr>\n']
-        body += '</table>\n'
+                body += [abe.format_addresses(txout, page['dotdot'], chain)]
+                body += ['<span class="pull-right"><span>', format_satoshis(txout['value'], chain), ' ',escape(chain.code3),'</span></span></br>']
+            body += ['</div>\n']
+            body += ['<div class="currency_btn"><button class="btn btn-success cb">']
+            body += ['<span>',vout,' ',escape(chain.code3),'</span></button></div></div>\n']
+        body += ['</div>']
 
     def handle_block(abe, page):
         block_hash = wsgiref.util.shift_path_info(page['env'])
@@ -682,18 +707,18 @@ class Abe:
         body = page['body']
 
         if not is_hash_prefix(tx_hash):
-            body += ['<p class="error">Not a valid transaction hash.</p>']
+            body += abe.page_error(page,'Not a valid transaction hash.')
             return
 
         try:
             # XXX Should pass chain to export_tx to help parse scripts.
             tx = abe.store.export_tx(tx_hash = tx_hash, format = 'browser')
         except DataStore.MalformedHash:
-            body += ['<p class="error">Not in correct format.</p>']
+            body += abe.page_error(page,'Not in correct format.')
             return
 
         if tx is None:
-            body += ['<p class="error">Transaction not found.</p>']
+            body += abe.page_error(page,'Transaction not found.')
             return
 
         return abe.show_tx(page, tx)
@@ -701,6 +726,26 @@ class Abe:
     def show_tx(abe, page, tx):
         body = page['body']
 
+        def row_to_transaction(row, this_ch, other_ch, no_link_text,tx_type):
+            body = page['body']
+            if tx_type == 'output':
+                tx_text = 'output'
+            elif tx_type == 'input':
+                tx_text = 'spent'
+            if row['o_hash'] is None:
+                output_link = [no_link_text]
+            else:
+                output_link = [
+                    '<a href="', row['o_hash'], '#', other_ch, row['o_pos'],'">',tx_text,'</a>']
+                
+            if row['binaddr'] is None:
+                body += no_link_text
+            else:
+                body += hash_to_address_link(chain.address_version,row['binaddr'], '../')
+            amount = (format_satoshis(row['value'], chain))
+            
+            body += ['<span class="pull-right"><span>(', amount, '  ',chain.code3,' - ',output_link,')</span></span></br>']
+            
         def row_to_html(row, this_ch, other_ch, no_link_text):
             body = page['body']
             body += [
@@ -720,9 +765,6 @@ class Abe:
             if row['binscript'] is not None:
                 body += ['<td>', escape(decode_script(row['binscript'])), '</td>\n']
             body += ['</tr>\n']
-
-        body += abe.short_link(page, 't/' + hexb58(tx['hash'][:14]))
-        body += ['<p>Hash: ', tx['hash'], '<br />\n']
         chain = None
         is_coinbase = None
 
@@ -735,47 +777,62 @@ class Abe:
                              + tx_cc['chain'].id + ', ' + chain.id)
 
             blk_hash = tx_cc['block_hash']
-            body += [
-                'Appeared in <a href="../block/', blk_hash, '">',
-                escape(tx_cc['chain'].name), ' ',
+            included_in_block = ['<a href="../block/', blk_hash, '"> ',
                 tx_cc['block_height'] if tx_cc['in_longest'] else [blk_hash[:10], '...', blk_hash[-4:]],
-                '</a> (', format_time(tx_cc['block_nTime']), ')<br />\n']
+                '</a> (', format_time(tx_cc['block_nTime']), ')']
 
         if chain is None:
             abe.log.warning('Assuming default chain for Transaction ' + tx['hash'])
             chain = abe.get_default_chain()
-
-        body += [
-            'Number of inputs: ', len(tx['in']),
-            ' (<a href="#inputs">Jump to inputs</a>)<br />\n',
-            'Total in: ', format_satoshis(tx['value_in'], chain), '<br />\n',
-            'Number of outputs: ', len(tx['out']),
-            ' (<a href="#outputs">Jump to outputs</a>)<br />\n',
-            'Total out: ', format_satoshis(tx['value_out'], chain), '<br />\n',
-            'Size: ', tx['size'], ' bytes<br />\n',
-            'Fee: ', format_satoshis(0 if is_coinbase else
+        nTime = format_time(tx_cc['block_nTime'])
+        currency_code = escape(chain.code3)            
+        body += ['<div class="transaction-wrap col-lg-12"><h1>Transaction <small>View information about ',chain.name,' transaction</small></h1></div>']
+        body += ['<div class="transaction_section"><div class="transaction" >']
+        body += ['<div class="transaction_hash"><a class="nos-link" href="',page['dotdot'],'tx/',tx['hash'],'">',tx['hash'],'</a></div>']
+        body += ['<div class="tx_input">']
+        for txin in tx['in']:
+            row_to_transaction(txin, 'i', 'o','Generation' if is_coinbase else 'Unknown','output')
+        body += ['</div><div class="tx_arrow"><i class="fa fa-arrow-right fa-3x"></i></div>']
+        body += ['<div class="tx_output">']
+        for txout in tx['out']:
+            row_to_transaction(txout, 'o', 'i', 'Unspent','input')
+        body += ['</div>\n']
+        body += ['</div><div class="currency_btn"><button class="btn btn-success cb">']
+        body += ['<span data-time="',nTime,'">',format_satoshis(tx['value_out'], chain),' ',currency_code,'</span></button></div>']
+        body += ['<div class="middle-section"><div class="col-lg-7"><table class="table table-striped"><tbody><tr><th colspan="2">Summary</th></tr>']
+        body += ['<tr><td>Size</td><td>', tx['size'], '(bytes)</td></tr>']
+        body += ['<tr><td>Hash</td><td>', tx['hash'], '</td></tr>']
+        body += ['<tr><td>Received Time</td><td>',nTime, '</td></tr>']
+        if included_in_block is not None:
+            body += ['<tr><td>Included In Blocks </td><td>',included_in_block,'</td></tr>']
+        body += ['<tr><td>Short Link </td><td>',abe.short_link(page, 't/' + hexb58(tx['hash'][:14])), '</td></tr>']
+        body += ['</tbody></table></div>']
+        body += ['<div class="col-lg-5"><table class="table table-striped"><tbody><tr><th colspan="2">Inputs and Outputs</th></tr>']
+        body += ['<tr><td>Number of inputs</td><td><span>',len(tx['in']),'</span></td></tr>']
+        total_input = format_satoshis(tx['value_in'], chain)
+        if total_input == '':
+            total_input = 0
+        body += ['<tr><td>Total Input</td><td>',total_input,' ',currency_code,'</td></tr>']
+        body += ['<tr><td>Number of outputs</td><td><span>',len(tx['out']), '</span></td></tr>']
+        body += ['<tr><td>Total Output</td><td>',format_satoshis(tx['value_out'], chain),' ',currency_code,'</td></tr>']
+        body += ['<tr><td>Fee</td><td>',format_satoshis(0 if is_coinbase else
                                      (tx['value_in'] and tx['value_out'] and
                                       tx['value_in'] - tx['value_out']), chain),
-            '<br />\n',
-            '<a href="../rawtx/', tx['hash'], '">Raw transaction</a><br />\n']
-        body += ['</p>\n',
-                 '<a name="inputs"><h3>Inputs</h3></a>\n<table>\n',
-                 '<tr><th>Index</th><th>Previous output</th><th>Amount</th>',
-                 '<th>From address</th>']
+                ' ',currency_code,'</td></tr>']
+        body += ['<tr><td>Raw</td><td>', '<a target="_blank" href="../rawtx/', tx['hash'], '">Raw transaction</a>', '</td></tr>']
+        body += ['</tbody></table></div></div>']
+        body += ['<div class="col-lg-12">']
         if abe.store.keep_scriptsig:
-            body += ['<th>ScriptSig</th>']
-        body += ['</tr>\n']
-        for txin in tx['in']:
-            row_to_html(txin, 'i', 'o',
-                        'Generation' if is_coinbase else 'Unknown')
-        body += ['</table>\n',
-                 '<a name="outputs"><h3>Outputs</h3></a>\n<table>\n',
-                 '<tr><th>Index</th><th>Redeemed at input</th><th>Amount</th>',
-                 '<th>To address</th><th>ScriptPubKey</th></tr>\n']
+            body += ['<h4>Input Scripts</h4>']
+            for txin in tx['in']:
+                if txin['binscript'] is not None:
+                    body += ['<table><tr><td>', escape(decode_script(txin['binscript'])),'</td></tr></table>']
+        
+        body += ['<h4>Output Scripts</h4>']
         for txout in tx['out']:
-            row_to_html(txout, 'o', 'i', 'Not yet redeemed')
-
-        body += ['</table>\n']
+            if txout['binscript'] is not None:
+                body += ['<table><tr><td>', escape(decode_script(txout['binscript'])),'</td></tr></table>']
+        body += ['</div>']
 
     def handle_rawtx(abe, page):
         abe.do_raw(page, abe.do_rawtx)
@@ -803,12 +860,11 @@ class Abe:
             history = abe.store.export_address_history(
                 address, chain=page['chain'], max_rows=abe.address_history_rows_max)
         except DataStore.MalformedAddress:
-            body += ['<p>Not a valid address.</p>']
+            body += abe.page_error(page,'Not a valid address.')
             return
 
         if history is None:
-            body += ["<p>I'm sorry, this address has too many records"
-                     " to display.</p>"]
+            body += abe.page_error(page,'This address has too many records to display')
             return
 
         binaddr  = history['binaddr']
@@ -852,10 +908,11 @@ class Abe:
                 link = address
         else:
             link = address[0 : abe.shortlink_type]
-        body += abe.short_link(page, 'a/' + link)
-
-        body += ['<p>Balance: '] + format_amounts(balance, True)
-
+        final_address_balance=format_amounts(balance, True);
+        body += ['<h1 style="padding-bottom:10px">Address : ',address,'</h1>']
+        body += ['<div class="row-fluid"><div class="col-lg-8"><table class="table table-striped"><tbody><tr><th>Address</th><th>Short Link</th></tr>']
+        body += ['<tr><td>',address,'</td><td>',abe.short_link(page, 'a/' + link),'</td></tr>']
+        body += ['</tbody></table></div><div class="col-lg-4" style="overflow:visible;"><table class="table table-striped"><tbody><tr><th colspan="3">Address Ledger</th></tr>']
         if 'subbinaddr' in history:
             chain = page['chain']
 
@@ -867,25 +924,22 @@ class Abe:
                 if chain is None:
                     chain = chains[0]
 
-            body += ['<br />\nEscrow']
+            body += ['<tr><td>Escrow</td><td>']
             for subbinaddr in history['subbinaddr']:
-                body += [' ', hash_to_address_link(chain.address_version, subbinaddr, page['dotdot'], 10) ]
+                body += [hash_to_address_link(chain.address_version, subbinaddr, page['dotdot'], 10) ,'</td></tr>']
 
         for chain in chains:
             balance[chain.id] = 0  # Reset for history traversal.
-
-        body += ['<br />\n',
-                 'Transactions in: ', counts[0], '<br />\n',
-                 'Received: ', format_amounts(received, False), '<br />\n',
-                 'Transactions out: ', counts[1], '<br />\n',
-                 'Sent: ', format_amounts(sent, False), '<br />\n']
-
+        body += ['<tr><td>No. Transactions</td><td>',counts[0] + counts[1],'</td></tr>']
+        body += ['<tr><td>Total Received</td><td>',format_amounts(received, False), '</td></tr>']
+        body += ['<tr><td>Total Sent</td><td>',format_amounts(sent, False), '</td></tr>']
+        body += ['<tr><td>Final Balance</td><td><b>',final_address_balance,'</b></td></tr>']
+        body += ['</tbody></table></div></div>']
         body += ['</p>\n'
-                 '<h3>Transactions</h3>\n'
-                 '<table class="addrhist">\n<tr><th>Transaction</th><th>Block</th>'
-                 '<th>Approx. Time</th><th>Amount</th><th>Balance</th>'
-                 '<th>Currency</th></tr>\n']
-
+         '<h3>Transactions</h3>\n'
+         '<table class="table table-condensed table-hover">\n<tr><th>Transaction</th><th>Block</th>'
+         '<th>Approx. Time</th><th>Amount</th><th>Balance</th>'
+         '</tr>\n']
         for elt in txpoints:
             chain = elt['chain']
             type = elt['type']
@@ -909,21 +963,37 @@ class Abe:
                 value = hash_to_address_link(chain.script_addr_vers, elt['binaddr'], page['dotdot'], text=value)
 
             body += [value, '</td><td class="balance">',
-                     format_satoshis(balance[chain.id], chain),
-                     '</td><td class="currency">', escape(chain.code3),
-                     '</td></tr>\n']
+                     format_satoshis(balance[chain.id], chain),' ',
+                     escape(chain.code3),'</td></tr>\n']
         body += ['</table>\n']
 
     def search_form(abe, page):
         q = (page['params'].get('q') or [''])[0]
-        return [
-            '<p>Search by address, block number or hash, transaction or'
-            ' public key hash, or chain name:</p>\n'
-            '<form action="', page['dotdot'], 'search"><p>\n'
-            '<input name="q" size="64" value="', escape(q), '" />'
-            '<button type="submit">Search</button>\n'
-            '<br />Address or hash search requires at least the first ',
+        return ['<p><i>Search by address, block number or hash, transaction or'
+            ' public key hash, or blockchain name:</i></p>\n'
+            '<form class="form-inline" role="form" action="', page['dotdot'], 'search" id="searchform">\n'
+            '<div class="form-group">'
+            '<input type="text" name="q" class="form-control" size="64" value="', escape(q), '" id="search_field" placeholder="Search Address / block / hash" /></div>'
+            '<input type="submit" class="btn btn-primary search_button" value="Search" />\n'
+            '<p>Address or hash search requires at least the first ',
             HASH_PREFIX_MIN, ' characters.</p></form>\n']
+    
+    def page_error(abe, page, message):
+        if message=='':
+            message='Page Not found'
+        return [
+                '<div class="page-404 col-lg-12">'
+                '<div class="jumbotron center-block"><h1>',message,'</h1>'
+                '<br /> <p><b>You could just press this neat little button:</b></p>'
+                '<a href="', page['dotdot'], abe.home, '" class="btn btn-primary btn-lg""><i class="fa fa-home"></i>   VISIT HOMEPAGE</a>'
+                '<p> <b>Or you can also search using form below : </b><p><i>Search by address, block number or hash, transaction or'
+                ' public key hash, or blockchain name:</i></p>\n'
+                '<form class="form-inline" role="form" action="', page['dotdot'], 'search" id="searchform">\n'
+                '<div class="form-group">'
+                '<input type="text" name="q" class="form-control" size="64" value="" id="search_field" placeholder="Search Address / block / hash" /></div>'
+                '<input type="submit" class="btn btn-primary search_button" value="Search" />\n'
+                '<p>Address or hash search requires at least the first ',
+                HASH_PREFIX_MIN, ' characters.</p></form>\n</div></div>']
 
     def handle_search(abe, page):
         page['title'] = 'Search'
@@ -1316,7 +1386,107 @@ class Abe:
             return 'Shows the greatest block height in CHAIN.\n' \
                 '/chain/CHAIN/q/getblockcount\n'
         return abe.get_max_block_height(chain)
+        
+    def q_get_blocks_data(abe, page, chain):
+        """shows the latest blocks data in json format for datatable in chain page"""
+        page['content_type'] = 'application/json'
+        latest_blocks = []
+        total_number_of_blocks = abe.get_max_block_height(chain)
+        post_data = get_post_data(page)
+        if chain is None:
+            return 'Shows latest blocks.\n' \
+                '/chain/CHAIN/q/get_latest_blocks[/INTERVAL[/START[/STOP]]]\n'
+        if 'sEcho' in post_data:
+            sEcho_val = int( post_data['sEcho'] )
+        else:
+            sEcho_val = 1
 
+        if 'iDisplayLength' in post_data:
+            count = int(post_data['iDisplayLength'])
+        else:
+            count = 5
+        if 'iDisplayStart' in post_data:
+            hi = int(post_data['iDisplayStart'])
+        else:
+            hi = 0
+        hi = total_number_of_blocks - hi
+        orig_hi = hi
+        if sEcho_val is not None:
+            if hi is None:
+                row = abe.store.selectrow("""
+                    SELECT b.block_height
+                      FROM block b
+                      JOIN chain c ON (c.chain_last_block_id = b.block_id)
+                     WHERE c.chain_id = ?
+                """, (chain.id,))
+                if row:
+                    hi = row[0]
+            if hi is None:
+                if orig_hi is None and count > 0:
+                    return '<p>I have no blocks in this chain.</p>'
+                else:
+                    return '<p>The requested range contains no blocks.</p>'
+
+            rows = abe.store.selectall("""
+                SELECT b.block_hash, b.block_height, b.block_nTime, b.block_num_tx,
+                       b.block_nBits, b.block_value_out,
+                       b.block_total_seconds, b.block_satoshi_seconds,
+                       b.block_total_satoshis, b.block_ss_destroyed,
+                       b.block_total_ss
+                  FROM block b
+                  JOIN chain_candidate cc ON (b.block_id = cc.block_id)
+                 WHERE cc.chain_id = ?
+                   AND cc.block_height BETWEEN ? AND ?
+                   AND cc.in_longest = 1
+                 ORDER BY cc.block_height DESC LIMIT ?
+            """, (chain.id, hi - count + 1, hi, count))
+    
+            if hi is None:
+                hi = int(rows[0][1])
+           
+            for row in rows:
+                (hash, height, nTime, num_tx, nBits, value_out,
+                 seconds, ss, satoshis, destroyed, total_ss) = row
+                nTime = int(nTime)
+                value_out = int(value_out)
+                seconds = int(seconds)
+                satoshis = int(satoshis)
+                ss = int(ss)
+                total_ss = int(total_ss)
+
+                if satoshis == 0:
+                    avg_age = '&nbsp;'
+                else:
+                    avg_age = '%5g' % (ss / satoshis / 86400.0)
+    
+                if total_ss <= 0:
+                    percent_destroyed = '&nbsp;'
+                else:
+                    percent_destroyed = '%5g%%' % (100.0 - (100.0 * ss / total_ss))
+    
+                latest_blocks.append([int(height), hash, format_time(int(nTime)), int(num_tx), format_satoshis(value_out, chain),
+                                      util.calculate_difficulty(int(nBits)),format_satoshis(satoshis, chain), avg_age, '%5g' % (seconds / 86400.0), percent_destroyed])
+                
+            return ['{"sEcho":',sEcho_val,',"iTotalRecords":',total_number_of_blocks,',"iTotalDisplayRecords":',total_number_of_blocks,',"aaData":',json.dumps(latest_blocks),'}']
+        else:
+            return ['error']
+    
+    def q_get_latest_transactions(abe,page,chain):
+        if chain is None:
+            return 'Shows latest 10 transactions in CHAIN.\n' \
+                '/chain/CHAIN/q/getdifficulty\n'
+        rows = abe.store.selectall("""
+            SELECT tx_id,tx_hash,tx_size
+            FROM tx
+            ORDER BY tx_id DESC
+            LIMIT 10
+        """)
+        output = []
+        for row in rows:
+            tx_id, tx_hash, tx_size = (row[0], abe.store.hashout_hex(row[1]), None if row[2] is None else int(row[2]))
+            output.append([tx_hash[:14],tx_hash,tx_size]);
+        return ['{"sEcho":1,"iTotalRecords":10,"iTotalDisplayRecords":10,"aaData":',json.dumps(output),'}']
+            
     def q_getdifficulty(abe, page, chain):
         """shows the last solved block's difficulty."""
         if chain is None:
@@ -1683,21 +1853,6 @@ class Abe:
         return "\n".join(abe.store.firstbits_to_addresses(
                 fb, chain_id = (chain and chain.id)))
 
-    def handle_download(abe, page):
-        name = abe.args.download_name
-        if name is None:
-            name = re.sub(r'\W+', '-', ABE_APPNAME.lower()) + '-' + ABE_VERSION
-        fileobj = lambda: None
-        fileobj.func_dict['write'] = page['start_response'](
-            '200 OK',
-            [('Content-type', 'application/x-gtar-compressed'),
-             ('Content-disposition', 'filename=' + name + '.tar.gz')])
-        import tarfile
-        with tarfile.TarFile.open(fileobj=fileobj, mode='w|gz',
-                                  format=tarfile.PAX_FORMAT) as tar:
-            tar.add(os.path.split(__file__)[0], name)
-        raise Streamed()
-
     def serve_static(abe, path, start_response):
         slen = len(abe.static_path)
         if path[:slen] != abe.static_path:
@@ -1735,7 +1890,7 @@ class Abe:
         else:
             full = base + link
 
-        return ['<p class="shortlink">Short Link: <a href="',
+        return ['<p class="shortlink"><a href="',
                 page['dotdot'], link, '">', full, '</a></p>\n']
 
     def fix_path_info(abe, env):
@@ -1761,6 +1916,17 @@ def get_int_param(page, name):
     vals = page['params'].get(name)
     return vals and int(vals[0])
 
+def get_post_data(page):
+    env = page['env']
+    output={}
+    if env['REQUEST_METHOD'] == 'POST':
+        post_data = (env['wsgi.input'].read())
+        post_data = post_data.split('&')
+        for each_data in post_data:
+            temp_data = (each_data.split('='))
+            output [temp_data[0]]= temp_data[1]
+    return output
+    
 def path_info_uint(page, default):
     ret = path_info_int(page, None)
     if ret is None or ret < 0:
@@ -2003,8 +2169,6 @@ def create_conf():
         "debug":                    None,
         "static_path":              None,
         "document_root":            None,
-        "auto_agpl":                None,
-        "download_name":            None,
         "watch_pid":                None,
         "base_url":                 None,
         "logging":                  None,
@@ -2080,9 +2244,6 @@ See abe.conf for commented examples.""")
     if args.logging is not None:
         import logging.config as logging_config
         logging_config.dictConfig(args.logging)
-
-    if args.auto_agpl:
-        import tarfile
 
     store = make_store(args)
     if (not args.no_serve):
