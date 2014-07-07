@@ -211,8 +211,8 @@ class Abe:
     def __call__(abe, env, start_response):
         import urlparse
 
-        status = '200 OK'
         page = {
+            "status": '200 OK',
             "title": [escape(ABE_APPNAME), " ", ABE_VERSION],
             "body": [],
             "env": env,
@@ -249,7 +249,7 @@ class Abe:
 
             handler(page)
         except PageNotFound:
-            status = '404 Not Found'
+            page['status'] = '404 Not Found'
             page['body'] = ['<p class="error">Sorry, ', env['SCRIPT_NAME'],
                             env['PATH_INFO'],
                             ' does not exist on this server.</p>']
@@ -267,8 +267,9 @@ class Abe:
 
         abe.store.rollback()  # Close implicitly opened transaction.
 
-        start_response(status, [('Content-type', page['content_type']),
-                                ('Cache-Control', 'max-age=30')])
+        start_response(page['status'],
+                       [('Content-type', page['content_type']),
+                        ('Cache-Control', 'max-age=30')])
 
         tvars['title'] = flatten(page['title'])
         tvars['h1'] = flatten(page.get('h1') or page['title'])
@@ -803,6 +804,7 @@ class Abe:
             history = abe.store.export_address_history(
                 address, chain=page['chain'], max_rows=abe.address_history_rows_max)
         except DataStore.MalformedAddress:
+            page['status'] = '404 Not Found'
             body += ['<p>Not a valid address.</p>']
             return
 
@@ -821,6 +823,7 @@ class Abe:
         counts   = history['counts']
 
         if (not chains):
+            page['status'] = '404 Not Found'
             body += ['<p>Address not seen on the network.</p>']
             return
 
