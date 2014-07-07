@@ -6,7 +6,7 @@ setup(
     name         = "Abe",
     version      = __version__,
     requires     = ['Crypto.Hash'],
-    packages     = ["Abe"],
+    packages     = ['Abe', 'Abe.Chain'],
     package_data = {'Abe': ['htdocs/*']},
     author       = "John Tobey",
     author_email = "jtobey@john-edwin-tobey.org",
