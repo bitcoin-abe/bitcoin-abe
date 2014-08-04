@@ -24,46 +24,15 @@ import tempfile
 import py.path
 
 from db import testdb
-import datagen
+import data
 import Abe.Chain
 from Abe.deserialize import opcodes
 
-PUBKEYS = [
-    x.decode('hex') for x in [
-        # Satoshi's genesis pubkey.
-        '04678afdb0fe5548271967f1a67130b7105cd6a828e03909a67962e0ea1f61deb649f6bc3f4cef38c4f35504e51ec112de5c384df7ba0b8d578a4c702b6bf11d5f',
-
-        # Testnet Block 1 pubkey.
-        '021aeaf2f8638a129a3156fbe7e5ef635226b0bafd495ff03afe2c843d7e3a4b51',
-
-        # Some test pubkeys.
-        '0269184483e5494727d2dec54da85db9b18bee827bb3d1eee23b122edf810b8262',
-        '0217819b778f0bcfee53bbed495ca20fdc828f40ffd6d9481fe4c0d091b1486f69',
-        '022820a6eb4e6817bf68301856e0803e05d19f54714006f2088e74103be396eb5a',
-        ]]
-
 @pytest.fixture(scope="module")
 def gen(testdb, request):
-    chain = Abe.Chain.create('Testnet')
-    blocks = []
-    gen = datagen.Gen(chain=chain, db=testdb, blocks=blocks)
-
-    # The Bitcoin/Testnet genesis transaction.
-    genesis_coinbase = gen.coinbase(
-        scriptSig=gen.encode_script(
-            '\xff\xff\x00\x1d', '\x04', 'The Times 03/Jan/2009 Chancellor on brink of second bailout for banks'),
-        txOut=[gen.txout(pubkey=PUBKEYS[0], value=50*10**8)])
-
-    # Testnet Blocks 0 and 1.
-    blocks.append(gen.block(transactions=[genesis_coinbase], nTime=1296688602, nNonce=414098458))
-
-    blocks.append( gen.block(prev=blocks[-1], nTime=1296688928, nNonce=1924588547,
-                             transactions=[gen.coinbase(scriptSig='0420e7494d017f062f503253482f'.decode('hex'),
-                                                        txOut=[gen.txout(pubkey=PUBKEYS[1], value=50*10**8)])]) )
-
-    # Test blocks with random coinbase addresses and bogus proof-of-work.
-    for i in xrange(12):
-        blocks.append( gen.block(prev=blocks[-1]) )
+    gen = data.testnet14(testdb)
+    chain = gen.chain
+    blocks = gen.blocks
 
     # Test block with an interesting transaction.
     blocks.append(
@@ -74,11 +43,12 @@ def gen(testdb, request):
                 gen.tx(txIn=[gen.txin(prevout=blocks[1]['transactions'][0]['txOut'][0], scriptSig='XXX')],
                        txOut=[gen.txout(addr='n1pTUVnjZ6GHxujaoJ62P9NBMNjLr5N2EQ', value=9.99e8),
                               gen.txout(addr='2NFTctsgcAmrgtiboLJUx9q8qu5H1qVpcAb', value=20e8),
-                              gen.txout(multisig={"m":2, "pubkeys":PUBKEYS[2:5]}, value=20e8)])]) )
+                              gen.txout(multisig={"m":2, "pubkeys":data.PUBKEYS[2:5]}, value=20e8)])]) )
 
     if 'ABE_TEST_SAVE_BLKFILE' in os.environ:
         gen.save_blkfile(os.environ['ABE_TEST_SAVE_BLKFILE'], blocks)
 
+    # XXX Lots of code duplicated in test_block_order.py.
     datadir = py.path.local(tempfile.mkdtemp(prefix='abe-test-'))
     request.addfinalizer(datadir.remove)
     gen.save_blkfile(str(datadir.join('blk0001.dat')), blocks)
@@ -101,12 +71,9 @@ def test_b1_hash(gen):
     block_1_hash = '00000000b873e79784647a6c82962c70d228557d24a747ea4d1b8bbe878e1206'.decode('hex')[::-1]
     assert gen.blocks[1]['hash'] == block_1_hash
 
-def ah(gen, addr):
-    return gen.store.export_address_history(addr, chain=gen.chain)
-
 @pytest.fixture(scope="module")
 def ahn1p(gen):
-    return ah(gen, 'n1pTUVnjZ6GHxujaoJ62P9NBMNjLr5N2EQ')
+    return data.ah(gen, 'n1pTUVnjZ6GHxujaoJ62P9NBMNjLr5N2EQ')
 
 def test_ahn1p_binaddr(ahn1p):
     assert ahn1p['binaddr'] == 'deb1f1ffbef6061a0b8f6d23b4e72164b4678253'.decode('hex')
@@ -167,7 +134,7 @@ def test_ahn1p_counts(ahn1p):
 
 @pytest.fixture(scope="module")
 def a2NFT(gen):
-    return ah(gen, '2NFTctsgcAmrgtiboLJUx9q8qu5H1qVpcAb')
+    return data.ah(gen, '2NFTctsgcAmrgtiboLJUx9q8qu5H1qVpcAb')
 
 def test_a2NFT_binaddr(a2NFT):
     assert a2NFT['binaddr'] == 'f3aae15f9b92a094bb4e01afe99f99ab4135f362'.decode('hex')
@@ -228,10 +195,10 @@ def test_a2NFT_counts(a2NFT):
 
 @pytest.fixture(scope="module")
 def an3j4(gen):
-    return ah(gen, 'n3j41Rkn51bdfh3NgyaA7x2JKEsfuvq888')
+    return data.ah(gen, 'n3j41Rkn51bdfh3NgyaA7x2JKEsfuvq888')
 
 def test_an3j4_binaddr(an3j4, gen):
-    assert an3j4['binaddr'] == gen.chain.pubkey_hash(PUBKEYS[3])
+    assert an3j4['binaddr'] == gen.chain.pubkey_hash(data.PUBKEYS[3])
 
 def test_an3j4_subbinaddr(an3j4, gen):
     assert 'subbinaddr' not in an3j4
@@ -371,7 +338,7 @@ def test_b14_t1i0_address_version(b14):
     assert b14['transactions'][1]['in'][0]['address_version'] == '\x6f'
 
 def test_b14_t1i0_binaddr(b14, gen):
-    assert b14['transactions'][1]['in'][0]['binaddr'] == gen.chain.pubkey_hash(PUBKEYS[1])
+    assert b14['transactions'][1]['in'][0]['binaddr'] == gen.chain.pubkey_hash(data.PUBKEYS[1])
 
 def test_b14_t1i0_value(b14):
     assert b14['transactions'][1]['in'][0]['value'] == 50e8
@@ -407,13 +374,13 @@ def test_b14_t1o2_subbinaddr(b14, gen):
     assert len(b14['transactions'][1]['out'][2]['subbinaddr']) == 3
 
 def test_b14_t1o2k0(b14, gen):
-    assert b14['transactions'][1]['out'][2]['subbinaddr'][0] == gen.chain.pubkey_hash(PUBKEYS[2])
+    assert b14['transactions'][1]['out'][2]['subbinaddr'][0] == gen.chain.pubkey_hash(data.PUBKEYS[2])
 
 def test_b14_t1o2k1(b14, gen):
-    assert b14['transactions'][1]['out'][2]['subbinaddr'][1] == gen.chain.pubkey_hash(PUBKEYS[3])
+    assert b14['transactions'][1]['out'][2]['subbinaddr'][1] == gen.chain.pubkey_hash(data.PUBKEYS[3])
 
 def test_b14_t1o2k2(b14, gen):
-    assert b14['transactions'][1]['out'][2]['subbinaddr'][2] == gen.chain.pubkey_hash(PUBKEYS[4])
+    assert b14['transactions'][1]['out'][2]['subbinaddr'][2] == gen.chain.pubkey_hash(data.PUBKEYS[4])
 
 def test_b14_t1o2_required_signatures(b14):
     assert b14['transactions'][1]['out'][2]['required_signatures'] == 2
@@ -463,7 +430,7 @@ def test_b14t1o2_binaddr(b14t1, gen):
     assert b14t1['out'][2]['binaddr'] == 'b8bcada90d0992bdc64188d6a0ac3f9fd200d1d1'.decode('hex')
 
 def test_b14t1o2_subbinaddr(b14t1, gen):
-    assert b14t1['out'][2]['subbinaddr'] == [ gen.chain.pubkey_hash(pubkey) for pubkey in PUBKEYS[2:5] ]
+    assert b14t1['out'][2]['subbinaddr'] == [ gen.chain.pubkey_hash(pubkey) for pubkey in data.PUBKEYS[2:5] ]
 
 def test_b14t1o2_value(b14t1):
     assert b14t1['out'][2]['value'] == 20e8
