@@ -1235,7 +1235,9 @@ store._ddl['txout_approx'],
               JOIN txin ON (txin.tx_id = bt.tx_id)
               JOIN txout ON (txin.txout_id = txout.txout_id)
               JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
+              JOIN block ob ON (obt.block_id = ob.block_id)
              WHERE bt.block_id = ?
+               AND ob.block_chain_work IS NOT NULL
              GROUP BY txin.txin_id""", (block_id,)):
             (txin_id, oblock_id) = row
             if store.is_descended_from(block_id, int(oblock_id)):
