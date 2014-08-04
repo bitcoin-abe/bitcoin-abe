@@ -191,3 +191,9 @@ class CmdLine(object):
         store = DataStore.new(args)
 
         return store, argv
+
+# Abstract hex-binary conversions for eventual porting to Python 3.
+def hex2b(s):
+    return s.decode('hex')
+def b2hex(b):
+    return b.encode('hex')
