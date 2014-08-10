@@ -33,6 +33,7 @@ def create(policy, **kwargs):
     if policy == "Bitleu":          return Bitleu(**kwargs)
     if policy == "Keccak":          return KeccakChain(**kwargs)
     if policy == "Maxcoin":         return Maxcoin(**kwargs)
+    if policy == "Polcoin":         return Polcoin(**kwargs)
     return Sha256NmcAuxPowChain(**kwargs)
 
 
@@ -419,3 +420,14 @@ class Maxcoin(KeccakChain):
 
     datadir_conf_file_name = 'maxcoin.conf'
     datadir_rpcport = 8669
+
+class Polcoin(Sha256Chain):
+    def __init__(chain, **kwargs):
+        chain.name = 'Polcoin'
+        chain.code3 = 'PLC'
+        chain.address_version = '\x00'
+        chain.magic = '\xa5\x72\x59\x82'
+        Sha256Chain.__init__(chain, **kwargs)
+
+    datadir_conf_file_name = "polcoin.conf"
+    datadir_rpcport = 9337
