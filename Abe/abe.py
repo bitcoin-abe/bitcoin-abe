@@ -1391,11 +1391,12 @@ class Abe:
         """shows the latest blocks data in json format for datatable in chain page"""
         page['content_type'] = 'application/json'
         latest_blocks = []
-        total_number_of_blocks = abe.get_max_block_height(chain)
+        #total_number_of_blocks = abe.get_max_block_height(chain)
         post_data = get_post_data(page)
         if chain is None:
             return 'Shows latest blocks.\n' \
                 '/chain/CHAIN/q/get_latest_blocks[/INTERVAL[/START[/STOP]]]\n'
+        total_number_of_blocks = abe.get_max_block_height(chain)
         if 'sEcho' in post_data:
             sEcho_val = int( post_data['sEcho'] )
         else:
@@ -1464,7 +1465,7 @@ class Abe:
                 else:
                     percent_destroyed = '%5g%%' % (100.0 - (100.0 * ss / total_ss))
     
-                latest_blocks.append([int(height), hash, format_time(int(nTime)), int(num_tx), format_satoshis(value_out, chain),
+                latest_blocks.append([int(height), abe.store.hashout_hex(hash), format_time(int(nTime)), int(num_tx), format_satoshis(value_out, chain),
                                       util.calculate_difficulty(int(nBits)),format_satoshis(satoshis, chain), avg_age, '%5g' % (seconds / 86400.0), percent_destroyed])
                 
             return ['{"sEcho":',sEcho_val,',"iTotalRecords":',total_number_of_blocks,',"iTotalDisplayRecords":',total_number_of_blocks,',"aaData":',json.dumps(latest_blocks),'}']
