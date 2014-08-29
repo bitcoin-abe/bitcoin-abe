@@ -426,7 +426,7 @@ class Polcoin(Sha256Chain):
         chain.name = 'Polcoin'
         chain.code3 = 'PLC'
         chain.address_version = '\x00'
-        chain.magic = '\xa5\x72\x59\x82'
+        chain.magic = '\xa6\x73\x60\x83'
         Sha256Chain.__init__(chain, **kwargs)
 
     datadir_conf_file_name = "polcoin.conf"
