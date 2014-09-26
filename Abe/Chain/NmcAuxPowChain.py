@@ -15,6 +15,7 @@
 # <http://www.gnu.org/licenses/agpl.html>.
 
 from . import BaseChain
+from .. import deserialize
 
 class NmcAuxPowChain(BaseChain):
     """
