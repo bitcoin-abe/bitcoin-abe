@@ -26,9 +26,16 @@ Issue:
 This will install abe to your system, so after you set up the
 database (see README-*****.txt) you can run:
 
-    python -m Abe.abe --config mydbconf.conf
-        --commit-bytes 100000 --no-serve
+    python -m Abe.abe --config mydbconf.conf --commit-bytes 100000 --no-serve
     
+This will perform the initial data load and will take a lot of time.
+After it's succesfully synced, you can run the web server with: 
+
+    python -m Abe.abe --config abe-my.conf
+    
+To really get everything right see the README file for your type of
+database.
+
 Abe depends on Python 2.7 (or 2.6), the pycrypto package, and an SQL
 database supporting ROLLBACK.  Abe runs on PostgreSQL, MySQL's InnoDB
 engine, and SQLite.  Other SQL databases may work with minor changes.
