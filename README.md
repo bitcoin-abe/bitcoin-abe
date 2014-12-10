@@ -31,7 +31,7 @@ database (see README-*****.txt) you can run:
 This will perform the initial data load and will take a lot of time.
 After it's succesfully synced, you can run the web server with: 
 
-    python -m Abe.abe --config abe-my.conf
+    python -m Abe.abe --config mydbconf.conf
     
 To really get everything right see the README file for your type of
 database.
