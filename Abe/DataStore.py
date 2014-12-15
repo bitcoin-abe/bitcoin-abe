@@ -82,6 +82,7 @@ CHAIN_CONFIG = [
     {"chain":"Maxcoin"},
     {"chain":"Darkcoin"},
     {"chain":"BlackCoin"},
+    {"chain":"SiFcoin"},
     #{"chain":"",
     # "code3":"", "address_version":"\x", "magic":""},
     ]
