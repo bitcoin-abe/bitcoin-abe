@@ -14,17 +14,23 @@
 # License along with this program.  If not, see
 # <http://www.gnu.org/licenses/agpl.html>.
 
-try:
-    import sifcoin_hash
-except ImportError:
-    print("sifcoin-hash module required")
-
-from . import BaseChain
-class SiFChain(BaseChain):
+from .SiFChain import SiFChain
+class SiFcoin(SiFChain):
     """
     A blockchain that hashes block headers using the SiF algorithm.
     The current implementation requires the sifcoin_hash module.
     """
-    def block_header_hash(chain, header):
-        return sifcoin_hash.getPoWHash(header)
+    def __init__(chain, **kwargs):
+        chain.name = "SiFcoin"
+        chain.code3 = "SIC"
+        chain.policy = "SiFChain"
+        chain.address_version = "\x07"
+        chain.script_addr_vers = "\x05"
+        chain.magic = "\xf2\xd5\xd3\xd8"
+        SiFChain.__init__(chain, **kwargs)
+
+
+    datadir_conf_file_name = 'sifcoin.conf'
+    datadir_rpcport = 8372
+    datadir_p2pport = 9999
 
