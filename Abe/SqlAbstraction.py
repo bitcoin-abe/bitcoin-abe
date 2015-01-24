@@ -79,7 +79,7 @@ class SqlAbstraction(object):
         def from_hex_rev(x):
             return None if x is None else x.decode('hex')[::-1]
 
-	val = sql.config.get('binary_type')
+        val = sql.config.get('binary_type')
 
         if val in (None, 'str', "binary"):
             binin       = identity
