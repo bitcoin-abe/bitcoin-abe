@@ -33,6 +33,7 @@ def create(policy, **kwargs):
     if policy == "Keccak":          return KeccakChain(**kwargs)
     if policy == "Maxcoin":         return Maxcoin(**kwargs)
     if policy == "Animecoin":       return Animecoin(**kwargs)
+    if policy == "USDe":            return USDe(**kwargs)
     return Sha256NmcAuxPowChain(**kwargs)
 
 
@@ -432,3 +433,18 @@ class Animecoin(Chain):
 
     datadir_conf_file_name = 'animecoin.conf'
     datadir_rpcport = 2121
+
+class USDe(LtcScryptChain):
+    def __init__(chain, **kwargs):
+        chain.name = 'USDe'
+        chain.code3 = 'USDe'
+        chain.address_version = '\x26'
+        chain.script_addr_vers = '\x05'
+        chain.magic = "\xd9\xd9\xf9\xbd"
+        Chain.__init__(chain, **kwargs)
+
+    def block_header_hash(chain, header):
+        return util.double_sha256(header)
+
+    datadir_conf_file_name = 'usde.conf'
+    datadir_rpcport = 54448
