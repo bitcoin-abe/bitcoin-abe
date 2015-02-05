@@ -23,15 +23,15 @@ Issue:
 
     python setup.py install
 
-This will install abe to your system, so after you set up the
-database (see README-*****.txt) you can run:
+This will install abe to your system. After you set up the config file and
+database (see below and README-<DB>.txt) you can run:
 
-    python -m Abe.abe --config mydbconf.conf --commit-bytes 100000 --no-serve
+    python -m Abe.abe --config myconf.conf --commit-bytes 100000 --no-serve
     
-This will perform the initial data load and will take a lot of time.
-After it's succesfully synced, you can run the web server with: 
+This will perform the initial data load and will take a long time.
+After it's fully synced, you can run the web server with: 
 
-    python -m Abe.abe --config mydbconf.conf
+    python -m Abe.abe --config myconf.conf
     
 To really get everything right see the README file for your type of
 database.
