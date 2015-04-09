@@ -16,15 +16,15 @@
 
 from .X11Chain import X11Chain
 
-class Darkcoin(X11Chain):
+class Dash(X11Chain):
     def __init__(chain, **kwargs):
-        chain.name = 'Darkcoin'
-        chain.code3 = 'DRK'
+        chain.name = 'Dash'
+        chain.code3 = 'DASH'
         chain.address_version = '\x4c'
         chain.script_addr_vers = '\x05'
         chain.magic = '\xbf\x0c\x6b\xbd'
         X11Chain.__init__(chain, **kwargs)
 
-    datadir_conf_file_name = 'darkcoin.conf'
+    datadir_conf_file_name = 'dash.conf'
     datadir_rpcport = 9998
     datadir_p2pport = 9999
