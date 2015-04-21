@@ -56,7 +56,7 @@ available from https://github.com/CryptoManiac/bitcoin-abe (see
 README-SCRYPT.txt).
 
 Hirocoin (and any other X11) support depends on the xcoin_hash module
-available from https://github.com/evan82/xcoin-hash.
+available from https://github.com/darkcoinproject/xcoin-hash.
 
 Bitleu (a Scrypt-Jane coin) depends on the yac_scrypt module.
 
