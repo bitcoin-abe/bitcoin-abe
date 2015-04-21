@@ -109,3 +109,59 @@ do
 done
 
 Then compare the size of your table's .ibd files for each KEY_BLOCK_SIZE.
+
+APPENDIX B: Using TokuDB
+
+TokuDB is an optional engine for MySQL/MariaDB optimized for fast inserts.
+Compared to Innodb, TokuDB has the following advantages:
+
+- All tables compressed by default - compression ratio is higher then InnoDB
+  without tuning.
+- Faster inserts (mostly visible loading empty blocks; loading transaction
+  requires linking txin's, and the lookup for those slows inserts, although it
+  remains order of magnitude than InnoDB).
+- Heavily reduced disk IO, excellent for slow disks, reduces contention with
+  other loads like the Bitcoin Client.
+- Extremely fast backup restoration (tested from a SQL dump - using LOAD DATA
+  INFILE could be even faster!)
+
+The drawbacks experienced were:
+
+- TokuDB requires periodical ANALYZE TABLE to properly compute index
+  cardinality. This is most important to run *during* the initial load to
+  ensure optimal query optimisations. Once the blockchain is fully loaded,
+  it should be sufficient to do it about once a year and after restoring
+	backups.
+- TokuDB does *not* enforce foreign key check. There are small risks that bugs
+  lead to inconsistent database and, more importantly, it will not guard you
+  against accidentally breaking table relations when manually altering the
+  database contents.
+
+You should be able to convert an existing database using (UNTESTED):
+    ALTER TABLE `table` ENGINE=TokuDB;
+(You may have to disable foreign key checks first)
+
+Another option is to load a SQL backup while passing the file contents trough
+sed:
+
+    cat dump.sql |sed -r 's/ENGINE=InnoDB/ENGINE=TokuDB/;s/ROW_FORMAT=COMPRESSED KEY_BLOCK_SIZE=[0-9]+//' | mysql <options>
+
+For simplicity this example uses `cat`, but you should probably use
+compression on the sql file to reduce IO.
+
+Finally you can load the full blockchain into a database whose default engine
+is TokuDB (NB: Abe will add `ENGINE=InnoDB` *only* when the default engine does
+not support transactions). As of writing this, around block 340000, you can
+expect up to a week to load the blockchain, depending mostly on your CPU
+speed.
+
+
+TODO:
+
+Some ideas on enhancements for TokuDB:
+
+- Backup script using SELECT INTO OUTFILE / LOAD DATA INFILE (Will it work
+  with BINARY data?)
+- ANALYZE script
+- Script to check FK relations?
+
