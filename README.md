@@ -23,7 +23,18 @@ Issue:
 
     python setup.py install
 
-or simply run Abe from the directory containing setup.py.
+This will install abe to your system. After you set up the config file and
+database (see below and README-<DB>.txt) you can run:
+
+    python -m Abe.abe --config myconf.conf --commit-bytes 100000 --no-serve
+    
+This will perform the initial data load and will take a long time.
+After it's fully synced, you can run the web server with: 
+
+    python -m Abe.abe --config myconf.conf
+    
+To really get everything right see the README file for your type of
+database.
 
 Abe depends on Python 2.7 (or 2.6), the pycrypto package, and an SQL
 database supporting ROLLBACK.  Abe runs on PostgreSQL, MySQL's InnoDB
