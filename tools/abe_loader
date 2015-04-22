@@ -41,7 +41,7 @@ DATADIR="$HOME/.bitcoin"
 parse_opts "$@"
 
 tail -F "$DATADIR"/debug.log |
-grep --line-buffered -- "$BLOCK_ACCEPTED" |
+grep -F --line-buffered -- "$BLOCK_ACCEPTED" |
 while true
 do
     python -m Abe.abe "$@" --no-serve < /dev/null
