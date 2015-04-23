@@ -796,7 +796,7 @@ class SqlAbstraction(object):
         for val in ['CLOB', 'LONGTEXT', 'TEXT', 'LONG']:
             try:
                 sql.ddl("CREATE TABLE %stest_1 (a %s)" % (sql.prefix, val))
-                sql.sql("INSERT INTO %stest_1 (a) VALUES (?)", (sql.prefix, sql.binin(long_str)))
+                sql.sql("INSERT INTO %stest_1 (a) VALUES (?)" % sql.prefix, (sql.binin(long_str),))
                 out = sql.selectrow("SELECT a FROM %stest_1" % sql.prefix)[0]
                 if sql.binout(out) == long_str:
                     sql.config['clob_type'] = val

@@ -2,7 +2,7 @@
 
 # Copyright(C) 2013 by Abe developers.
 
-BLOCK_ACCEPTED="ProcessBlock: ACCEPTED"
+BLOCK_ACCEPTED="UpdateTip: new best="
 
 # XXX Should be an option.  Maximum number of seconds between runs.
 MEMPOOL_INTERVAL=30
@@ -41,7 +41,7 @@ DATADIR="$HOME/.bitcoin"
 parse_opts "$@"
 
 tail -F "$DATADIR"/debug.log |
-grep --line-buffered -- "$BLOCK_ACCEPTED" |
+grep -F --line-buffered -- "$BLOCK_ACCEPTED" |
 while true
 do
     python -m Abe.abe "$@" --no-serve < /dev/null
