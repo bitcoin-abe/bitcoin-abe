@@ -131,7 +131,7 @@ The drawbacks experienced were:
   cardinality. This is most important to run *during* the initial load to
   ensure optimal query optimisations. Once the blockchain is fully loaded,
   it should be sufficient to do it about once a year and after restoring
-	backups.
+  backups.
 - TokuDB does *not* enforce foreign key check. There are small risks that bugs
   lead to inconsistent database and, more importantly, it will not guard you
   against accidentally breaking table relations when manually altering the
