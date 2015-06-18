@@ -2575,7 +2575,11 @@ store._ddl['txout_approx'],
             try:
                 return rpc("getblockhash", height)
             except util.JsonrpcException, e:
-                if e.code == -1:  # Block number out of range.
+                if e.code in (-1, -5, -8):
+                    # Block number out of range...
+                    #  -1 is legacy code (pre-10.0), generic error
+                    #  -8 (RPC_INVALID_PARAMETER) first seen in bitcoind 10.x
+                    #  -5 (RPC_NOT_FOUND): Been suggested in #bitcoin-dev as more appropriate
                     return None
                 raise
 
