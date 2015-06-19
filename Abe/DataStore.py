@@ -2586,7 +2586,9 @@ store._ddl['txout_approx'],
         (max_height,) = store.selectrow("""
             SELECT MAX(block_height)
               FROM chain_candidate
-             WHERE chain_id = ?""", (chain.id,))
+             WHERE chain_id = ?
+             ORDER BY block_height DESC
+             LIMIT 1""", (chain.id,))
         height = 0 if max_height is None else int(max_height) + 1
 
         def get_tx(rpc_tx_hash):
@@ -2973,10 +2975,12 @@ store._ddl['txout_approx'],
 
     def get_block_number(store, chain_id):
         (height,) = store.selectrow("""
-            SELECT MAX(block_height)
+            SELECT block_height
               FROM chain_candidate
              WHERE chain_id = ?
-               AND in_longest = 1""", (chain_id,))
+               AND in_longest = 1
+             ORDER BY block_height DESC
+             LIMIT 1""", (chain_id,))
         return -1 if height is None else int(height)
 
     def get_target(store, chain_id):
