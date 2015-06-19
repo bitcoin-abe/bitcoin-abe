@@ -1882,6 +1882,11 @@ def serve(store):
     args = store.args
     abe = Abe(store, args)
 
+    # Hack preventing wsgiref.simple_server from resolving client addresses
+    bhs = __import__('BaseHTTPServer')
+    bhs.BaseHTTPRequestHandler.address_string = lambda x: x.client_address[0]
+    del(bhs)
+
     if args.query is not None:
         def start_response(status, headers):
             pass
