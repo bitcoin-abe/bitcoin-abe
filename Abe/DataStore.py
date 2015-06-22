@@ -2584,7 +2584,7 @@ store._ddl['txout_approx'],
                 raise
 
         (max_height,) = store.selectrow("""
-            SELECT MAX(block_height)
+            SELECT block_height
               FROM chain_candidate
              WHERE chain_id = ?
              ORDER BY block_height DESC
