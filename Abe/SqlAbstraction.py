@@ -35,6 +35,8 @@ class SqlAbstraction(object):
         sql.connect_args = args.connect_args
         sql.prefix = args.prefix
         sql.config = args.config
+        sql.binary_type = args.binary_type
+        sql.int_type = args.int_type
 
         sql.log    = logging.getLogger(__name__)
         sql.sqllog = logging.getLogger(__name__ + ".sql")
@@ -624,7 +626,9 @@ class SqlAbstraction(object):
         return sql.config
 
     def configure_binary_type(sql):
-        defaults = ['binary', 'bytearray', 'buffer', 'hex', 'pg-bytea']
+        defaults = (['binary', 'bytearray', 'buffer', 'hex', 'pg-bytea']
+            if sql.binary_type is None else
+            [ sql.binary_type ])
         tests = (defaults
                  if sql.config.get('binary_type') is None else
                  [ sql.config['binary_type'] ])
@@ -642,7 +646,10 @@ class SqlAbstraction(object):
             "Binary type " + tests[0] + " fails test")
 
     def configure_int_type(sql):
-        defaults = ['int', 'decimal', 'str']
+        defaults = (['int', 'decimal', 'str']
+            if sql.int_type is None else
+            [ sql.int_type ])
+
         tests = (defaults if sql.config.get('int_type') is None else
                  [ sql.config['int_type'] ])
 
