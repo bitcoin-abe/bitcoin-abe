@@ -78,7 +78,7 @@ def deserialize_TxOut(d, owner_keys=None):
     else: result += " Own: False"
   return result
 
-def parse_Transaction(vds, has_nTime=False):
+def parse_Transaction(vds, has_nTime=False, has_tx_comment=False):
   d = {}
   start_pos = vds.read_cursor
   d['version'] = vds.read_int32()
@@ -93,6 +93,23 @@ def parse_Transaction(vds, has_nTime=False):
   for i in xrange(n_vout):
     d['txOut'].append(parse_TxOut(vds))
   d['lockTime'] = vds.read_uint32()
+  if has_tx_comment and d['version'] > 1:
+    # A serialized florincoin transaction with transaction version 2
+    # terminates with a 'compact size' and then a tx_comment. For null
+    # tx_comment, the 'compact size' should be zero.
+    #
+    # florincoin blockchain also includes transactions with version 1 that
+    # don't contain a comment.
+    #
+    # Be extra careful here by catching the error if the tx-comment isn't in
+    # the transaction.
+    try:
+      tx_comment_len = vds.read_compact_size()
+      if tx_comment_len > 0:
+        # don't store null tx_comments
+        d['txComment'] = vds.read_bytes(tx_comment_len)
+    except:
+      pass
   d['__data__'] = vds.input[start_pos:vds.read_cursor]
   return d
 

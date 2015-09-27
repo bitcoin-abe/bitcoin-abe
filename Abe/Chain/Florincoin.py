@@ -15,7 +15,7 @@
 # <http://www.gnu.org/licenses/agpl.html>.
 
 from . import BaseChain
-from .. import util
+from .. import util, deserialize
 
 class Florincoin(BaseChain):
     """
@@ -30,3 +30,6 @@ class Florincoin(BaseChain):
     @staticmethod
     def block_header_hash(header):
         return util.double_sha256(header)
+
+    def ds_parse_transaction(chain, ds):
+        return deserialize.parse_Transaction(ds, has_tx_comment=True)

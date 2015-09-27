@@ -728,6 +728,12 @@ store._ddl['configvar'],
     tx_size       NUMERIC(10)
 )""",
 
+# A transaction comment of the type used by Florincoin.
+"""CREATE TABLE tx_comment (
+    tx_hash       BINARY(32) UNIQUE NOT NULL PRIMARY KEY,
+    tx_comment    VARCHAR(526)
+)""",
+
 # Presence of transactions in blocks is many-to-many.
 """CREATE TABLE block_tx (
     block_id      NUMERIC(14) NOT NULL,
@@ -1788,6 +1794,13 @@ store._ddl['txout_approx'],
             VALUES (?, ?, ?, ?, ?)""",
                   (tx_id, dbhash, store.intin(tx['version']),
                    store.intin(tx['lockTime']), tx['size']))
+
+        # Import transaction comment
+        if 'txComment' in tx:
+            store.sql("""
+            INSERT INTO tx_comment (tx_hash, tx_comment)
+            VALUES (?, ?)""",
+                  (dbhash, tx['txComment']))
 
         # Import transaction outputs.
         tx['value_out'] = 0
