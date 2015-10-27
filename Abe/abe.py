@@ -2092,6 +2092,12 @@ See abe.conf for commented examples.""")
     if args.auto_agpl:
         import tarfile
 
+    # --rpc-load-mempool loops forever, make sure it's used with
+    # --no-load/--no-serve so users know the implications
+    if args.rpc_load_mempool and not (args.no_load or args.no_serve):
+        sys.stderr.write("Error: --rpc-load-mempool requires --no-serve\n")
+        return 1
+
     store = make_store(args)
     if (not args.no_serve):
         serve(store)

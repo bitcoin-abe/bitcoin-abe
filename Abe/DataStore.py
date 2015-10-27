@@ -23,6 +23,7 @@
 
 import os
 import re
+import time
 import errno
 import logging
 
@@ -55,6 +56,7 @@ CONFIG_DEFAULTS = {
     "keep_scriptsig":     True,
     "import_tx":          [],
     "default_loader":     "default",
+    "rpc_load_mempool":   False,
 }
 
 WORK_BITS = 304  # XXX more than necessary.
@@ -224,6 +226,8 @@ class DataStore(object):
             store.maybe_import_binary_tx(chain_name, str(hex_tx).decode('hex'))
 
         store.default_loader = args.default_loader
+
+        store.rpc_load_mempool = args.rpc_load_mempool
 
         store.commit()
 
@@ -1748,7 +1752,7 @@ store._ddl['txout_approx'],
 
         return b
 
-    def tx_find_id_and_value(store, tx, is_coinbase):
+    def tx_find_id_and_value(store, tx, is_coinbase, check_only=False):
         row = store.selectrow("""
             SELECT tx.tx_id, SUM(txout.txout_value), SUM(
                        CASE WHEN txout.pubkey_id > 0 THEN txout.txout_value
@@ -1759,6 +1763,11 @@ store._ddl['txout_approx'],
              GROUP BY tx.tx_id""",
                               (store.hashin(tx['hash']),))
         if row:
+            if check_only:
+                 # Don't update tx, saves a statement when all we care is
+                 # whenever tx_id is in store
+                 return row[0]
+
             tx_id, value_out, undestroyed = row
             value_out = 0 if value_out is None else int(value_out)
             undestroyed = 0 if undestroyed is None else int(undestroyed)
@@ -2599,8 +2608,6 @@ store._ddl['txout_approx'],
                 if e.code != -5:  # -5: transaction not in index.
                     raise
                 if height != 0:
-                    # NB: On new blocks, older mempool tx are often missing
-                    store.log.info("RPC service lacks full txindex or tx removed from mempool")
                     return None
 
                 # The genesis transaction is unavailable.  This is
@@ -2623,6 +2630,34 @@ store._ddl['txout_approx'],
             tx = chain.parse_transaction(rpc_tx)
             tx['hash'] = tx_hash
             return tx
+
+        def catch_up_mempool(height):
+            while store.rpc_load_mempool:
+                # Import the memory pool.
+                for rpc_tx_hash in rpc("getrawmempool"):
+
+                    # Break loop if new block found
+                    rpc_hash = get_blockhash(height)
+                    if rpc_hash:
+                        return rpc_hash
+
+                    tx = get_tx(rpc_tx_hash)
+                    if tx is None:
+                        # NB: On new blocks, older mempool tx are often missing
+                        # This happens some other times too, just get over with
+                        store.log.info("tx %s gone from mempool" % rpc_tx_hash)
+                        continue
+
+                    # XXX Race condition in low isolation levels.
+                    tx_id = store.tx_find_id_and_value(tx, False, check_only=True)
+                    if tx_id is None:
+                        tx_id = store.import_tx(tx, False, chain)
+                        store.log.info("mempool tx %d", tx_id)
+                        store.imported_bytes(tx['size'])
+
+                store.log.info("mempool load completed, starting over...")
+                time.sleep(1)
+            return None
 
         try:
 
@@ -2656,6 +2691,8 @@ store._ddl['txout_approx'],
 
             # Import new blocks.
             rpc_hash = next_hash or get_blockhash(height)
+            if rpc_hash is None:
+                rpc_hash = catch_up_mempool(height)
             while rpc_hash is not None:
                 hash = rpc_hash.decode('hex')[::-1]
 
@@ -2694,6 +2731,7 @@ store._ddl['txout_approx'],
                         if tx is None:
                             tx = get_tx(rpc_tx_hash)
                             if tx is None:
+                                store.log.error("RPC service lacks full txindex")
                                 return False
 
                         block['transactions'].append(tx)
@@ -2703,19 +2741,8 @@ store._ddl['txout_approx'],
                     rpc_hash = rpc_block.get('nextblockhash')
 
                 height += 1
-
-            # Import the memory pool.
-            for rpc_tx_hash in rpc("getrawmempool"):
-                tx = get_tx(rpc_tx_hash)
-                if tx is None:
-                    return False
-
-                # XXX Race condition in low isolation levels.
-                tx_id = store.tx_find_id_and_value(tx, False)
-                if tx_id is None:
-                    tx_id = store.import_tx(tx, False, chain)
-                    store.log.info("mempool tx %d", tx_id)
-                    store.imported_bytes(tx['size'])
+                if rpc_hash is None:
+                    rpc_hash = catch_up_mempool(height)
 
         except util.JsonrpcMethodNotFound, e:
             store.log.error("bitcoind %s not supported", e.method)
