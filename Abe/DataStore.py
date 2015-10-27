@@ -2539,7 +2539,7 @@ store._ddl['txout_approx'],
         """
         chain_id = dircfg['chain_id']
         if chain_id is None:
-            store.log.debug("no chain_id")
+            store.log.error("no chain_id")
             return False
         chain = store.chains_by.id[chain_id]
 
@@ -2552,7 +2552,7 @@ store._ddl['txout_approx'],
                          for line in open(conffile)
                          if line != "" and line[0] not in "#\r\n"])
         except Exception, e:
-            store.log.debug("failed to load %s: %s", conffile, e)
+            store.log.error("failed to load %s: %s", conffile, e)
             return False
 
         rpcuser     = conf.get("rpcuser", "")
@@ -2599,7 +2599,8 @@ store._ddl['txout_approx'],
                 if e.code != -5:  # -5: transaction not in index.
                     raise
                 if height != 0:
-                    store.log.debug("RPC service lacks full txindex")
+                    # NB: On new blocks, older mempool tx are often missing
+                    store.log.info("RPC service lacks full txindex or tx removed from mempool")
                     return None
 
                 # The genesis transaction is unavailable.  This is
@@ -2607,7 +2608,7 @@ store._ddl['txout_approx'],
                 import genesis_tx
                 rpc_tx_hex = genesis_tx.get(rpc_tx_hash)
                 if rpc_tx_hex is None:
-                    store.log.debug("genesis transaction unavailable via RPC;"
+                    store.log.error("genesis transaction unavailable via RPC;"
                                     " see import-tx in abe.conf")
                     return None
 
@@ -2633,7 +2634,7 @@ store._ddl['txout_approx'],
                 raise
             except Exception, e:
                 # Connectivity failure.
-                store.log.debug("RPC failed: %s", e)
+                store.log.error("RPC failed: %s", e)
                 return False
 
             # Find the first new block.
@@ -2717,11 +2718,11 @@ store._ddl['txout_approx'],
                     store.imported_bytes(tx['size'])
 
         except util.JsonrpcMethodNotFound, e:
-            store.log.debug("bitcoind %s not supported", e.method)
+            store.log.error("bitcoind %s not supported", e.method)
             return False
 
         except InvalidBlock, e:
-            store.log.debug("RPC data not understood: %s", e)
+            store.log.error("RPC data not understood: %s", e)
             return False
 
         return True
