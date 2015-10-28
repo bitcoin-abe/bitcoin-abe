@@ -1781,7 +1781,7 @@ def path_info_int(page, default):
 
 def format_time(nTime):
     import time
-    return time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(int(nTime)))
+    return time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(int(nTime)))
 
 def format_satoshis(satoshis, chain):
     decimals = DEFAULT_DECIMALS if chain.decimals is None else chain.decimals
@@ -2008,6 +2008,7 @@ def create_conf():
         "query":                    None,
         "no_serve":                 None,
         "no_load":                  None,
+        "timezone":                 None,
         "debug":                    None,
         "static_path":              None,
         "document_root":            None,
@@ -2088,6 +2089,10 @@ See abe.conf for commented examples.""")
     if args.logging is not None:
         import logging.config as logging_config
         logging_config.dictConfig(args.logging)
+
+    # Set timezone
+    if args.timezone:
+        os.environ['TZ'] = args.timezone
 
     if args.auto_agpl:
         import tarfile
