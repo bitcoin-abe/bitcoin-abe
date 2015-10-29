@@ -50,6 +50,7 @@ CONFIG_DEFAULTS = {
     "commit_bytes":       None,
     "log_sql":            None,
     "log_rpc":            None,
+    "default_chain":      "Bitcoin",
     "datadir":            None,
     "ignore_bit8_chains": None,
     "use_firstbits":      False,
@@ -228,6 +229,8 @@ class DataStore(object):
         store.default_loader = args.default_loader
 
         store.rpc_load_mempool = args.rpc_load_mempool
+
+        store.default_chain = args.default_chain;
 
         store.commit()
 
@@ -504,7 +507,7 @@ class DataStore(object):
 
     def get_default_chain(store):
         store.log.debug("Falling back to default (Bitcoin) policy.")
-        return Chain.create(None)
+        return Chain.create(store.default_chain)
 
     def get_ddl(store, key):
         return store._ddl[key]
