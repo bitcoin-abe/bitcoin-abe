@@ -38,7 +38,7 @@ import util
 import base58
 
 SCHEMA_TYPE = "Abe"
-SCHEMA_VERSION = SCHEMA_TYPE + "39"
+SCHEMA_VERSION = SCHEMA_TYPE + "40"
 
 CONFIG_DEFAULTS = {
     "dbtype":             None,

@@ -809,6 +809,11 @@ def adjust_block_total_satoshis(store):
     if count % 1000 != 0:
         store.log.info("Adjusted %d of %d blocks.", count, len(block_ids))
 
+def config_concat_style(store):
+    store._sql.configure_concat_style()
+    store.config['sql.concat_style'] = store._sql.config['concat_style']
+    store.save_configvar("sql.concat_style")
+
 def config_limit_style(store):
     # XXX This won't work anymore.
     store.configure_limit_style()
@@ -1150,7 +1155,8 @@ upgrades = [
     ('Abe37.5', update_chain_policy),    # Fast
     ('Abe37.6', populate_multisig_pubkey), # Minutes-hours
     ('Abe38',   abstract_sql),           # Fast
-    ('Abe39', None)
+    ('Abe39',   config_concat_style),    # Fast
+    ('Abe40', None)
 ]
 
 def upgrade_schema(store):
