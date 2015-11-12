@@ -2629,6 +2629,27 @@ store._ddl['txout_approx'],
             tx['hash'] = tx_hash
             return tx
 
+        def first_new_block(height, next_hash):
+            """Find the first new block."""
+
+            while height > 0:
+                hash = get_blockhash(height - 1)
+
+                if hash is not None and (1,) == store.selectrow("""
+                    SELECT 1
+                      FROM chain_candidate cc
+                      JOIN block b ON (cc.block_id = b.block_id)
+                     WHERE b.block_hash = ?
+                       AND b.block_height IS NOT NULL
+                       AND cc.chain_id = ?""", (
+                        store.hashin_hex(str(hash)), chain.id)):
+                    break
+
+                next_hash = hash
+                height -= 1
+
+            return (height, next_hash)
+
         def catch_up_mempool(height):
             while store.rpc_load_mempool:
                 # Import the memory pool.
@@ -2670,22 +2691,8 @@ store._ddl['txout_approx'],
                 store.log.error("RPC failed: %s", e)
                 return False
 
-            # Find the first new block.
-            while height > 0:
-                hash = get_blockhash(height - 1)
-
-                if hash is not None and (1,) == store.selectrow("""
-                    SELECT 1
-                      FROM chain_candidate cc
-                      JOIN block b ON (cc.block_id = b.block_id)
-                     WHERE b.block_hash = ?
-                       AND b.block_height IS NOT NULL
-                       AND cc.chain_id = ?""", (
-                        store.hashin_hex(str(hash)), chain.id)):
-                    break
-
-                next_hash = hash
-                height -= 1
+            # Get the first new block (looking backward until hash match)
+            height, next_hash = first_new_block(height, next_hash)
 
             # Import new blocks.
             rpc_hash = next_hash or get_blockhash(height)
@@ -2741,6 +2748,11 @@ store._ddl['txout_approx'],
                 height += 1
                 if rpc_hash is None:
                     rpc_hash = catch_up_mempool(height)
+                    # Also look backwards in case we end up on an orphan block.
+                    # NB: Call only when rpc_hash is not None, otherwise
+                    #     we'll override catch_up_mempool's behavior.
+                    if rpc_hash:
+                        height, rpc_hash = first_new_block(height, rpc_hash)
 
         except util.JsonrpcMethodNotFound, e:
             store.log.error("bitcoind %s not supported", e.method)
