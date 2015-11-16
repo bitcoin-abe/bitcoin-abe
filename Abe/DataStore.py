@@ -2651,14 +2651,22 @@ store._ddl['txout_approx'],
             return (height, next_hash)
 
         def catch_up_mempool(height):
+            # imported tx cache, so we can avoid querying DB on each pass
+            imported_tx = set()
+            # Next height check time
+            height_chk = time.time() + 1
+
             while store.rpc_load_mempool:
                 # Import the memory pool.
                 for rpc_tx_hash in rpc("getrawmempool"):
+                    if rpc_tx_hash in imported_tx: continue
 
                     # Break loop if new block found
-                    rpc_hash = get_blockhash(height)
-                    if rpc_hash:
-                        return rpc_hash
+                    if height_chk < time.time():
+                        rpc_hash = get_blockhash(height)
+                        if rpc_hash:
+                            return rpc_hash
+                        height_chk = time.time() + 1
 
                     tx = get_tx(rpc_tx_hash)
                     if tx is None:
@@ -2673,9 +2681,10 @@ store._ddl['txout_approx'],
                         tx_id = store.import_tx(tx, False, chain)
                         store.log.info("mempool tx %d", tx_id)
                         store.imported_bytes(tx['size'])
+                    imported_tx.add(rpc_tx_hash)
 
                 store.log.info("mempool load completed, starting over...")
-                time.sleep(1)
+                time.sleep(3)
             return None
 
         try:
