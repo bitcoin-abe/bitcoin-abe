@@ -1056,6 +1056,30 @@ def abstract_sql(store):
              WHERE configvar_name = ?""", ('sql.' + name, name))
     store.commit()
 
+def add_unlinked_tx(store):
+    store.ddl("""
+        CREATE TABLE unlinked_tx (
+            tx_id        NUMERIC(26) NOT NULL,
+            PRIMARY KEY (tx_id),
+            FOREIGN KEY (tx_id)
+                REFERENCES tx (tx_id)
+        )""")
+
+def cleanup_unlinked_tx(store):
+    txcount = 0
+    for tx_id in store.selectall("""
+        SELECT t.tx_id
+            FROM tx t
+            LEFT JOIN block_tx bt ON (t.tx_id = bt.tx_id)
+            WHERE bt.tx_id IS NULL
+        """):
+
+        store._clean_unlinked_tx(tx_id)
+        txcount += 1
+
+    store.commit()
+    store.log.info("Cleaned up %d unlinked transactions", txcount)
+
 upgrades = [
     ('6',    add_block_value_in),
     ('6.1',  add_block_value_out),
@@ -1156,7 +1180,9 @@ upgrades = [
     ('Abe37.6', populate_multisig_pubkey), # Minutes-hours
     ('Abe38',   abstract_sql),           # Fast
     ('Abe39',   config_concat_style),    # Fast
-    ('Abe40', None)
+    ('Abe40',   add_unlinked_tx),        # Fast
+    ('Abe40.1', cleanup_unlinked_tx),    # Hours, could be done offline
+    ('Abe41', None)
 ]
 
 def upgrade_schema(store):
