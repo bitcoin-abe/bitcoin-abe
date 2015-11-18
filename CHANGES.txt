@@ -1,20 +1,98 @@
 New in 0.8 - ????
 =========================
 
-* Fixed bug affecting /rawtx.
+* Add support for Bitcoin Core up to v11.x in.
 
-* Added /unspent/ADDR|ADDR|... similar to blockchain.info/unspent?address=...
+* Fix bug during upgrade to schema Abe30: add_keep_scriptsig.
 
-* Allow configuration to import unconfirmed transactions via RPC to bitcoind.
+* Fix bug affecting /rawtx.
+
+* Add /unspent/ADDR|ADDR|... similar to blockchain.info/unspent?address=...
+
+* Add support for MySQL binary types (also became default on newly-created databases).
+
+* Add --rescan option.
+
+* Add abe_loader tool to watch for and load new blocks.
+
+* Add support for loading blocks using Bitcoin RPC
+
+* Import unconfirmed transactions via RPC to bitcoind.
+
+* Try to reconnect on stale db connection at transaction boundary.
 
 * Crude SVG hash rate chart via nethash?format=svg.
+
+* Increase maximum script length.
+
+* Add /q/addressbalance.
+
+* Don't mistake SQL syntax errors for idle timeouts.
+
+* Try to get better error information after failure to read configvar.
+
+* Doubled b58encode speed.
+
+* Fix division-by-zero for truly zero-premine chains such as Doubloons.
+
+* Support 32-byte pubkeys.
+
+* Fix int-type detection for SQLite.
+
+* Add Abe.admin CLI.
+
+* Merge bitcointools upstream changes.
+
+* Add --no-load option (webserver-only/skip load after --upgrade).
+
+* Bug fix: KeyError: 'unlinked_count' in import_block.
+
+* Fix string index out of range doing catch_up.
+
+* Fix performance issue displaying large pages (page content returned as string, causing WSGIref to iterate over it).
+
+* Support limited functionality without a database.
+
+* Add Abe.abe --query option (cli for /q/COMMAND).
+
+* Refactored external chains as independent objects.
+
+* Add support for many external chains.
+
+* Don't crash on page-not-found or chain-not-found.
+
+* Fix block short links.
+
+* Support P2SH and multisig addresses.
+
+* Avoid crash on empty/short pubkey.
+
+* Try reconnecting to database after disconnect.
+
+* Fix SQLite large integers overflow.
+
+* calculate_target: Return values closer to Bitcoin client.
+
+* New options for external chains: --list-policies and --show-policy.
+
+* Namecoin: don't crash on merge-mined block.
+
+* Fix Abe always defaulting to NO_CLOB when creating database.
+
+* Use ORDER BY instead of MAX() to get last block (Much faster at least on MySQL/TukuDB).
+
+* Disable resolving of http client IP addresses which could slow down or hang Abe when client (proxy) is remote.
+
+* Fix binary-type and int-type parameters being ignored in favor of auto-detection
+
+* Fix issue where Crypto.Hash.RIPEMD was never being used (was using hashlib's workaround only)
 
 
 New in 0.7.2 - 2012-12-06
 =========================
 
 * Fixed bug affecting chains containing duplicate coinbase transactions.
-
+=
 
 New in 0.7.1 - 2012-10-29
 =========================
