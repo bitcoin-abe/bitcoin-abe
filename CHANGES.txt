@@ -92,7 +92,7 @@ New in 0.7.2 - 2012-12-06
 =========================
 
 * Fixed bug affecting chains containing duplicate coinbase transactions.
-=
+
 
 New in 0.7.1 - 2012-10-29
 =========================
