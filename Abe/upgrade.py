@@ -383,7 +383,7 @@ def create_x_cc_block_id(store):
 
 def reverse_binary_hashes(store):
     if store.config['binary_type'] != 'hex':
-        raise Error(
+        raise Exception(
             'To support search by hash prefix, we have to reverse all values'
             ' in block.block_hash, block.block_hashMerkleRoot, tx.tx_hash,'
             ' orphan_block.block_hashPrev, and unlinked_txin.txout_tx_hash.'
