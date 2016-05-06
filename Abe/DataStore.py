@@ -38,7 +38,7 @@ import util
 import base58
 
 SCHEMA_TYPE = "Abe"
-SCHEMA_VERSION = SCHEMA_TYPE + "40"
+SCHEMA_VERSION = SCHEMA_TYPE + "41"
 
 CONFIG_DEFAULTS = {
     "dbtype":             None,
@@ -735,6 +735,15 @@ store._ddl['configvar'],
     tx_size       NUMERIC(10)
 )""",
 
+# Mempool TX not linked to any block, we must track them somewhere
+# for efficient cleanup
+"""CREATE TABLE unlinked_tx (
+    tx_id        NUMERIC(26) NOT NULL,
+    PRIMARY KEY (tx_id),
+    FOREIGN KEY (tx_id)
+        REFERENCES tx (tx_id)
+)""",
+
 # Presence of transactions in blocks is many-to-many.
 """CREATE TABLE block_tx (
     block_id      NUMERIC(14) NOT NULL,
@@ -1175,6 +1184,7 @@ store._ddl['txout_approx'],
         # List the block's transactions in block_tx.
         for tx_pos in xrange(len(b['transactions'])):
             tx = b['transactions'][tx_pos]
+            store.sql("DELETE FROM unlinked_tx WHERE tx_id = ?", (tx['tx_id'],))
             store.sql("""
                 INSERT INTO block_tx
                     (block_id, tx_id, tx_pos)
@@ -1800,6 +1810,9 @@ store._ddl['txout_approx'],
             VALUES (?, ?, ?, ?, ?)""",
                   (tx_id, dbhash, store.intin(tx['version']),
                    store.intin(tx['lockTime']), tx['size']))
+        # Always consider tx are unlinked until they are added to block_tx. This is necessary as
+        # inserted tx can get committed to database before the block itself
+        store.sql("INSERT INTO unlinked_tx (tx_id) VALUES (?)", (tx_id,))
 
         # Import transaction outputs.
         tx['value_out'] = 0
@@ -2659,7 +2672,8 @@ store._ddl['txout_approx'],
             while store.rpc_load_mempool:
                 # Import the memory pool.
                 for rpc_tx_hash in rpc("getrawmempool"):
-                    if rpc_tx_hash in imported_tx: continue
+                    if rpc_tx_hash in imported_tx:
+                        continue
 
                     # Break loop if new block found
                     if height_chk < time.time():
@@ -2683,6 +2697,7 @@ store._ddl['txout_approx'],
                         store.imported_bytes(tx['size'])
                     imported_tx.add(rpc_tx_hash)
 
+                store.clean_unlinked_tx(imported_tx)
                 store.log.info("mempool load completed, starting over...")
                 time.sleep(3)
             return None
@@ -3328,6 +3343,81 @@ store._ddl['txout_approx'],
             if len(fb) > len(ret):
                 ret = fb
         return ret
+
+    def clean_unlinked_tx(store, known_tx=set()):
+        """This method cleans up all unlinked tx'es found in table
+        `unlinked_tx` except where the tx hash is provided in known_tx
+        """
+
+        rows = store.selectall("""
+            SELECT ut.tx_id, t.tx_hash
+             FROM unlinked_tx ut
+             JOIN tx t ON (ut.tx_id = t.tx_id)""")
+        if not rows:
+            return
+
+        if type(known_tx) is not set:
+            # convert list to set for faster lookups
+            known_tx = set(known_tx)
+
+        txcount = 0
+        for tx_id, tx_hash in rows:
+            if store.hashout_hex(tx_hash) in known_tx:
+                continue
+
+            store.log.debug("Removing unlinked tx: %r", tx_hash)
+            store._clean_unlinked_tx(tx_id)
+            txcount += 1
+
+        if txcount:
+            store.commit()
+            store.log.info("Cleaned up %d unlinked transactions", txcount)
+        else:
+            store.log.info("No unlinked transactions to clean up")
+
+    def _clean_unlinked_tx(store, tx_id):
+        """Internal unlinked tx cleanup function, excluding the tracking table
+        `unlinked_tx`. This function is required by upgrade.py.
+        """
+
+        # Clean up txin's
+        unlinked_txins = store.selectall("""
+            SELECT txin_id FROM txin
+            WHERE tx_id = ?""", tx_id)
+        for txin_id in unlinked_txins:
+            store.sql("DELETE FROM unlinked_txin WHERE txin_id = ?", txin_id)
+        store.sql("DELETE FROM txin WHERE tx_id = ?", tx_id)
+
+        # Clean up txouts & associated pupkeys ...
+        txout_pubkeys = set(store.selectall("""
+            SELECT pubkey_id FROM txout
+            WHERE tx_id = ? AND pubkey_id IS NOT NULL""", tx_id))
+        # Also add multisig pubkeys if any
+        msig_pubkeys = set()
+        for pk_id in txout_pubkeys:
+            msig_pubkeys.update(store.selectall("""
+                SELECT pubkey_id FROM multisig_pubkey
+                WHERE multisig_id = ?""", pk_id))
+
+        store.sql("DELETE FROM txout WHERE tx_id = ?", tx_id)
+
+        # Now delete orphan pubkeys... For simplicity merge both sets together
+        for pk_id in txout_pubkeys.union(msig_pubkeys):
+            (count,) = store.selectrow("""
+                SELECT COUNT(pubkey_id) FROM txout
+                WHERE pubkey_id = ?""", pk_id)
+            if count == 0:
+                store.sql("DELETE FROM multisig_pubkey WHERE multisig_id = ?", pk_id)
+                (count,) = store.selectrow("""
+                    SELECT COUNT(pubkey_id) FROM multisig_pubkey
+                    WHERE pubkey_id = ?""", pk_id)
+                if count == 0:
+                    store.sql("DELETE FROM pubkey WHERE pubkey_id = ?", pk_id)
+
+        # Finally clean up tx itself
+        store.sql("DELETE FROM unlinked_tx WHERE tx_id = ?", tx_id)
+        store.sql("DELETE FROM tx WHERE tx_id = ?", tx_id)
+
 
 def new(args):
     return DataStore(args)
