@@ -481,7 +481,10 @@ class Abe:
 
         extra = False
         #extra = True
+        diffchart = []
         body += ['<p>', nav, '</p>\n',
+                 '<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>',
+                 '<p><div id="chart_div"></div></p>',
                  '<table><tr><th>Block</th><th>Approx. Time</th>',
                  '<th>Transactions</th><th>Value Out</th>',
                  '<th>Difficulty</th><th>Outstanding</th>',
@@ -513,14 +516,18 @@ class Abe:
             else:
                 percent_destroyed = '%5g%%' % (100.0 - (100.0 * ss / total_ss))
 
+            sTime = format_time(int(nTime))
+            sBits = util.calculate_difficulty(int(nBits))
+            diffchart.append([int(height), sBits])
+
             body += [
                 '<tr><td><a href="', page['dotdot'], 'block/',
                 abe.store.hashout_hex(hash),
                 '">', height, '</a>'
-                '</td><td>', format_time(int(nTime)),
+                '</td><td>', sTime,
                 '</td><td>', num_tx,
                 '</td><td>', format_satoshis(value_out, chain),
-                '</td><td>', util.calculate_difficulty(int(nBits)),
+                '</td><td>', sBits,
                 '</td><td>', format_satoshis(satoshis, chain),
                 '</td><td>', avg_age,
                 '</td><td>', '%5g' % (seconds / 86400.0),
@@ -530,6 +537,29 @@ class Abe:
                 '</td></tr>\n']
 
         body += ['</table>\n<p>', nav, '</p>\n']
+        body += ['<script type="text/javascript">//<![CDATA[\n',
+                 'google.charts.load("current", {packages: ["corechart", "line"]});\n',
+                 'google.charts.setOnLoadCallback(drawBasic);\n',
+
+                 'function drawBasic() {\n',
+                 '      var data = new google.visualization.DataTable();\n',
+                 '      data.addColumn("number", "Height");\n',
+                 '      data.addColumn("number", "Diff");\n',
+                 '      data.addRows(' + str(diffchart) + ');\n',
+                 '      var options = {\n',
+                 '        legend: "none",\n',
+                 '        hAxis: {\n',
+                 '          title: "Height"\n',
+                 '        },\n',
+                 '        vAxis: {\n',
+                 '          title: "Difficulty"\n',
+                 '        }\n',
+                 '      };\n',
+                 '      var chart = new google.visualization.LineChart(document.getElementById("chart_div"));\n',
+                 '      chart.draw(data, options);\n',
+                 '    }\n',
+                 '//]]>\n',
+                 '</script>']
 
     def _show_block(abe, page, dotdotblock, chain, **kwargs):
         body = page['body']
