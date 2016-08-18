@@ -22,7 +22,7 @@ import DataStore
 import util
 import logging
 
-def verify_tx_merkle_hashes(store, logger, chain_id):
+def verify_tx_merkle_hashes(store, logger, chain_id, chain):
     checked, bad = 0, 0
     for block_id, merkle_root, num_tx in store.selectall("""
         SELECT b.block_id, b.block_hashMerkleRoot, b.block_num_tx
@@ -41,7 +41,7 @@ def verify_tx_merkle_hashes(store, logger, chain_id):
         if len(tree) != num_tx:
             logger.warning("block %d: block_num_tx=%d but found %d",
                            block_id, num_tx, len(tree))
-        root = util.merkle(tree) or DataStore.NULL_HASH
+        root = chain.merkle_root(tree) or DataStore.NULL_HASH
         if root != merkle_root:
             logger.error("block %d: block_hashMerkleRoot mismatch.",
                          block_id)
@@ -67,7 +67,8 @@ def main(argv):
     for (chain_id,) in store.selectall("""
         SELECT chain_id FROM chain"""):
         logger.info("checking chain %d", chain_id)
-        checked1, bad1 = verify_tx_merkle_hashes(store, logger, chain_id)
+        chain = store.chains_by.id[chain_id]
+        checked1, bad1 = verify_tx_merkle_hashes(store, logger, chain_id, chain)
         checked += checked1
         bad += bad1
     logger.info("All chains: %d Merkle trees, %d bad", checked, bad)
