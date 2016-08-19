@@ -85,7 +85,7 @@ def verify_tx_merkle_hashes(store, logger, chain_id, chain,
     return checked, bad
 
 def verify_block_stats(store, logger, chain_id, stats,
-                       block_min=None, block_max=None):
+                       block_min=None, block_max=None, repair=False):
     checked, bad = 0, 0
     params = (chain_id,)
     if block_min is not None:
@@ -93,31 +93,37 @@ def verify_block_stats(store, logger, chain_id, stats,
     if block_max is not None:
         params += (block_max,)
 
-    for block_id, block_height, nTime, value_in, value_out, satoshis, \
-        total_seconds, satoshi_seconds, total_ss, ss_destroyed, prev_nTime, \
-        prev_satoshis, prev_seconds, prev_ss, prev_total_ss \
-        in store.selectall("""
-        SELECT b.block_id, b.block_height, b.block_nTime, b.block_value_in,
-               b.block_value_out, b.block_total_satoshis,
-               b.block_total_seconds, b.block_satoshi_seconds,
-               b.block_total_ss, b.block_ss_destroyed,
-               prev.block_nTime, prev.block_total_satoshis,
-               prev.block_total_seconds, prev.block_satoshi_seconds,
-               prev.block_total_ss
+    for block_id, in store.selectall("""
+        SELECT b.block_id
           FROM block b
           JOIN chain_candidate cc ON (b.block_id = cc.block_id)
           JOIN block prev         ON (b.prev_block_id = prev.block_id)
-        WHERE cc.chain_id = ?""" + (
+         WHERE cc.chain_id = ?""" + (
         "" if block_min is None else """ AND
           b.block_height >= ?""") + (
         "" if block_max is None else """ AND
           b.block_height <= ?"""), params):
 
+        block_height, nTime, value_in, value_out, total_satoshis, \
+        total_seconds, satoshi_seconds, total_ss, ss_destroyed, \
+        prev_nTime, prev_satoshis, prev_seconds, prev_ss, \
+        prev_total_ss = store.selectrow("""
+            SELECT b.block_height, b.block_nTime, b.block_value_in,
+                   b.block_value_out, b.block_total_satoshis,
+                   b.block_total_seconds, b.block_satoshi_seconds,
+                   b.block_total_ss, b.block_ss_destroyed,
+                   prev.block_nTime, prev.block_total_satoshis,
+                   prev.block_total_seconds, prev.block_satoshi_seconds,
+                   prev.block_total_ss
+              FROM block b
+              JOIN block prev ON (b.prev_block_id = prev.block_id)
+             WHERE b.block_id = ?""", (block_id,))
+
         # A dict makes easier comparison
         d = {
             'value_in': value_in,
             'value_out': value_out,
-            'total_satoshis': satoshis,
+            'total_satoshis': total_satoshis,
             'total_seconds': total_seconds,
             'satoshi_seconds': satoshi_seconds,
             'total_ss': total_ss,
@@ -125,42 +131,42 @@ def verify_block_stats(store, logger, chain_id, stats,
         }
 
         b = {}
-        b['value_in'] = store.selectrow("""
+        b['value_in'], = store.selectrow("""
             SELECT COALESCE(value_sum, 0)
               FROM chain c LEFT JOIN (
-              SELECT cc.chain_id, SUM(txout.txout_value) value_sum
-              FROM txout
-              JOIN txin               ON (txin.txout_id = txout.txout_id)
-              JOIN block_tx           ON (block_tx.tx_id = txin.tx_id)
-              JOIN block b            ON (b.block_id = block_tx.block_id)
-              JOIN chain_candidate cc ON (cc.block_id = b.block_id)
-              WHERE
+                SELECT cc.chain_id, SUM(txout.txout_value) value_sum
+                  FROM txout
+                  JOIN txin               ON (txin.txout_id = txout.txout_id)
+                  JOIN block_tx           ON (block_tx.tx_id = txin.tx_id)
+                  JOIN block b            ON (b.block_id = block_tx.block_id)
+                  JOIN chain_candidate cc ON (cc.block_id = b.block_id)
+                WHERE
                   cc.chain_id = ? AND
                   b.block_id = ?
-              GROUP BY cc.chain_id
+                GROUP BY cc.chain_id
               ) a ON (c.chain_id = a.chain_id)
-              WHERE c.chain_id = ?""", (chain_id, block_id, chain_id))[0]
+            WHERE c.chain_id = ?""", (chain_id, block_id, chain_id))
+        b['value_in'] = (b['value_in'] if b['value_in'] else 0)
 
-        b['value_out'] = store.selectrow("""
+        b['value_out'], = store.selectrow("""
             SELECT COALESCE(value_sum, 0)
               FROM chain c LEFT JOIN (
-              SELECT cc.chain_id, SUM(txout.txout_value) value_sum
-              FROM txout
-              JOIN block_tx           ON (block_tx.tx_id = txout.tx_id)
-              JOIN block b            ON (b.block_id = block_tx.block_id)
-              JOIN chain_candidate cc ON (cc.block_id = b.block_id)
-              WHERE
+                SELECT cc.chain_id, SUM(txout.txout_value) value_sum
+                  FROM txout
+                  JOIN block_tx           ON (block_tx.tx_id = txout.tx_id)
+                  JOIN block b            ON (b.block_id = block_tx.block_id)
+                  JOIN chain_candidate cc ON (cc.block_id = b.block_id)
+                WHERE
                   cc.chain_id = ? AND
                   b.block_id = ?
-              GROUP BY cc.chain_id
+                GROUP BY cc.chain_id
               ) a ON (c.chain_id = a.chain_id)
-              WHERE c.chain_id = ?""", (chain_id, block_id, chain_id))[0]
+             WHERE c.chain_id = ?""", (chain_id, block_id, chain_id))
+        b['value_out'] = (b['value_out'] if b['value_out'] else 0)
 
         b['total_seconds'] = prev_seconds + nTime - prev_nTime
-
         ss_created = prev_satoshis * (nTime - prev_nTime)
         b['total_ss'] = prev_total_ss + ss_created
-        b['satoshi_seconds'] = prev_ss + ss_created - ss_destroyed
 
         tx_ids = map(
             lambda row: row[0],
@@ -169,18 +175,18 @@ def verify_block_stats(store, logger, chain_id, stats,
                   FROM block_tx
                  WHERE block_id = ?""", (block_id,)))
         b['ss_destroyed'] = store._get_block_ss_destroyed(block_id, nTime, tx_ids)
+        b['satoshi_seconds'] = prev_ss + ss_created - b['ss_destroyed']
 
         value_destroyed = 0
         for tid in tx_ids:
-            value_out, undestroyed = store.selectrow("""
-                SELECT SUM(txout.txout_value), SUM(
+            destroyed, = store.selectrow("""
+                SELECT SUM(txout.txout_value) - SUM(
                     CASE WHEN txout.pubkey_id > 0 THEN txout.txout_value
                          ELSE 0 END)
                   FROM tx
                   LEFT JOIN txout ON (tx.tx_id = txout.tx_id)
-                WHERE tx.tx_id = ?""", (tid,))
-            undestroyed = 0 if undestroyed is None else int(undestroyed)
-            value_destroyed += value_out - undestroyed
+                 WHERE tx.tx_id = ?""", (tid,))
+            value_destroyed += destroyed
 
         b['total_satoshis'] = prev_satoshis + b['value_out'] - b['value_in'] \
             - value_destroyed
@@ -194,13 +200,38 @@ def verify_block_stats(store, logger, chain_id, stats,
                                 " (should be %s)" % (block_id, block_height,
                                                      key, d[key], b[key]))
         checked += 1
+        if badcheck and repair:
+            store.sql("""
+                UPDATE block
+                   SET block_value_in = ?,
+                       block_value_out = ?,
+                       block_total_seconds = ?,
+                       block_total_satoshis = ?,
+                       block_satoshi_seconds = ?,
+                       block_total_ss = ?,
+                       block_ss_destroyed = ?
+                 WHERE block_id = ?""",
+                      (store.intin(b['value_in']),
+                       store.intin(b['value_out']),
+                       store.intin(b['total_seconds']),
+                       store.intin(b['total_satoshis']),
+                       store.intin(b['satoshi_seconds']),
+                       store.intin(b['total_ss']),
+                       store.intin(b['ss_destroyed']),
+                       block_id))
+            logger.info("block %s (height %s): repaired" % (
+                block_id, block_height))
+
         if badcheck:
             bad += 1
-
         if checked % 1000 == 0:
             logger.info("%d Block stats, %d bad", checked, bad)
+            if repair:
+                store.commit()
     if checked % 1000 > 0:
         logger.info("%d block stats, %d bad", checked, bad)
+        if repair:
+            store.commit()
     return checked, bad
 
 def main(argv):
@@ -223,6 +254,8 @@ def main(argv):
                       """ + ','.join(BLOCK_STATS_DEFAULT) + """
                     Valid values:
                       """ + ','.join(BLOCK_STATS_LIST) + """
+    --repair        Attempt to repair the database (not all checks support
+                    repair)
 
   Warning: Some checks rely on previous blocks to have valid information.
    Testing from a specific height does not guarantee the previous blocks are
@@ -242,33 +275,37 @@ def main(argv):
             'min-height=',
             'max-height=',
             'blkstats=',
+            'repair',
         ])
     except getopt.GetoptError as e:
         print e.msg, "\n\n", cmdline.usage()
         return 1
 
-    merkle, satoshis = False, False
+    ckmerkle, ckstats = False, False
     min_height, max_height = None, None
     blkstats = BLOCK_STATS_DEFAULT
+    repair = False
     for opt, arg in opts:
         if opt == '--check-all':
-            merkle, satoshis = True, True
+            ckmerkle, ckstats = True, True
         if opt == '--merkle-roots':
-            merkle = True
+            ckmerkle = True
         if opt == '--block-stats':
-            satoshis = True
+            ckstats = True
         if opt == '--min-height':
             min_height = arg
         if opt == '--max-height':
             max_height = arg
         if opt == '--blkstats':
             blkstats = arg.split(',')
+        if opt == '--repair':
+            repair = True
 
     if args:
         print "Extra argument: %s!\n\n" % args[0], cmdline.usage()
         return 1
 
-    if not True in (merkle, satoshis):
+    if not True in (ckmerkle, ckstats):
         print "No checks selected!\n\n", cmdline.usage()
         return 1
 
@@ -279,14 +316,14 @@ def main(argv):
         SELECT chain_id FROM chain"""):
         logger.info("checking chain %d", chain_id)
         chain = store.chains_by.id[chain_id]
-        if merkle:
+        if ckmerkle:
             mchecked1, mbad1 = verify_tx_merkle_hashes(store, logger, chain_id, chain,
                                                        min_height, max_height)
             mchecked += mchecked1
             mbad += mbad1
-        if satoshis:
+        if ckstats:
             schecked1, sbad1 = verify_block_stats(store, logger, chain_id, blkstats,
-                                                  min_height, max_height)
+                                                  min_height, max_height, repair)
             schecked += schecked1
             sbad += sbad1
     logger.info("All chains: %d blocks checked, %d bad merkles, %d bad blocks",
