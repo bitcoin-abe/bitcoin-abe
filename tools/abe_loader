@@ -5,7 +5,7 @@
 BLOCK_ACCEPTED="UpdateTip: new best="
 
 # XXX Should be an option.  Maximum number of seconds between runs.
-MEMPOOL_INTERVAL=30
+MEMPOOL_INTERVAL=900
 
 usage() {
     cat <<EOF
@@ -45,5 +45,12 @@ grep -F --line-buffered -- "$BLOCK_ACCEPTED" |
 while true
 do
     python -m Abe.abe "$@" --no-serve < /dev/null
+    # Flush all input here so that buffered data doesn't make us loop excessively
+    gosleep=1
+    while read -t 1 a
+    do
+        gosleep=0
+    done
+    ((gosleep)) || continue
     read -t "$MEMPOOL_INTERVAL" a
 done
