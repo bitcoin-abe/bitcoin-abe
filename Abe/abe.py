@@ -500,8 +500,8 @@ class Abe:
             value_out = int(value_out)
             seconds = int(seconds)
             satoshis = int(satoshis)
-            ss = int(ss)
-            total_ss = int(total_ss)
+            ss = int(ss) if ss else 0
+            total_ss = int(total_ss) if total_ss else 0
 
             if satoshis == 0:
                 avg_age = '&nbsp;'
