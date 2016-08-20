@@ -102,7 +102,8 @@ def verify_block_stats(store, logger, chain_id, stats,
         "" if block_min is None else """ AND
           b.block_height >= ?""") + (
         "" if block_max is None else """ AND
-          b.block_height <= ?"""), params):
+          b.block_height <= ?""") + """
+        ORDER BY b.block_height ASC, b.block_id ASC""", params):
 
         block_height, nTime, value_in, value_out, total_satoshis, \
         total_seconds, satoshi_seconds, total_ss, ss_destroyed, \
@@ -119,6 +120,13 @@ def verify_block_stats(store, logger, chain_id, stats,
               JOIN block prev ON (b.prev_block_id = prev.block_id)
              WHERE b.block_id = ?""", (block_id,))
 
+        if repair and None in (prev_satoshis, prev_seconds,
+                               prev_ss, prev_total_ss):
+            raise Exception("Repair with broken prev block, dazed and "
+                "confused... block %s (height %s): %s" % (
+                block_id, block_height, str((prev_satoshis, prev_seconds,
+                                            prev_ss, prev_total_ss))))
+
         # A dict makes easier comparison
         d = {
             'value_in': value_in,
@@ -130,7 +138,7 @@ def verify_block_stats(store, logger, chain_id, stats,
             'ss_destroyed': ss_destroyed
         }
 
-        b = {}
+        b = dict()
         b['value_in'], = store.selectrow("""
             SELECT COALESCE(value_sum, 0)
               FROM chain c LEFT JOIN (
@@ -191,6 +199,10 @@ def verify_block_stats(store, logger, chain_id, stats,
         b['total_satoshis'] = prev_satoshis + b['value_out'] - b['value_in'] \
             - value_destroyed
 
+        if None in b.keys():
+            raise Exception("Stats computation error: block %s (height %s): " \
+                            "%s" % (block_id, block_height, str(b)))
+
         # Finally... Check stats values match between d and b
         badcheck = False
         for key in stats:
@@ -225,13 +237,13 @@ def verify_block_stats(store, logger, chain_id, stats,
         if badcheck:
             bad += 1
         if checked % 1000 == 0:
-            logger.info("%d Block stats, %d bad", checked, bad)
             if repair:
                 store.commit()
+            logger.info("%d Block stats, %d bad", checked, bad)
     if checked % 1000 > 0:
-        logger.info("%d block stats, %d bad", checked, bad)
         if repair:
             store.commit()
+        logger.info("%d block stats, %d bad", checked, bad)
     return checked, bad
 
 def main(argv):
