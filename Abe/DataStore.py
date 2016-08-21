@@ -2636,7 +2636,7 @@ store._ddl['txout_approx'],
             computed_tx_hash = chain.transaction_hash(rpc_tx)
             if tx_hash != computed_tx_hash:
                 #raise InvalidBlock('transaction hash mismatch')
-                store.log.debug('transaction hash mismatch: %r != %r', tx_hash, computed_tx_hash)
+                store.log.warn('transaction hash mismatch: %r != %r', tx_hash, computed_tx_hash)
 
             tx = chain.parse_transaction(rpc_tx)
             tx['hash'] = tx_hash
