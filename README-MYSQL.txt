@@ -76,7 +76,7 @@ Without going into many details, the KEY_BLOCK_SIZE parameter affects both
 compression ratio and performance, and longer rows requires larger sizes as
 well. To save you the trouble, the following commands have been prepared to
 give you the greatest compression ratio. (NB: For the bigger tables the
-compression have been tested only on small subset of tables -- 1M rows.)
+compression has been tested only on small subset of tables -- 1M rows.)
 
 ALTER TABLE txin ROW_FORMAT=COMPRESSED KEY_BLOCK_SIZE=4;
 ALTER TABLE txout ROW_FORMAT=COMPRESSED KEY_BLOCK_SIZE=4;
@@ -88,8 +88,8 @@ ALTER TABLE block ROW_FORMAT=COMPRESSED KEY_BLOCK_SIZE=4;
 ALTER TABLE chain_candidate ROW_FORMAT=COMPRESSED KEY_BLOCK_SIZE=2;
 ALTER TABLE block_next ROW_FORMAT=COMPRESSED KEY_BLOCK_SIZE=2;
 
-These settings gave been tested on a MySQL database with binary-type=binary
-and default settings for firtbits and scripsig. Compression of a full Abe
+These settings were tested on a MySQL database with binary-type=binary and
+default settings for firstbits and scripsig. Compression of a full Abe
 database reduced its size from 36G (37254132 KiB) down to only 17G
 (17409008 KiB), a 53% compression ratio.
 
@@ -127,15 +127,31 @@ Compared to Innodb, TokuDB has the following advantages:
 
 The drawbacks experienced were:
 
-- TokuDB requires periodical ANALYZE TABLE to properly compute index
-  cardinality. This is most important to run *during* the initial load to
-  ensure optimal query optimisations. Once the blockchain is fully loaded,
-  it should be sufficient to do it about once a year and after restoring
-  backups.
 - TokuDB does *not* enforce foreign key check. There are small risks that bugs
   lead to inconsistent database and, more importantly, it will not guard you
   against accidentally breaking table relations when manually altering the
   database contents.
+- During initial tests, TokuDB required running ANALYZE TABLE on all tables at
+  least once to properly compute index cardinality. This is most important to
+  run *during* the initial load or after restoring from backup to ensure
+  optimal query optimisation.
+
+
+You can load the full blockchain into a database whose default engine is
+TokuDB (NB: Abe will add `ENGINE=InnoDB` *only* when the default engine does
+not support transactions). To set the default engine at connect time, add the
+following option to your MySQLdb connect-args:
+
+    "init_command":"SET default_storage_engine='TokuDB'"
+
+Ex. if your user and database name is abe, with no password, use:
+
+    connect-args {"user":"abe","db":"abe","init_command":"SET default_storage_engine='TokuDB'"}
+
+
+There are options to convert, however you should make sure to also set the
+default engine as above to ensure any new tables created during upgrades uses
+TokuDB.
 
 You should be able to convert an existing database using (UNTESTED):
     ALTER TABLE `table` ENGINE=TokuDB;
@@ -149,19 +165,12 @@ sed:
 For simplicity this example uses `cat`, but you should probably use
 compression on the sql file to reduce IO.
 
-Finally you can load the full blockchain into a database whose default engine
-is TokuDB (NB: Abe will add `ENGINE=InnoDB` *only* when the default engine does
-not support transactions). As of writing this, around block 340000, you can
-expect up to a week to load the blockchain, depending mostly on your CPU
-speed.
-
 
 TODO:
 
 Some ideas on enhancements for TokuDB:
 
-- Backup script using SELECT INTO OUTFILE / LOAD DATA INFILE (Will it work
-  with BINARY data?)
+- Backup script using SELECT INTO OUTFILE / LOAD DATA INFILE (fatser)
 - ANALYZE script
 - Script to check FK relations?
 
