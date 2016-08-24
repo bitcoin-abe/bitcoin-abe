@@ -58,8 +58,10 @@ class AbeVerify:
         if self.block_max is not None:
             params += (self.block_max,)
 
-        for block_id, merkle_root, num_tx in self.store.selectall("""
-            SELECT b.block_id, b.block_hashMerkleRoot, b.block_num_tx
+        for block_id, block_height, merkle_root, num_tx \
+            in self.store.selectall("""
+            SELECT b.block_id, b.block_height,
+                   b.block_hashMerkleRoot, b.block_num_tx
               FROM block b
               JOIN chain_candidate cc ON (b.block_id = cc.block_id)
              WHERE cc.chain_id = ?""" + (
@@ -77,12 +79,12 @@ class AbeVerify:
                  ORDER BY bt.tx_pos""", (block_id,)):
                 tree.append(self.store.hashout(tx_hash))
             if len(tree) != num_tx:
-                self.logger.warning("block %d: block_num_tx=%d but found %d",
-                               block_id, num_tx, len(tree))
+                self.logger.warning("block %d (height %s): block_num_tx=%d"
+                    "but found %d", block_id, block_height, num_tx, len(tree))
             root = chain.merkle_root(tree) or util.NULL_HASH
             if root != merkle_root:
-                self.logger.error("block %d: block_hashMerkleRoot mismatch.",
-                             block_id)
+                self.logger.error("block %d (height %s): block_hashMerkleRoot"
+                    "mismatch.", block_id, block_height)
                 bad += 1
             checked += 1
             if checked % 1000 == 0:
