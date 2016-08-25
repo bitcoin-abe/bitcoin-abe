@@ -32,6 +32,7 @@ def parse_argv(argv, conf={}, config_name='config', strict=False):
         if arg[:2] != '--':
             break
 
+        fwd = 1
         # Strip leading "--" to form a config variable.
         # --var=val and --var val are the same.  --var+=val is different.
         split = arg[2:].split('=', 1)
@@ -39,8 +40,8 @@ def parse_argv(argv, conf={}, config_name='config', strict=False):
         if len(split) == 1:
             var = split[0]
             if i + 1 < len(argv) and argv[i + 1][:2] != '--':
-                i += 1
-                val = argv[i]
+                fwd = 2
+                val = argv[i + 1]
             else:
                 val = True
         else:
@@ -61,7 +62,7 @@ def parse_argv(argv, conf={}, config_name='config', strict=False):
             add(arg_dict, var, val)
         else:
             arg_dict[var] = val
-        i += 1
+        i += fwd
 
     return args, argv[i:]
 
