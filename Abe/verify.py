@@ -41,7 +41,7 @@ def verify_tx_merkle_hashes(store, logger, chain_id, chain):
         if len(tree) != num_tx:
             logger.warning("block %d: block_num_tx=%d but found %d",
                            block_id, num_tx, len(tree))
-        root = chain.merkle_root(tree) or DataStore.NULL_HASH
+        root = chain.merkle_root(tree) or util.NULL_HASH
         if root != merkle_root:
             logger.error("block %d: block_hashMerkleRoot mismatch.",
                          block_id)
