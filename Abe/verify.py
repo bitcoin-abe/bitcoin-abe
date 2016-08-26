@@ -368,9 +368,9 @@ def main(argv):
         if opt == '--silent':
             logger.setLevel('ERROR')
         if opt == '--min-height':
-            chk.block_min = arg
+            chk.block_min = int(arg)
         if opt == '--max-height':
-            chk.block_max = arg
+            chk.block_max = int(arg)
         if opt == '--blkstats':
             chk.blkstats = arg.split(',')
         if opt == '--repair':
@@ -393,7 +393,8 @@ def main(argv):
                 continue
             chains.remove(chain.name)
 
-        logger.warning("Checking %s chain (id %d)", chain.name, chain_id)
+        logger.warning("Checking %s chain (id %d) at height %d",
+                chain.name, chain_id, (chk.block_min if chk.block_min else 0))
 
         try:
             chk.verify_blockchain(chain_id, chain)
