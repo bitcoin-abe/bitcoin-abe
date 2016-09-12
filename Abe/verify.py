@@ -236,8 +236,8 @@ class AbeVerify:
         for tid in tx_ids:
             destroyed, = self.store.selectrow("""
                 SELECT SUM(txout.txout_value) - SUM(
-                    CASE WHEN txout.pubkey_id > 0 THEN txout.txout_value
-                         ELSE 0 END)
+                 CASE WHEN txout.pubkey_id IS NOT NULL AND txout.pubkey_id <= 0
+                      THEN 0 ELSE txout.txout_value END)
                   FROM tx
                   LEFT JOIN txout ON (tx.tx_id = txout.tx_id)
                  WHERE tx.tx_id = ?""", (tid,))
