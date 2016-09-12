@@ -78,6 +78,10 @@ class AbeVerify:
                    block_height <= ?""") + """
           ORDER BY block_height ASC, block_id ASC""", params):
 
+            if block_height is None:
+                self.logger.error("Block id %d has no height (skipped)", block_id)
+                continue
+
             if self.ckmerkle:
                 self.verify_tx_merkle_hash(block_id, chain)
                 self.stats("Merkle trees", block_height,
