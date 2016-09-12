@@ -1766,10 +1766,12 @@ store._ddl['txout_approx'],
         return b
 
     def tx_find_id_and_value(store, tx, is_coinbase, check_only=False):
+        # Attention: value_out/undestroyed much match what is calculated in
+        # import_tx
         row = store.selectrow("""
             SELECT tx.tx_id, SUM(txout.txout_value), SUM(
-                       CASE WHEN txout.pubkey_id > 0 THEN txout.txout_value
-                            ELSE 0 END)
+              CASE WHEN txout.pubkey_id IS NOT NULL AND txout.pubkey_id <= 0
+                   THEN 0 ELSE txout.txout_value END)
               FROM tx
               LEFT JOIN txout ON (tx.tx_id = txout.tx_id)
              WHERE tx_hash = ?
@@ -1810,8 +1812,9 @@ store._ddl['txout_approx'],
             VALUES (?, ?, ?, ?, ?)""",
                   (tx_id, dbhash, store.intin(tx['version']),
                    store.intin(tx['lockTime']), tx['size']))
-        # Always consider tx are unlinked until they are added to block_tx. This is necessary as
-        # inserted tx can get committed to database before the block itself
+        # Always consider tx are unlinked until they are added to block_tx.
+        # This is necessary as inserted tx can get committed to database
+        # before the block itself
         store.sql("INSERT INTO unlinked_tx (tx_id) VALUES (?)", (tx_id,))
 
         # Import transaction outputs.
@@ -1823,6 +1826,8 @@ store._ddl['txout_approx'],
             txout_id = store.new_id("txout")
 
             pubkey_id = store.script_to_pubkey_id(chain, txout['scriptPubKey'])
+            # Attention: much match how tx_find_id_and_value gets undestroyed
+            # value
             if pubkey_id is not None and pubkey_id <= 0:
                 tx['value_destroyed'] += txout['value']
 
