@@ -1278,16 +1278,19 @@ store._ddl['txout_approx'],
     def _get_block_ss_destroyed(store, block_id, nTime, tx_ids):
         block_ss_destroyed = 0
         for tx_id in tx_ids:
-            destroyed = int(store.selectrow("""
-                SELECT COALESCE(SUM(txout_approx.txout_approx_value *
-                                    (? - b.block_nTime)), 0)
+            destroyed = 0
+            # Don't do the math in SQL as we risk losing precision
+            for txout_value, block_nTime in store.selectall("""
+                SELECT COALESCE(txout_approx.txout_approx_value, 0),
+                       b.block_nTime
                   FROM block_txin bti
                   JOIN txin ON (bti.txin_id = txin.txin_id)
                   JOIN txout_approx ON (txin.txout_id = txout_approx.txout_id)
                   JOIN block_tx obt ON (txout_approx.tx_id = obt.tx_id)
                   JOIN block b ON (obt.block_id = b.block_id)
                  WHERE bti.block_id = ? AND txin.tx_id = ?""",
-                                            (nTime, block_id, tx_id))[0])
+                                            (block_id, tx_id)):
+                destroyed += txout_value * (nTime - block_nTime)
             block_ss_destroyed += destroyed
         return block_ss_destroyed
 
