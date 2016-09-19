@@ -1278,16 +1278,19 @@ store._ddl['txout_approx'],
     def _get_block_ss_destroyed(store, block_id, nTime, tx_ids):
         block_ss_destroyed = 0
         for tx_id in tx_ids:
-            destroyed = int(store.selectrow("""
-                SELECT COALESCE(SUM(txout_approx.txout_approx_value *
-                                    (? - b.block_nTime)), 0)
+            destroyed = 0
+            # Don't do the math in SQL as we risk losing precision
+            for txout_value, block_nTime in store.selectall("""
+                SELECT COALESCE(txout_approx.txout_approx_value, 0),
+                       b.block_nTime
                   FROM block_txin bti
                   JOIN txin ON (bti.txin_id = txin.txin_id)
                   JOIN txout_approx ON (txin.txout_id = txout_approx.txout_id)
                   JOIN block_tx obt ON (txout_approx.tx_id = obt.tx_id)
                   JOIN block b ON (obt.block_id = b.block_id)
                  WHERE bti.block_id = ? AND txin.tx_id = ?""",
-                                            (nTime, block_id, tx_id))[0])
+                                            (block_id, tx_id)):
+                destroyed += txout_value * (nTime - block_nTime)
             block_ss_destroyed += destroyed
         return block_ss_destroyed
 
@@ -1766,10 +1769,12 @@ store._ddl['txout_approx'],
         return b
 
     def tx_find_id_and_value(store, tx, is_coinbase, check_only=False):
+        # Attention: value_out/undestroyed much match what is calculated in
+        # import_tx
         row = store.selectrow("""
             SELECT tx.tx_id, SUM(txout.txout_value), SUM(
-                       CASE WHEN txout.pubkey_id > 0 THEN txout.txout_value
-                            ELSE 0 END)
+              CASE WHEN txout.pubkey_id IS NOT NULL AND txout.pubkey_id <= 0
+                   THEN 0 ELSE txout.txout_value END)
               FROM tx
               LEFT JOIN txout ON (tx.tx_id = txout.tx_id)
              WHERE tx_hash = ?
@@ -1810,8 +1815,9 @@ store._ddl['txout_approx'],
             VALUES (?, ?, ?, ?, ?)""",
                   (tx_id, dbhash, store.intin(tx['version']),
                    store.intin(tx['lockTime']), tx['size']))
-        # Always consider tx are unlinked until they are added to block_tx. This is necessary as
-        # inserted tx can get committed to database before the block itself
+        # Always consider tx are unlinked until they are added to block_tx.
+        # This is necessary as inserted tx can get committed to database
+        # before the block itself
         store.sql("INSERT INTO unlinked_tx (tx_id) VALUES (?)", (tx_id,))
 
         # Import transaction outputs.
@@ -1823,6 +1829,8 @@ store._ddl['txout_approx'],
             txout_id = store.new_id("txout")
 
             pubkey_id = store.script_to_pubkey_id(chain, txout['scriptPubKey'])
+            # Attention: much match how tx_find_id_and_value gets undestroyed
+            # value
             if pubkey_id is not None and pubkey_id <= 0:
                 tx['value_destroyed'] += txout['value']
 
