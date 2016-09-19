@@ -34,12 +34,6 @@ BLOCK_STATS_LIST = [
     'total_ss',
     'ss_destroyed',
 ]
-BLOCK_STATS_DISABLED = [
-    'total_satoshis',
-    'ss_destroyed',
-]
-BLOCK_STATS_DEFAULT = [i for i in BLOCK_STATS_LIST
-                       if i not in BLOCK_STATS_DISABLED]
 
 
 class AbeVerify:
@@ -53,7 +47,7 @@ class AbeVerify:
         self.ckstats = False
 
         self.repair = False
-        self.blkstats = BLOCK_STATS_DEFAULT
+        self.blkstats = BLOCK_STATS_LIST
 
     def verify_blockchain(self, chain_id, chain):
         # Reset stats
@@ -308,9 +302,7 @@ def main(argv):
     --min-height N  Check only blocks starting at height N
     --max-height N  Stop checking blocks above height N
     --blkstats LIST Comma-separated list of block statistics to check
-                    Default:
-                      """ + ','.join(BLOCK_STATS_DEFAULT) + """
-                    Valid values:
+                    Default: all valid values:
                       """ + ','.join(BLOCK_STATS_LIST) + """
     --repair        Attempt to repair the database (not all checks support
                     repair)
