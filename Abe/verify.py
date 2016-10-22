@@ -48,11 +48,17 @@ class AbeVerify:
 
         self.repair = False
         self.blkstats = BLOCK_STATS_LIST
+        self.stats = {
+            'mchecked': 0,
+            'mbad':     0,
+            'schecked': 0,
+            'sbad':     0,
+        }
+
 
     def verify_blockchain(self, chain_id, chain):
         # Reset stats
-        self.mchecked = self.mbad = 0
-        self.schecked = self.sbad = 0
+        self.stats = {key: 0 for key in self.stats.keys()}
 
         params = (chain_id,)
         if self.block_min is not None:
@@ -66,10 +72,10 @@ class AbeVerify:
             SELECT block_id, block_height
               FROM chain_candidate
              WHERE chain_id = ?""" + (
-            "" if self.block_min is None else """ AND
-                   block_height >= ?""") + (
-            "" if self.block_max is None else """ AND
-                   block_height <= ?""") + """
+            "" if self.block_min is None else """
+               AND block_height >= ?""") + (
+            "" if self.block_max is None else """
+               AND block_height <= ?""") + """
           ORDER BY block_height ASC, block_id ASC""", params):
 
             if block_height is None:
@@ -78,22 +84,23 @@ class AbeVerify:
 
             if self.ckmerkle:
                 self.verify_tx_merkle_hash(block_id, chain)
-                self.stats("Merkle trees", block_height,
-                           self.mchecked, self.mbad)
+                self.procstats("Merkle trees", block_height,
+                           self.stats['mchecked'], self.stats['mbad'])
             if self.ckstats:
                 self.verify_block_stats(block_id, chain_id)
-                self.stats("Block stats", block_height,
-                           self.schecked, self.sbad, repair=self.repair)
+                self.procstats("Block stats", block_height,
+                           self.stats['schecked'], self.stats['sbad'],
+                           repair=self.repair)
 
         if self.ckmerkle:
-            self.stats("Merkle trees", block_height, self.mchecked,
-                       self.mbad, last=True)
+            self.procstats("Merkle trees", block_height, self.stats['mchecked'],
+                       self.stats['mbad'], last=True)
         if self.ckstats:
-            self.stats("Block stats", block_height, self.schecked,
-                       self.sbad, last=True, repair=self.repair)
+            self.procstats("Block stats", block_height, self.stats['schecked'],
+                       self.stats['sbad'], last=True, repair=self.repair)
 
 
-    def stats(self, name, height, checked, bad, last=False, repair=False):
+    def procstats(self, name, height, checked, bad, last=False, repair=False):
         if (checked % 1000 == 0) is not last:
             lst = ("last " if last else "")
             self.logger.warning("%d %s (%sheight: %d): %s bad",
@@ -127,8 +134,8 @@ class AbeVerify:
             self.logger.info("block %d (id %s): block_hashMerkleRoot mismatch",
                              block_height, block_id)
             bad = 1
-        self.mbad += bad
-        self.mchecked += 1
+        self.stats['mbad'] += bad
+        self.stats['mchecked'] += 1
 
 
     def verify_block_stats(self, block_id, chain_id):
@@ -163,8 +170,8 @@ class AbeVerify:
                 # it is likely bad as well)
                 self.logger.info("block %d (id %d): Bad prev block, skipping "
                                  "as assumed bad block", block_height, block_id)
-                self.schecked += 1
-                self.sbad += 1
+                self.stats['schecked'] += 1
+                self.stats['sbad'] += 1
                 return
 
         # A dict makes easier comparison
@@ -179,6 +186,8 @@ class AbeVerify:
         }
 
         b = dict()
+
+        # Modified version of self.store.get_received_and_last_block_id()
         b['value_in'], = self.store.selectrow("""
             SELECT COALESCE(value_sum, 0)
               FROM chain c LEFT JOIN (
@@ -196,6 +205,7 @@ class AbeVerify:
             WHERE c.chain_id = ?""", (chain_id, block_id, chain_id))
         b['value_in'] = (b['value_in'] if b['value_in'] else 0)
 
+        # Modified version of self.store.get_sent_and_last_block_id()
         b['value_out'], = self.store.selectrow("""
             SELECT COALESCE(value_sum, 0)
               FROM chain c LEFT JOIN (
@@ -221,11 +231,33 @@ class AbeVerify:
             self.store.selectall("""
                 SELECT tx_id
                   FROM block_tx
-                 WHERE block_id = ?""", (block_id,)))
-        b['ss_destroyed'] = \
-            self.store._get_block_ss_destroyed(block_id, nTime, tx_ids)
+                 WHERE block_id = ?
+              ORDER BY tx_pos ASC""", (block_id,)))
+        b['ss_destroyed'] = 0
+
+        # Modified version of self.store._get_block_ss_destroyed()
+        block_ss_destroyed = 0
+        for tx_id in tx_ids:
+            destroyed = 0
+            # TODO: Warn if inner loop isn't used
+            # Don't do the math in SQL as we risk losing precision
+            for txout_value, block_nTime in self.store.selectall("""
+                SELECT COALESCE(txout_approx.txout_approx_value, 0),
+                       b.block_nTime
+                  FROM block_txin bti
+                  JOIN txin ON (bti.txin_id = txin.txin_id)
+                  JOIN txout_approx ON (txin.txout_id = txout_approx.txout_id)
+                  JOIN block_tx obt ON (txout_approx.tx_id = obt.tx_id)
+                  JOIN block b ON (obt.block_id = b.block_id)
+                 WHERE bti.block_id = ? AND txin.tx_id = ?""",
+                                            (block_id, tx_id)):
+                destroyed += txout_value * (nTime - block_nTime)
+            b['ss_destroyed'] += destroyed
+
         b['satoshi_seconds'] = prev_ss + ss_created - b['ss_destroyed']
 
+        # Modified version of self.store.tx_find_id_and_value (finding
+        # value_destroyed only)
         value_destroyed = 0
         for tid in tx_ids:
             destroyed, = self.store.selectrow("""
@@ -252,7 +284,7 @@ class AbeVerify:
                 self.logger.info("block %d (id %d): %s do not match: %s "
                                  "(should be %s)", block_height, block_id,
                                  key, d[key], b[key])
-        self.schecked += 1
+        self.stats['schecked'] += 1
         if badcheck and self.repair:
             self.store.sql("""
                 UPDATE block
@@ -276,7 +308,7 @@ class AbeVerify:
                              block_height, block_id)
 
         if badcheck:
-            self.sbad += 1
+            self.stats['sbad'] += 1
 
 
 def main(argv):
@@ -400,14 +432,14 @@ def main(argv):
             raise
 
         endmsg="Chain %s: %d blocks checked"
-        endparams = (max(chk.mchecked, chk.schecked),)
-        err += max(chk.mbad, chk.sbad)
-        if chk.ckmerkle and chk.mbad:
+        endparams = (max(chk.stats['mchecked'], chk.stats['schecked']),)
+        err += max(chk.stats['mbad'], chk.stats['sbad'])
+        if chk.ckmerkle and chk.stats['mbad']:
             endmsg += ", %d bad merkle tree hashes"
-            endparams += (chk.mbad,)
-        if chk.ckstats and chk.sbad:
+            endparams += (chk.stats['mbad'],)
+        if chk.ckstats and chk.stats['sbad']:
             endmsg += ", %d bad blocks stats"
-            endparams += (chk.sbad,)
+            endparams += (chk.stats['sbad'],)
         if len(endparams) == 1:
             endmsg += ", no error found"
         logger.warning(endmsg, chain.name, *endparams)
