@@ -963,8 +963,8 @@ store._ddl['txout_approx'],
         store.save_configvar(name)
 
     def cache_block(store, block_id, height, prev_id, search_id):
-        assert isinstance(block_id, int), block_id
-        assert isinstance(height, int), height
+        assert isinstance(block_id, int), repr(block_id)
+        assert isinstance(height, int), repr(height)
         assert prev_id is None or isinstance(prev_id, int)
         assert search_id is None or isinstance(search_id, int)
         block = {
