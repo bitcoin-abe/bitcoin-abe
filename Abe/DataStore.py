@@ -1249,8 +1249,9 @@ store._ddl['txout_approx'],
         # Create rows in block_txin.  In case of duplicate transactions,
         # choose the one with the lowest block ID.  XXX For consistency,
         # it should be the lowest height instead of block ID.
-        for row in store.selectall("""
-            SELECT txin.txin_id, MIN(obt.block_id)
+        txin_oblocks = {}
+        for txin_id, oblock_id in store.selectall("""
+            SELECT txin.txin_id, obt.block_id
               FROM block_tx bt
               JOIN txin ON (txin.tx_id = bt.tx_id)
               JOIN txout ON (txin.txout_id = txout.txout_id)
@@ -1258,13 +1259,20 @@ store._ddl['txout_approx'],
               JOIN block ob ON (obt.block_id = ob.block_id)
              WHERE bt.block_id = ?
                AND ob.block_chain_work IS NOT NULL
-             GROUP BY txin.txin_id""", (block_id,)):
-            (txin_id, oblock_id) = row
-            if store.is_descended_from(block_id, int(oblock_id)):
-                store.sql("""
-                    INSERT INTO block_txin (block_id, txin_id, out_block_id)
-                    VALUES (?, ?, ?)""",
-                          (block_id, txin_id, oblock_id))
+          ORDER BY txin.txin_id ASC, obt.block_id ASC""", (block_id,)):
+
+            # Save all candidate, lowest ID might not be a descendant if we
+            # have multiple block candidates
+            txin_oblocks.setdefault(txin_id, []).append(oblock_id)
+
+        for txin_id, oblock_ids in txin_oblocks.iteritems():
+            for oblock_id in oblock_ids:
+                if store.is_descended_from(block_id, int(oblock_id)):
+                    # Store lowest block id that is descended from our block
+                    store.sql("""
+                        INSERT INTO block_txin (block_id, txin_id, out_block_id)
+                        VALUES (?, ?, ?)""", (block_id, txin_id, oblock_id))
+                    break
 
     def _has_unlinked_txins(store, block_id):
         (unlinked_count,) = store.selectrow("""

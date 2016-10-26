@@ -44,7 +44,8 @@ class AbeVerify:
         self.block_max = None
 
         self.ckmerkle = False
-        self.ckstats = False
+        self.ckbti    = False
+        self.ckstats  = False
 
         self.repair = False
         self.blkstats = BLOCK_STATS_LIST
@@ -53,6 +54,9 @@ class AbeVerify:
             'mbad':     0,
             'schecked': 0,
             'sbad':     0,
+            'btiblks':    0, #block_txin blocks processed
+            'btichecked': 0,
+            'btibad':     0,
         }
 
 
@@ -85,23 +89,38 @@ class AbeVerify:
             if self.ckmerkle:
                 self.verify_tx_merkle_hash(block_id, chain)
                 self.procstats("Merkle trees", block_height,
-                           self.stats['mchecked'], self.stats['mbad'])
+                    self.stats['mchecked'], self.stats['mbad'])
+
+            if self.ckbti:
+                self.verify_block_txin(block_id, chain_id)
+                self.procstats("Block_txin's", block_height,
+                    self.stats['btichecked'], self.stats['btibad'],
+                    blocks=self.stats['btiblks'], repair=self.repair)
+
             if self.ckstats:
                 self.verify_block_stats(block_id, chain_id)
                 self.procstats("Block stats", block_height,
-                           self.stats['schecked'], self.stats['sbad'],
-                           repair=self.repair)
+                    self.stats['schecked'], self.stats['sbad'],
+                    repair=self.repair)
 
         if self.ckmerkle:
             self.procstats("Merkle trees", block_height, self.stats['mchecked'],
-                       self.stats['mbad'], last=True)
+                self.stats['mbad'], last=True)
+        if self.ckbti:
+            self.procstats("Block txin's", block_height,
+                self.stats['btichecked'], self.stats['btibad'],
+                blocks=self.stats['btiblks'], last=True, repair=self.repair)
         if self.ckstats:
             self.procstats("Block stats", block_height, self.stats['schecked'],
-                       self.stats['sbad'], last=True, repair=self.repair)
+                self.stats['sbad'], last=True, repair=self.repair)
 
 
-    def procstats(self, name, height, checked, bad, last=False, repair=False):
-        if (checked % 1000 == 0) is not last:
+    def procstats(self, name, height, checked, bad, blocks=False, last=False,
+                  repair=False):
+        if blocks is False:
+            blocks = checked
+
+        if (blocks % 1000 == 0) is not last:
             lst = ("last " if last else "")
             self.logger.warning("%d %s (%sheight: %d): %s bad",
                                 checked, name, lst, height, bad)
@@ -136,6 +155,44 @@ class AbeVerify:
             bad = 1
         self.stats['mbad'] += bad
         self.stats['mchecked'] += 1
+
+
+    def verify_block_txin(self, block_id, chain_id):
+        rows = self.store.selectall("""
+            SELECT txin_id
+              FROM block_txin
+             WHERE block_id = ?
+          ORDER BY txin_id ASC""", (block_id,))
+
+        known_ids = {row[0] for row in rows}
+        checks = len(rows)
+        bad = 0
+
+        if checks:
+            for txin_id, in self.store.selectall("""
+                SELECT txin.txin_id
+                  FROM block_tx bt
+                  JOIN txin ON (txin.tx_id = bt.tx_id)
+                  JOIN txout ON (txin.txout_id = txout.txout_id)
+                  JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
+                  JOIN block ob ON (obt.block_id = ob.block_id)
+                 WHERE bt.block_id = ?
+                   AND ob.block_chain_work IS NOT NULL
+                   AND bt.tx_pos <> 0""", block_id):
+                if txin_id not in known_ids:
+                    bad += 1
+                    self.logger.info("block id %d: txin_id %d not found in "
+                                     "block_txin", block_id, txin_id)
+            # TODO: also check existing links are to the best block
+
+        if bad and self.repair:
+            self._populate_block_txin(int(block_id), skip_txins=known_ids)
+            self.store.commit()
+
+        # Record stats
+        self.stats['btibad'] += bad
+        self.stats['btiblks'] += 1
+        self.stats['btichecked'] += checks
 
 
     def verify_block_stats(self, block_id, chain_id):
@@ -311,6 +368,39 @@ class AbeVerify:
             self.stats['sbad'] += 1
 
 
+    # Copied and modified from the same function in DataStore.py
+    def _populate_block_txin(self, block_id, skip_txins=set()):
+        # Create rows in block_txin.  In case of duplicate transactions,
+        # choose the one with the lowest block ID.  XXX For consistency,
+        # it should be the lowest height instead of block ID.
+        txin_oblocks = {}
+        for txin_id, oblock_id in self.store.selectall("""
+            SELECT txin.txin_id, obt.block_id
+              FROM block_tx bt
+              JOIN txin ON (txin.tx_id = bt.tx_id)
+              JOIN txout ON (txin.txout_id = txout.txout_id)
+              JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
+              JOIN block ob ON (obt.block_id = ob.block_id)
+             WHERE bt.block_id = ?
+               AND ob.block_chain_work IS NOT NULL
+          ORDER BY txin.txin_id ASC, obt.block_id ASC""", (block_id,)):
+            if txin_id in skip_txins:
+                # This is used for repairing only missing blocks
+                continue
+
+            # Save all candidate, lowest ID might not be a descendant if we
+            # have multiple block candidates
+            txin_oblocks.setdefault(txin_id, []).append(oblock_id)
+
+        for txin_id, oblock_ids in txin_oblocks.iteritems():
+            for oblock_id in oblock_ids:
+                if self.store.is_descended_from(block_id, int(oblock_id)):
+                    # Store lowest block id that is descended from our block
+                    self.store.sql("""
+                        INSERT INTO block_txin (block_id, txin_id, out_block_id)
+                        VALUES (?, ?, ?)""", (block_id, txin_id, oblock_id))
+
+
 def main(argv):
     cmdline = util.CmdLine(argv)
     cmdline.usage = lambda: \
@@ -324,6 +414,8 @@ def main(argv):
   Checks:
     --check-all     Check everything (overrides all other check options)
     --merkle-roots  Check merkle root hashes against block's transaction
+    --block-txins   Check block txin-to-out-block links used in block
+                    statistics computation
     --block-stats   Check block statistics computed from prev blocks and
                     transactions
 
@@ -365,6 +457,7 @@ def main(argv):
             'chain=',
             'check-all',
             'merkle-roots',
+            'block-txins',
             'block-stats',
             'verbose',
             'quiet',
@@ -384,9 +477,11 @@ def main(argv):
         if opt == '--chain':
             chains = arg.split(',')
         if opt == '--check-all':
-            chk.ckmerkle, chk.ckstats = True, True
+            chk.ckmerkle, chk.ckbti, chk.ckstats = True, True, True
         if opt == '--merkle-roots':
             chk.ckmerkle = True
+        if opt == '--block-txins':
+            chk.ckbti = True
         if opt == '--block-stats':
             chk.ckstats = True
         if opt == '--verbose':
@@ -408,7 +503,7 @@ def main(argv):
         print "Extra argument: %s!\n\n" % args[0], cmdline.usage()
         return 1
 
-    if True not in (chk.ckmerkle, chk.ckstats):
+    if True not in (chk.ckmerkle, chk.ckbti, chk.ckstats):
         print "No checks selected!\n\n", cmdline.usage()
         return 1
 
@@ -437,6 +532,9 @@ def main(argv):
         if chk.ckmerkle and chk.stats['mbad']:
             endmsg += ", %d bad merkle tree hashes"
             endparams += (chk.stats['mbad'],)
+        if chk.ckbti and chk.stats['btibad']:
+            endmsg += ", %d missing block txins"
+            endparams += (chk.stats['btibad'],)
         if chk.ckstats and chk.stats['sbad']:
             endmsg += ", %d bad blocks stats"
             endparams += (chk.stats['sbad'],)
