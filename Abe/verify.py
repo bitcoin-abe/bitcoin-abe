@@ -353,7 +353,7 @@ class AbeVerify:
         b['total_satoshis'] = prev_satoshis + b['value_out'] \
                               - b['value_in'] - value_destroyed
 
-        if None in b.keys():
+        if None in b.values():
             raise Exception("Stats computation error: block %d (height %d): "
                             "%s" % (block_id, block_height, str(b)))
 
