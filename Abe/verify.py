@@ -23,8 +23,7 @@ import DataStore
 import util
 import logging
 
-# Default list of block statistics to check. Some are disabled due to
-# common rounding errors
+# List of block statistics to check.
 BLOCK_STATS_LIST = [
     'value_in',
     'value_out',
@@ -50,19 +49,20 @@ class AbeVerify:
         self.repair = False
         self.blkstats = BLOCK_STATS_LIST
         self.stats = {
-            'mchecked': 0,
-            'mbad':     0,
-            'schecked': 0,
-            'sbad':     0,
-            'btiblks':    0, #block_txin blocks processed
-            'btichecked': 0,
-            'btibad':     0,
+            'mchecked': 0, # Blocks checked for Merkel root
+            'mbad':     0, # Merkle errors
+            'schecked': 0, # Blocks checked for stats
+            'sbad':     0, # Blocks with any stats error
+            'btiblks':    0, # Blocks checked for block_txin links
+            'btichecked': 0, # block_txin txin_id's checked
+            'btimiss':    0, # Missing txin_id's
+            'btibad':     0, # txin_id's linked to wrong block (untested)
         }
 
 
     def verify_blockchain(self, chain_id, chain):
         # Reset stats
-        self.stats = {key: 0 for key in self.stats.keys()}
+        self.stats = {key: 0 for key in self.stats}
 
         params = (chain_id,)
         if self.block_min is not None:
@@ -93,8 +93,9 @@ class AbeVerify:
 
             if self.ckbti:
                 self.verify_block_txin(block_id, chain_id)
-                self.procstats("Block_txin's", block_height,
-                    self.stats['btichecked'], self.stats['btibad'],
+                self.procstats("Block txins", block_height,
+                    self.stats['btichecked'],
+                    self.stats['btimiss'] + self.stats['btibad'],
                     blocks=self.stats['btiblks'], repair=self.repair)
 
             if self.ckstats:
@@ -107,8 +108,9 @@ class AbeVerify:
             self.procstats("Merkle trees", block_height, self.stats['mchecked'],
                 self.stats['mbad'], last=True)
         if self.ckbti:
-            self.procstats("Block txin's", block_height,
-                self.stats['btichecked'], self.stats['btibad'],
+            self.procstats("Block txins", block_height,
+                self.stats['btichecked'],
+                self.stats['btimiss'] + self.stats['btibad'],
                 blocks=self.stats['btiblks'], last=True, repair=self.repair)
         if self.ckstats:
             self.procstats("Block stats", block_height, self.stats['schecked'],
@@ -159,16 +161,18 @@ class AbeVerify:
 
     def verify_block_txin(self, block_id, chain_id):
         rows = self.store.selectall("""
-            SELECT txin_id
+            SELECT txin_id, out_block_id
               FROM block_txin
              WHERE block_id = ?
           ORDER BY txin_id ASC""", (block_id,))
 
-        known_ids = {row[0] for row in rows}
+        known_ids = {row[0]: row[1] for row in rows}
         checks = len(rows)
-        bad = 0
+        missing = set()
+        redo = set()
 
         if checks:
+            # Find all missing txin_id's
             for txin_id, in self.store.selectall("""
                 SELECT txin.txin_id
                   FROM block_tx bt
@@ -178,21 +182,41 @@ class AbeVerify:
                   JOIN block ob ON (obt.block_id = ob.block_id)
                  WHERE bt.block_id = ?
                    AND ob.block_chain_work IS NOT NULL
-                   AND bt.tx_pos <> 0""", block_id):
+                   AND bt.tx_pos <> 0
+              ORDER BY txin.txin_id ASC""", (block_id,)):
+
                 if txin_id not in known_ids:
-                    bad += 1
+                    missing.add(txin_id)
                     self.logger.info("block id %d: txin_id %d not found in "
                                      "block_txin", block_id, txin_id)
-            # TODO: also check existing links are to the best block
 
-        if bad and self.repair:
-            self._populate_block_txin(int(block_id), skip_txins=known_ids)
+            # Check all txin_id's already present (what we would insert)
+            for txin_id, obt_id in self._populate_block_txin(int(block_id),
+                    skip_txin=missing, check_only=True):
+                if obt_id != known_ids[txin_id]:
+                    redo.add(txin_id)
+                    self.logger.info("block id %d: txin_id %d out_block_id "
+                                     "is %d (should be %s)", block_id, txin_id,
+                                     known_ids[txin_id], obt_id)
+
+        if (redo or missing) and self.repair:
+            # Delete erroneous block_txin's and insert both sets
+            for txin_id in redo:
+                self.store.sql("""
+                    DELETE FROM block_txin
+                          WHERE block_id = ?
+                            AND txin_id = ?""", (block_id, txin_id))
+
+            # Take out redo's from known_ids
+            skip_ids = set(known_ids).difference(redo)
+            self._populate_block_txin(int(block_id), skip_txin=skip_ids)
             self.store.commit()
 
         # Record stats
-        self.stats['btibad'] += bad
+        self.stats['btimiss'] += len(missing)
+        self.stats['btibad']  += len(redo)
         self.stats['btiblks'] += 1
-        self.stats['btichecked'] += checks
+        self.stats['btichecked'] += checks + len(missing)
 
 
     def verify_block_stats(self, block_id, chain_id):
@@ -369,11 +393,12 @@ class AbeVerify:
 
 
     # Copied and modified from the same function in DataStore.py
-    def _populate_block_txin(self, block_id, skip_txins=set()):
+    def _populate_block_txin(self, block_id, skip_txin=set(), check_only=False):
         # Create rows in block_txin.  In case of duplicate transactions,
         # choose the one with the lowest block ID.  XXX For consistency,
         # it should be the lowest height instead of block ID.
         txin_oblocks = {}
+        ret = []
         for txin_id, oblock_id in self.store.selectall("""
             SELECT txin.txin_id, obt.block_id
               FROM block_tx bt
@@ -384,8 +409,9 @@ class AbeVerify:
              WHERE bt.block_id = ?
                AND ob.block_chain_work IS NOT NULL
           ORDER BY txin.txin_id ASC, obt.block_id ASC""", (block_id,)):
-            if txin_id in skip_txins:
-                # This is used for repairing only missing blocks
+
+            # Repair only missing txins
+            if txin_id in skip_txin:
                 continue
 
             # Save all candidate, lowest ID might not be a descendant if we
@@ -395,10 +421,16 @@ class AbeVerify:
         for txin_id, oblock_ids in txin_oblocks.iteritems():
             for oblock_id in oblock_ids:
                 if self.store.is_descended_from(block_id, int(oblock_id)):
+                    if check_only:
+                        # Skip update part to test what should be inserted
+                        # NB: can't use yield as we also call method normally!
+                        ret.append((txin_id, oblock_id))
+                        continue
                     # Store lowest block id that is descended from our block
                     self.store.sql("""
                         INSERT INTO block_txin (block_id, txin_id, out_block_id)
                         VALUES (?, ?, ?)""", (block_id, txin_id, oblock_id))
+        return ret
 
 
 def main(argv):
@@ -532,8 +564,11 @@ def main(argv):
         if chk.ckmerkle and chk.stats['mbad']:
             endmsg += ", %d bad merkle tree hashes"
             endparams += (chk.stats['mbad'],)
-        if chk.ckbti and chk.stats['btibad']:
+        if chk.ckbti and chk.stats['btimiss']:
             endmsg += ", %d missing block txins"
+            endparams += (chk.stats['btimiss'],)
+        if chk.ckbti and chk.stats['btibad']:
+            endmsg += ", %d bad block txins"
             endparams += (chk.stats['btibad'],)
         if chk.ckstats and chk.stats['sbad']:
             endmsg += ", %d bad blocks stats"

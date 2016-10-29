@@ -1247,8 +1247,7 @@ store._ddl['txout_approx'],
 
     def _populate_block_txin(store, block_id):
         # Create rows in block_txin.  In case of duplicate transactions,
-        # choose the one with the lowest block ID.  XXX For consistency,
-        # it should be the lowest height instead of block ID.
+        # choose the one with the lowest block height.
         txin_oblocks = {}
         for txin_id, oblock_id in store.selectall("""
             SELECT txin.txin_id, obt.block_id
@@ -1259,16 +1258,16 @@ store._ddl['txout_approx'],
               JOIN block ob ON (obt.block_id = ob.block_id)
              WHERE bt.block_id = ?
                AND ob.block_chain_work IS NOT NULL
-          ORDER BY txin.txin_id ASC, obt.block_id ASC""", (block_id,)):
+          ORDER BY txin.txin_id ASC, ob.block_height ASC""", (block_id,)):
 
-            # Save all candidate, lowest ID might not be a descendant if we
-            # have multiple block candidates
+            # Save all candidate, lowest height might not be a descendant if
+            # we have multiple block candidates
             txin_oblocks.setdefault(txin_id, []).append(oblock_id)
 
         for txin_id, oblock_ids in txin_oblocks.iteritems():
             for oblock_id in oblock_ids:
                 if store.is_descended_from(block_id, int(oblock_id)):
-                    # Store lowest block id that is descended from our block
+                    # Store lowest block height that is descended from our block
                     store.sql("""
                         INSERT INTO block_txin (block_id, txin_id, out_block_id)
                         VALUES (?, ?, ?)""", (block_id, txin_id, oblock_id))
