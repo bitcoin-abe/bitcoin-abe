@@ -210,7 +210,8 @@ class AbeVerify:
             # Take out redo's from known_ids
             skip_ids = set(known_ids).difference(redo)
             self._populate_block_txin(int(block_id), skip_txin=skip_ids)
-            self.store.commit()
+            self.logger.info("block id %d: txin links repaired", block_id)
+
 
         # Record stats
         self.stats['btimiss'] += len(missing)
@@ -385,7 +386,7 @@ class AbeVerify:
                        self.store.intin(b['total_ss']),
                        self.store.intin(b['ss_destroyed']),
                        block_id))
-            self.logger.info("block %d (id %d): repaired",
+            self.logger.info("block %d (id %d): stats repaired",
                              block_height, block_id)
 
         if badcheck:
@@ -451,7 +452,7 @@ def main(argv):
     --block-stats   Check block statistics computed from prev blocks and
                     transactions
 
-  Options (can be combined):
+  Options:
     --verbose       Print all errors found (default)
     --quiet         Print only progress info and error summary
     --silent        Print nothing; no feedback beside return code
