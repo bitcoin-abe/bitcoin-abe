@@ -96,13 +96,18 @@ class AbeVerify:
                 self.procstats("Block txins", block_height,
                     self.stats['btichecked'],
                     self.stats['btimiss'] + self.stats['btibad'],
-                    blocks=self.stats['btiblks'], repair=self.repair)
+                    blocks=self.stats['btiblks'])
 
             if self.ckstats:
                 self.verify_block_stats(block_id, chain_id)
                 self.procstats("Block stats", block_height,
-                    self.stats['schecked'], self.stats['sbad'],
-                    repair=self.repair)
+                    self.stats['schecked'], self.stats['sbad'])
+
+            if self.repair:
+                # XXX: Make this time-based? The goal is to not hold locks for
+                # too long, yet avoid committing many times per seconds on the
+                # earliest blocks
+                self.store.commit()
 
         if self.ckmerkle:
             self.procstats("Merkle trees", block_height, self.stats['mchecked'],
@@ -111,14 +116,16 @@ class AbeVerify:
             self.procstats("Block txins", block_height,
                 self.stats['btichecked'],
                 self.stats['btimiss'] + self.stats['btibad'],
-                blocks=self.stats['btiblks'], last=True, repair=self.repair)
+                blocks=self.stats['btiblks'], last=True)
         if self.ckstats:
             self.procstats("Block stats", block_height, self.stats['schecked'],
-                self.stats['sbad'], last=True, repair=self.repair)
+                self.stats['sbad'], last=True)
+
+        if self.repair:
+            self.store.commit()
 
 
-    def procstats(self, name, height, checked, bad, blocks=False, last=False,
-                  repair=False):
+    def procstats(self, name, height, checked, bad, blocks=False, last=False):
         if blocks is False:
             blocks = checked
 
@@ -126,8 +133,6 @@ class AbeVerify:
             lst = ("last " if last else "")
             self.logger.warning("%d %s (%sheight: %d): %s bad",
                                 checked, name, lst, height, bad)
-            if repair:
-                self.store.commit()
 
 
     def verify_tx_merkle_hash(self, block_id, chain):
