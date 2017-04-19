@@ -3375,40 +3375,40 @@ store._ddl['txout_approx'],
         # Clean up txin's
         unlinked_txins = store.selectall("""
             SELECT txin_id FROM txin
-            WHERE tx_id = ?""", tx_id)
+            WHERE tx_id = ?""", (tx_id,))
         for txin_id in unlinked_txins:
-            store.sql("DELETE FROM unlinked_txin WHERE txin_id = ?", txin_id)
-        store.sql("DELETE FROM txin WHERE tx_id = ?", tx_id)
+            store.sql("DELETE FROM unlinked_txin WHERE txin_id = ?", (txin_id,))
+        store.sql("DELETE FROM txin WHERE tx_id = ?", (tx_id,))
 
         # Clean up txouts & associated pupkeys ...
         txout_pubkeys = set(store.selectall("""
             SELECT pubkey_id FROM txout
-            WHERE tx_id = ? AND pubkey_id IS NOT NULL""", tx_id))
+            WHERE tx_id = ? AND pubkey_id IS NOT NULL""", (tx_id,)))
         # Also add multisig pubkeys if any
         msig_pubkeys = set()
         for pk_id in txout_pubkeys:
             msig_pubkeys.update(store.selectall("""
                 SELECT pubkey_id FROM multisig_pubkey
-                WHERE multisig_id = ?""", pk_id))
+                WHERE multisig_id = ?""", (pk_id,)))
 
-        store.sql("DELETE FROM txout WHERE tx_id = ?", tx_id)
+        store.sql("DELETE FROM txout WHERE tx_id = ?", (tx_id,))
 
         # Now delete orphan pubkeys... For simplicity merge both sets together
         for pk_id in txout_pubkeys.union(msig_pubkeys):
             (count,) = store.selectrow("""
                 SELECT COUNT(pubkey_id) FROM txout
-                WHERE pubkey_id = ?""", pk_id)
+                WHERE pubkey_id = ?""", (pk_id,))
             if count == 0:
-                store.sql("DELETE FROM multisig_pubkey WHERE multisig_id = ?", pk_id)
+                store.sql("DELETE FROM multisig_pubkey WHERE multisig_id = ?", (pk_id,))
                 (count,) = store.selectrow("""
                     SELECT COUNT(pubkey_id) FROM multisig_pubkey
-                    WHERE pubkey_id = ?""", pk_id)
+                    WHERE pubkey_id = ?""", (pk_id,))
                 if count == 0:
-                    store.sql("DELETE FROM pubkey WHERE pubkey_id = ?", pk_id)
+                    store.sql("DELETE FROM pubkey WHERE pubkey_id = ?", (pk_id,))
 
         # Finally clean up tx itself
-        store.sql("DELETE FROM unlinked_tx WHERE tx_id = ?", tx_id)
-        store.sql("DELETE FROM tx WHERE tx_id = ?", tx_id)
+        store.sql("DELETE FROM unlinked_tx WHERE tx_id = ?", (tx_id,))
+        store.sql("DELETE FROM tx WHERE tx_id = ?", (tx_id,))
 
 
 def new(args):
