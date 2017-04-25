@@ -2573,9 +2573,9 @@ store._ddl['txout_approx'],
     def catch_up_rpc(store, dircfg):
         """
         Load new blocks using RPC.  Requires running *coind supporting
-        getblockhash, getblock, and getrawtransaction.  Bitcoind v0.8
-        requires the txindex configuration option.  Requires chain_id
-        in the datadir table.
+        getblockhash, getblock with verbose=false, and optionally
+        getrawmempool/getrawtransaction (to load mempool tx). Requires
+        chain_id in the datadir table.
         """
         chain_id = dircfg['chain_id']
         if chain_id is None:
@@ -2601,6 +2601,7 @@ store._ddl['txout_approx'],
         rpcport     = conf.get("rpcport", chain.datadir_rpcport)
         url = "http://" + rpcuser + ":" + rpcpassword + "@" + rpcconnect \
             + ":" + str(rpcport)
+        ds = BCDataStream.BCDataStream()
 
         def rpc(func, *params):
             store.rpclog.info("RPC>> %s %s", func, params)
@@ -2743,46 +2744,22 @@ store._ddl['txout_approx'],
                 if store.offer_existing_block(hash, chain.id):
                     rpc_hash = get_blockhash(height + 1)
                 else:
-                    rpc_block = rpc("getblock", rpc_hash)
-                    assert rpc_hash == rpc_block['hash']
+                    # get full RPC block with "getblock <hash> False"
+                    ds.write(rpc("getblock", rpc_hash, False).decode('hex'))
+                    block_hash = chain.ds_block_header_hash(ds)
+                    block = chain.ds_parse_block(ds)
+                    assert hash == block_hash
+                    block['hash'] = block_hash
 
-                    prev_hash = \
-                        rpc_block['previousblockhash'].decode('hex')[::-1] \
-                        if 'previousblockhash' in rpc_block \
-                        else chain.genesis_hash_prev
-
-                    block = {
-                        'hash':     hash,
-                        'version':  int(rpc_block['version']),
-                        'hashPrev': prev_hash,
-                        'hashMerkleRoot':
-                            rpc_block['merkleroot'].decode('hex')[::-1],
-                        'nTime':    int(rpc_block['time']),
-                        'nBits':    int(rpc_block['bits'], 16),
-                        'nNonce':   int(rpc_block['nonce']),
-                        'transactions': [],
-                        'size':     int(rpc_block['size']),
-                        'height':   height,
-                        }
-
+                    # XXX Shouldn't be needed since we deserialize a valid block already
                     if chain.block_header_hash(chain.serialize_block_header(
                             block)) != hash:
                         raise InvalidBlock('block hash mismatch')
 
-                    for rpc_tx_hash in rpc_block['tx']:
-                        tx = store.export_tx(tx_hash = str(rpc_tx_hash),
-                                             format = "binary")
-                        if tx is None:
-                            tx = get_tx(rpc_tx_hash)
-                            if tx is None:
-                                store.log.error("RPC service lacks full txindex")
-                                return False
-
-                        block['transactions'].append(tx)
-
                     store.import_block(block, chain = chain)
-                    store.imported_bytes(block['size'])
-                    rpc_hash = rpc_block.get('nextblockhash')
+                    store.imported_bytes(ds.read_cursor)
+                    ds.clear()
+                    rpc_hash = get_blockhash(height + 1)
 
                 height += 1
                 if rpc_hash is None:
@@ -3398,40 +3375,40 @@ store._ddl['txout_approx'],
         # Clean up txin's
         unlinked_txins = store.selectall("""
             SELECT txin_id FROM txin
-            WHERE tx_id = ?""", tx_id)
+            WHERE tx_id = ?""", (tx_id,))
         for txin_id in unlinked_txins:
-            store.sql("DELETE FROM unlinked_txin WHERE txin_id = ?", txin_id)
-        store.sql("DELETE FROM txin WHERE tx_id = ?", tx_id)
+            store.sql("DELETE FROM unlinked_txin WHERE txin_id = ?", (txin_id,))
+        store.sql("DELETE FROM txin WHERE tx_id = ?", (tx_id,))
 
         # Clean up txouts & associated pupkeys ...
         txout_pubkeys = set(store.selectall("""
             SELECT pubkey_id FROM txout
-            WHERE tx_id = ? AND pubkey_id IS NOT NULL""", tx_id))
+            WHERE tx_id = ? AND pubkey_id IS NOT NULL""", (tx_id,)))
         # Also add multisig pubkeys if any
         msig_pubkeys = set()
         for pk_id in txout_pubkeys:
             msig_pubkeys.update(store.selectall("""
                 SELECT pubkey_id FROM multisig_pubkey
-                WHERE multisig_id = ?""", pk_id))
+                WHERE multisig_id = ?""", (pk_id,)))
 
-        store.sql("DELETE FROM txout WHERE tx_id = ?", tx_id)
+        store.sql("DELETE FROM txout WHERE tx_id = ?", (tx_id,))
 
         # Now delete orphan pubkeys... For simplicity merge both sets together
         for pk_id in txout_pubkeys.union(msig_pubkeys):
             (count,) = store.selectrow("""
                 SELECT COUNT(pubkey_id) FROM txout
-                WHERE pubkey_id = ?""", pk_id)
+                WHERE pubkey_id = ?""", (pk_id,))
             if count == 0:
-                store.sql("DELETE FROM multisig_pubkey WHERE multisig_id = ?", pk_id)
+                store.sql("DELETE FROM multisig_pubkey WHERE multisig_id = ?", (pk_id,))
                 (count,) = store.selectrow("""
                     SELECT COUNT(pubkey_id) FROM multisig_pubkey
-                    WHERE pubkey_id = ?""", pk_id)
+                    WHERE pubkey_id = ?""", (pk_id,))
                 if count == 0:
-                    store.sql("DELETE FROM pubkey WHERE pubkey_id = ?", pk_id)
+                    store.sql("DELETE FROM pubkey WHERE pubkey_id = ?", (pk_id,))
 
         # Finally clean up tx itself
-        store.sql("DELETE FROM unlinked_tx WHERE tx_id = ?", tx_id)
-        store.sql("DELETE FROM tx WHERE tx_id = ?", tx_id)
+        store.sql("DELETE FROM unlinked_tx WHERE tx_id = ?", (tx_id,))
+        store.sql("DELETE FROM tx WHERE tx_id = ?", (tx_id,))
 
 
 def new(args):
