@@ -19,6 +19,8 @@
 import re
 import logging
 
+MAX_SCRIPT = 1000000
+MAX_PUBKEY = 65
 NO_CLOB = 'BUG_NO_CLOB'
 STMT_RE = re.compile(r"([^']+)((?:'[^']*')?)")
 
@@ -197,6 +199,9 @@ class SqlAbstraction(object):
             pass
         elif val == 'mysql':
             transform_stmt = sql._transform_concat(transform_stmt)
+            # Also squeeze in MySQL VARBINARY length fix
+            # Some MySQL version do not auto-convert to BLOB
+            transform_stmt = sql._transform_varbinary(transform_stmt)
 
         transform_stmt = sql._append_table_epilogue(transform_stmt)
 
@@ -428,6 +433,13 @@ class SqlAbstraction(object):
             return 'CONCAT(' + clist + ')'
         def ret(stmt):
             return fn(concat_re.sub(repl, stmt))
+        return ret
+
+    def _transform_varbinary(sql, fn):
+        varbinary_re = re.compile(r"VARBINARY\(" + str(MAX_SCRIPT) + "\)")
+        def ret(stmt):
+            # Suitable for prefix+length up to 16,777,215 (2^24 - 1)
+            return fn(varbinary_re.sub("MEDIUMBLOB", stmt))
         return ret
 
     def _append_table_epilogue(sql, fn):

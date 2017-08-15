@@ -95,10 +95,9 @@ NULL_PUBKEY_ID = 0
 PUBKEY_ID_NETWORK_FEE = NULL_PUBKEY_ID
 
 # Size of the script and pubkey columns in bytes.
-MAX_SCRIPT = 1000000
-MAX_PUBKEY = 65
-
-NO_CLOB = 'BUG_NO_CLOB'
+MAX_SCRIPT = SqlAbstraction.MAX_SCRIPT
+MAX_PUBKEY = SqlAbstraction.MAX_PUBKEY
+NO_CLOB = SqlAbstraction.NO_CLOB
 
 # XXX This belongs in another module.
 class InvalidBlock(Exception):
