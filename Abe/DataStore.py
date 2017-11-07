@@ -1758,7 +1758,7 @@ store._ddl['txout_approx'],
             'version':               block_version,
             }
 
-        is_stake_chain = chain is not None and chain.has_feature('nvc_proof_of_stake')
+        is_stake_chain = found_chain is not None and found_chain.has_feature('nvc_proof_of_stake')
         if is_stake_chain:
             # Proof-of-stake display based loosely on CryptoManiac/novacoin and
             # http://nvc.cryptocoinexplorer.com.
