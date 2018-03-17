@@ -317,7 +317,7 @@ class Abe:
                 continue
 
             body += [
-                '<tr><td><a href="chain/', escape(name), '">',
+                '<tr><td><a href="/chain/', escape(name), '">',
                 escape(name), '</a></td><td>', escape(chain.code3), '</td>']
 
             if row[1] is not None:
