@@ -418,6 +418,8 @@ class Abe:
         count = get_int_param(page, 'count') or 20
         if count >= 2017:
             count = 20
+        elif count <= 0:
+            count = 20
         hi = get_int_param(page, 'hi')
         orig_hi = hi
 
