@@ -415,13 +415,20 @@ class Abe:
         body = page['body']
         body += abe.search_form(page)
 
-        count = get_int_param(page, 'count') or 20
-        if count >= 2017:
+        try:
+            count = get_int_param(page, 'count') or 20
+            if count >= 2017:
+                count = 20
+            elif count <= 0:
+                count = 20
+        except ValueError:
             count = 20
-        elif count <= 0:
-            count = 20
-        hi = get_int_param(page, 'hi')
-        orig_hi = hi
+
+        try:
+            hi = get_int_param(page, 'hi')
+            orig_hi = hi
+        except ValueError:
+            hi = 19
 
         if hi is None:
             row = abe.store.selectrow("""
