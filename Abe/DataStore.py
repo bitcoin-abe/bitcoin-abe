@@ -2603,6 +2603,14 @@ store._ddl['txout_approx'],
             + ":" + str(rpcport)
         ds = BCDataStream.BCDataStream()
 
+        if store.rpc_load_mempool:
+            # Cache tx imported from mempool, so we can avoid querying DB on each pass
+            rows = store.selectall("""
+                SELECT t.tx_hash
+                 FROM unlinked_tx ut
+                 JOIN tx t ON (ut.tx_id = t.tx_id)""")
+            store.mempool_tx = {store.hashout_hex(i[0]) for i in rows}
+
         def rpc(func, *params):
             store.rpclog.info("RPC>> %s %s", func, params)
             ret = util.jsonrpc(url, func, *params)
@@ -2680,15 +2688,16 @@ store._ddl['txout_approx'],
             return (height, next_hash)
 
         def catch_up_mempool(height):
-            # imported tx cache, so we can avoid querying DB on each pass
-            imported_tx = set()
             # Next height check time
             height_chk = time.time() + 1
 
             while store.rpc_load_mempool:
                 # Import the memory pool.
-                for rpc_tx_hash in rpc("getrawmempool"):
-                    if rpc_tx_hash in imported_tx:
+                mempool = rpc("getrawmempool")
+
+                for rpc_tx_hash in mempool:
+                    # Skip any TX imported from previous run
+                    if rpc_tx_hash in store.mempool_tx:
                         continue
 
                     # Break loop if new block found
@@ -2711,9 +2720,12 @@ store._ddl['txout_approx'],
                         tx_id = store.import_tx(tx, False, chain)
                         store.log.info("mempool tx %d", tx_id)
                         store.imported_bytes(tx['size'])
-                    imported_tx.add(rpc_tx_hash)
 
-                store.clean_unlinked_tx(imported_tx)
+                # Only need to reset+save mempool tx cache once at the end
+                store.mempool_tx = set(mempool)
+
+                # Clean all unlinked tx not still in mempool
+                store.clean_unlinked_tx(store.mempool_tx)
                 store.log.info("mempool load completed, starting over...")
                 time.sleep(3)
             return None
