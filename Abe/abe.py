@@ -428,7 +428,7 @@ class Abe:
             hi = get_int_param(page, 'hi')
             orig_hi = hi
         except ValueError:
-            hi = 19
+            hi = None
 
         if hi is None:
             row = abe.store.selectrow("""
