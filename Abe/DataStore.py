@@ -87,6 +87,7 @@ CHAIN_CONFIG = [
     {"chain":"BlackCoin"},
     {"chain":"Unbreakablecoin"},
     {"chain":"Californium"},
+    {"chain":"DashTestnet"},
     #{"chain":"",
     # "code3":"", "address_version":"\x", "magic":""},
     ]
