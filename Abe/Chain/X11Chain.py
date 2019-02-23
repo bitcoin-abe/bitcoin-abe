@@ -23,5 +23,5 @@ class X11Chain(BaseChain):
     """
 
     def block_header_hash(chain, header):
-        import xcoin_hash
-        return xcoin_hash.getPoWHash(header)
+        import dash_hash
+        return dash_hash.getPoWHash(header)
