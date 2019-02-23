@@ -21,6 +21,7 @@ import logging
 
 MAX_SCRIPT = 1000000
 MAX_PUBKEY = 65
+MAX_TX_EXTRA_PAYLOAD = 10000
 NO_CLOB = 'BUG_NO_CLOB'
 STMT_RE = re.compile(r"([^']+)((?:'[^']*')?)")
 

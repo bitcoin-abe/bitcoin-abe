@@ -125,7 +125,7 @@ class Gen(object):
 
         return txout
 
-    def tx(gen, txIn, txOut, version=1, lockTime=0, **kwargs):
+    def tx(gen, txIn, txOut, version=1, type=0, lockTime=0, extra_payload=None, **kwargs):
         chain = gen.chain
 
         def parse_txin(i, arg):
@@ -138,9 +138,11 @@ class Gen(object):
 
         tx = {
             'version': version,
+            'type': type,
             'txIn': [parse_txin(i, arg) for i, arg in enumerate(txIn)],
             'txOut': [parse_txout(i, arg) for i, arg in enumerate(txOut)],
             'lockTime': lockTime,
+            'extra_payload': extra_payload,
             }
         tx['__data__'] = chain.serialize_transaction(tx)
         tx['hash'] = chain.transaction_hash(tx['__data__'])
