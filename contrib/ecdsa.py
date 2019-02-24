@@ -144,13 +144,13 @@ This site is powered by <span style="font-style: italic"> <a href="https://githu
 
     def get_tx(abe, tx_hash ):
         row = abe.store.selectrow("""
-        SELECT tx_id, tx_version, tx_lockTime, tx_size
+        SELECT tx_id, tx_version, tx_type, tx_lockTime, tx_extra_payload, tx_size
         FROM tx
         WHERE tx_hash = ?
         """, (abe.store.hashin_hex(tx_hash),))
-        if row is None: return None, None, None, None
-        tx_id, tx_version, tx_lockTime, tx_size = (int(row[0]), int(row[1]), int(row[2]), int(row[3]))
-        return tx_id, tx_version, tx_lockTime, tx_size
+        if row is None: return None, None, None, None, None, None
+        tx_id, tx_version, tx_type, tx_lockTime, tx_extra_payload, tx_size = (int(row[0]), int(row[1]), int(row[2]), int(row[3]), row[4], int(row[5]))
+        return tx_id, tx_version, tx_type, tx_lockTime, tx_extra_payload, tx_size
     
 
     def get_tx_inputs(abe, tx_id):
@@ -204,7 +204,7 @@ This site is powered by <span style="font-style: italic"> <a href="https://githu
             body += ['<p class="error">Not a valid transaction hash.</p>']
             return
 
-        tx_id, tx_version, tx_lockTime, tx_size = abe.get_tx( tx_hash )
+        tx_id, tx_version, tx_type, tx_lockTime, tx_extra_payload, tx_size = abe.get_tx( tx_hash )
         if tx_id is None:
             body += ['<p class="error">Transaction not found.</p>']
             return
@@ -624,7 +624,7 @@ This site is powered by <span style="font-style: italic"> <a href="https://githu
         if tx_hash:
 
             page['title'] =  'Annotate transaction'
-            tx_id, b, c, d = abe.get_tx( tx_hash )
+            tx_id, b, c, d, e, f = abe.get_tx( tx_hash )
             chain = abe.get_default_chain()
 
             in_addresses = []

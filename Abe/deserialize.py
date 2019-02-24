@@ -81,7 +81,8 @@ def deserialize_TxOut(d, owner_keys=None):
 def parse_Transaction(vds, has_nTime=False):
   d = {}
   start_pos = vds.read_cursor
-  d['version'] = vds.read_int32()
+  d['version'] = vds.read_int16()
+  d['type'] = vds.read_int16()
   if has_nTime:
     d['nTime'] = vds.read_uint32()
   n_vin = vds.read_compact_size()
@@ -93,6 +94,9 @@ def parse_Transaction(vds, has_nTime=False):
   for i in xrange(n_vout):
     d['txOut'].append(parse_TxOut(vds))
   d['lockTime'] = vds.read_uint32()
+  d['extra_payload'] = None
+  if d['version'] == 3 and d['type'] != 0:
+    d['extra_payload'] = vds.read_bytes(vds.read_compact_size())
   d['__data__'] = vds.input[start_pos:vds.read_cursor]
   return d
 

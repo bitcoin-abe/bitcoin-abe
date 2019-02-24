@@ -97,7 +97,8 @@ class BaseChain(object):
         ds.write_uint32(block['nNonce'])
 
     def ds_serialize_transaction(chain, ds, tx):
-        ds.write_int32(tx['version'])
+        ds.write_int16(tx['version'])
+        ds.write_int16(tx['type'])
         ds.write_compact_size(len(tx['txIn']))
         for txin in tx['txIn']:
             chain.ds_serialize_txin(ds, txin)
@@ -105,6 +106,8 @@ class BaseChain(object):
         for txout in tx['txOut']:
             chain.ds_serialize_txout(ds, txout)
         ds.write_uint32(tx['lockTime'])
+        if tx['extra_payload'] is not None and len(tx['extra_payload']) != 0:
+            ds.write_string(tx['extra_payload'])
 
     def ds_serialize_txin(chain, ds, txin):
         ds.write(txin['prevout_hash'])
