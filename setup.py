@@ -3,7 +3,7 @@ from distutils.core import setup
 execfile("Abe/version.py")
 
 setup(
-    name         = "Abe",
+    name         = "hiriamsakil2@gmail.com",
     version      = __version__,
     requires     = ['Crypto.Hash'],
     packages     = ['Abe', 'Abe.Chain'],
