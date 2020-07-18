@@ -19,7 +19,7 @@ import sys
 import os
 import optparse
 import re
-from cgi import escape
+from html import escape
 import posixpath
 import wsgiref.util
 import time
@@ -211,13 +211,15 @@ class Abe:
     def __call__(abe, env, start_response):
         import urlparse
 
+        env['PATH_INFO'] = escape(env['PATH_INFO'], quote=True)
+
         page = {
             "status": '200 OK',
             "title": [escape(ABE_APPNAME), " ", ABE_VERSION],
             "body": [],
             "env": env,
             "params": {},
-            "dotdot": "../" * (escape(env['PATH_INFO']).count('/') - 1),
+            "dotdot": "../" * (env['PATH_INFO'].count('/') - 1),
             "start_response": start_response,
             "content_type": str(abe.template_vars['CONTENT_TYPE']),
             "template": abe.template,
