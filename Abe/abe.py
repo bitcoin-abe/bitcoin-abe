@@ -317,7 +317,7 @@ class Abe:
                 continue
 
             body += [
-                '<tr><td><a href="chain/', escape(name), '">',
+                '<tr><td><a href="/chain/', escape(name), '">',
                 escape(name), '</a></td><td>', escape(chain.code3), '</td>']
 
             if row[1] is not None:
@@ -325,7 +325,7 @@ class Abe:
                     int(row[1]), int(row[2]), abe.store.hashout_hex(row[3]))
 
                 body += [
-                    '<td><a href="block/', hash, '">', height, '</a></td>',
+                    '<td><a href="/block/', hash, '">', height, '</a></td>',
                     '<td>', format_time(nTime), '</td>']
 
                 if row[6] is not None and row[7] is not None:
