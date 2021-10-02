@@ -1,0 +1,22 @@
+psycopg2
+# cryptography
+pycryptodome
+PyYAML==3.11
+Twisted==13.2.0
+argparse==1.2.1
+beautifulsoup4==4.3.2
+cffi==0.9.2
+colorama
+enum34==1.0.4
+html5lib==0.999
+pyOpenSSL==0.14
+pyasn1==0.1.7
+pycparser==2.10
+pyinotify==0.9.4
+requests==2.2.1
+six==1.9.0
+urllib3==1.7.1
+wheel==0.24.0
+wsgiref==0.1.2
+zope.interface==4.1.2
+

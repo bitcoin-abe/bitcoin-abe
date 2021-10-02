@@ -2,6 +2,7 @@ Abe: a free block chain browser for Bitcoin-based currencies.
 https://github.com/bitcoin-abe/bitcoin-abe
 
     Copyright(C) 2011,2012,2013 by Abe developers.
+    Dockerfile + run.sh + other code contributed by Someguy123 @ Privex ( https://www.privex.io )
     License: GNU Affero General Public License, see the file LICENSE.txt.
     Portions Copyright (c) 2010 Gavin Andresen, see bct-LICENSE.txt.
 
@@ -16,22 +17,108 @@ Abe draws inspiration from Bitcoin Block Explorer (BBE) and
 BlockChain.info and seeks some level of compatibility with them but
 uses a completely new implementation.
 
+Docker Quickstart
+-----------------
+
+The easiest way to run an Abe explorer, is by using [Docker](https://www.docker.com/). Using the Abe Docker image allows you to
+run Abe instantly - without installing python, installing system package dependencies, nor installing any python packages.
+All you need is Docker.
+
+If you don't yet have Docker - you can install it on Linux in one of these two ways:
+
+```sh
+# Option 1. - Auto-install for most major distros using Docker's quick install script:
+curl -fsSL https://get.docker.com | sudo sh
+
+# Option 2. - If the auto-install script isn't compatible with your distro, then you
+# may be able to find Docker packaged by your distro, either as 'docker.io',
+# or just 'docker'. Try running the appropriate package manager command for your
+# distro below. If the package isn't found, try swapping 'docker' for 'docker.io'
+# or vice versa.
+apt install docker.io
+dnf install docker
+yum install docker
+pacman -Sy docker
+apk add docker
+```
+
+Once you have Docker installed, you can simply run @someguy123 's `someguy123/abe` docker image (you may need to be root),
+and docker should automatically fetch the latest image from Docker Hub.
+
+```sh
+# Make a folder to store the general Abe data and configuration.
+# By default, the Abe docker image uses SQLite for it's database, so the sqlite database
+# file will be stored in your local host folder for the /app volume (e.g. ~/abe)
+mkdir ~/abe
+
+# Optionally, if you want to customise the Abe config (abe.conf), or the run.sh env vars,
+# then you can generate a local config and/or env file, which will be automatically used,
+# so long as they're in the local host folder for the container's /app volume
+docker run --rm -it someguy123/abe dumpenv | tee ~/abe/.env
+docker run --rm -it someguy123/abe dumpconf | tee ~/abe/abe.conf
+
+# Check the help to see available subcommands and arguments. Be aware that arguments (flags/switches)
+# must be placed BEFORE the subcommand to work. e.g. '-p 8586 serve' - where-as this won't work: 'serve -p 8586'
+docker run --rm -it someguy123/abe help
+
+# The first part of running Abe - is the block loader/indexer, which reads the blockchain files, extracts
+# the block metadata + transactions, and puts them in the DB in a format the app can use.
+# This command will run the loader as a background container - storing the DB / using config from ~/abe, 
+# while reading the blockchain files from ~/.litecoin
+docker run --rm --name abe-loader -v "${HOME}/abe:/app" -v "${HOME}/.litecoin:/blockchain" -itd someguy123/abe load
+
+# The second part of running Abe - is the web server. The web server, as the name implies, serves the
+# web application via a HTTP server. Just like with the loader, we mount the /app volume, but we don't
+# have to mount the blockchain as the web server doesn't need it.
+# By default, it will serve on port 8545, so we expose 8545 from the container to the internet (0.0.0.0),
+# so that you can browse to your_server_ip:8545 and easily check that it works okay.
+docker run --rm --name abe-web -v "${HOME}/abe:/app" -p '0.0.0.0:8545:8545' -it someguy123/abe serve
+
+# Check the last 50 lines of the logs for the two containers to make sure they're working okay
+docker logs -n 50 abe-loader
+docker logs -n 50 abe-web
+
+# In production, it's recommended to run multiple instances of the web server, each on a different port,
+# so that requests can be distributed between each server process (using nginx/caddy or another 
+# production web server), helping both performance, and reliability.
+# Use '-p PORT' after '-it someguy123/abe' - which will be passed to run.sh inside of the container,
+# instead of to docker.
+docker run --rm --name abe-web2 -v "${HOME}/abe:/app" -p '0.0.0.0:8546:8546' -it someguy123/abe -p 8546 serve
+```
+
+
 Installation
 ------------
 
+Install Dependencies:
+
+    apt-get install -qy git wget curl libssl-dev libgirepository1.0-dev gobject-introspection cairo-5c libcairo-gobject2 libcairo2-dev pkg-config
+    # The below packages are optional - but recommended. They're required to install the psycopg2 Python package
+    # for using PostgreSQL as the database backend.
+    apt-get install -qy libpq-dev postgresql-client-common postgresql-common
+    apt-get clean -qy
+
 Issue:
 
-    python setup.py install
+    # On older distros you may need to run just 'pip' instead of 'pip2'
+    pip2 install cryptography pycryptodome
+    # NOTE: The psycopg2 package (for using postgres) is included in the requirements.txt,
+    # but it's optional. So if you don't plan to use psycopg2, you can ignore any errors
+    # related to that package.
+    pip2 install -r requirements.txt
+    
+    # On older distros, you may need to run 'python' instead of 'python2.7'
+    python2.7 setup.py install
 
 This will install abe to your system. After you set up the config file and
 database (see below and README-<DB>.txt) you can run:
 
-    python -m Abe.abe --config myconf.conf --commit-bytes 100000 --no-serve
+    python2.7 -m Abe.abe --config myconf.conf --commit-bytes 100000 --no-serve
     
 This will perform the initial data load and will take a long time.
 After it's fully synced, you can run the web server with: 
 
-    python -m Abe.abe --config myconf.conf
+    python2.7 -m Abe.abe --config myconf.conf
     
 To really get everything right see the README file for your type of
 database.
