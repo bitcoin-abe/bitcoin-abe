@@ -1,0 +1,76 @@
+##########################################################################
+# This is a systemd service for the Abe Web Server process.
+#
+# Use this on distros which use systemd (ubuntu, debian, fedora, centos, + more)
+# to run the Abe Web Server process on boot, in the background, and
+# with automatic restart if it crashes.
+#
+# This service file is configured to assume bitcoin-abe is cloned into
+# /opt/bitcoin-abe - and that you have a user called 'abe' with permission
+# to access that folder and run 'run.sh'. If you have a different setup,
+# then you should adjust the paths and user in this file before
+# installing the service.
+#
+# To install and start it, as well as the Abe Block Loader service:
+# 
+#     sudo cp -v abe-loader.service abe-web@.service /etc/systemd/system/
+#     sudo systemctl daemon-reload
+#     sudo systemctl enable abe-loader abe-web@8545
+#     sudo systemctl restart abe-loader abe-web@8545
+# 
+# To check whether they're working properly:
+#
+#     sudo systemctl status abe-web@8545
+#     sudo systemctl status abe-loader
+#     # Full service logs if needed
+#     journalctl --lines 50 -u abe-web@8545
+#     journalctl --lines 50 -u abe-loader
+# 
+# If you want to run additional abe-web processes for load balancing / redundancy:
+#
+#     # Generate and enable abe-web services for port 8546 and 8547
+#     sudo systemctl enable abe-web@8546 abe-web@8547
+#     sudo systemctl restart abe-web@8546 abe-web@8547
+#
+##########################################################################
+
+[Unit]
+Description=Abe Explorer - Web Server on Port %i
+After=network.target
+
+[Service]
+Type=simple
+User=abe
+
+WorkingDirectory=/opt/bitcoin-abe
+
+ExecStart=/opt/bitcoin-abe/run.sh -p %i serve
+
+Restart=always
+RestartSec=30
+StandardOutput=syslog
+
+# Hardening measures
+####################
+
+# Provide a private /tmp and /var/tmp.
+PrivateTmp=true
+
+# Mount /usr, /boot/ and /etc read-only for the process.
+ProtectSystem=full
+
+# Disallow the process and all of its children to gain
+# new privileges through execve().
+#NoNewPrivileges=true
+
+# Use a new /dev namespace only populated with API pseudo devices
+# such as /dev/null, /dev/zero and /dev/random.
+#PrivateDevices=true
+
+# Deny the creation of writable and executable memory mappings.
+#MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target
+Alias=abeweb.service
+

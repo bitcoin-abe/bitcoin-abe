@@ -4,3 +4,7 @@ tmpd
 MANIFEST
 build
 dist
+.env
+/*.conf
+!abe.conf
+
