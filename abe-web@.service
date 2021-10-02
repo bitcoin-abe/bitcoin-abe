@@ -44,7 +44,7 @@ User=abe
 
 WorkingDirectory=/opt/bitcoin-abe
 
-ExecStart=/opt/bitcoin-abe/run.sh serve -p %i
+ExecStart=/opt/bitcoin-abe/run.sh -p %i serve
 
 Restart=always
 RestartSec=30
