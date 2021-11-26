@@ -2,40 +2,41 @@
 # enum-like type
 # From the Python Cookbook, downloaded from http://code.activestate.com/recipes/67107/
 #
-import types, string, exceptions
 
-class EnumException(exceptions.Exception):
-    pass
+from .exceptions import EnumException
+
 
 class Enumeration:
     def __init__(self, name, enumList):
         self.__doc__ = name
-        lookup = { }
-        reverseLookup = { }
+        lookup = {}
+        reverse_lookup = {}
         i = 0
-        uniqueNames = [ ]
-        uniqueValues = [ ]
-        for x in enumList:
-            if type(x) == types.TupleType:
-                x, i = x
-            if type(x) != types.StringType:
-                raise EnumException, "enum name is not a string: " + x
-            if type(i) != types.IntType:
-                raise EnumException, "enum value is not an integer: " + i
-            if x in uniqueNames:
-                raise EnumException, "enum name is not unique: " + x
-            if i in uniqueValues:
-                raise EnumException, "enum value is not unique for " + x
-            uniqueNames.append(x)
-            uniqueValues.append(i)
-            lookup[x] = i
-            reverseLookup[i] = x
+        unique_names = []
+        unique_values = []
+        for j in enumList:
+            if isinstance(j, tuple):
+                j, i = j
+            if not isinstance(j, str):
+                raise EnumException("enum name is not a string: " + j)
+            if not isinstance(i, int):
+                raise EnumException("enum value is not an integer: " + i)
+            if j in unique_names:
+                raise EnumException("enum name is not unique: " + j)
+            if i in unique_values:
+                raise EnumException("enum value is not unique for " + j)
+            unique_names.append(j)
+            unique_values.append(i)
+            lookup[j] = i
+            reverse_lookup[i] = j
             i = i + 1
         self.lookup = lookup
-        self.reverseLookup = reverseLookup
+        self.reverse_lookup = reverse_lookup
+
     def __getattr__(self, attr):
-        if not self.lookup.has_key(attr):
+        if not attr in self.lookup:
             raise AttributeError
         return self.lookup[attr]
+
     def whatis(self, value):
-        return self.reverseLookup[value]
+        return self.reverse_lookup[value]

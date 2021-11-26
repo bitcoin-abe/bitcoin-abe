@@ -1,5 +1,6 @@
-New in 0.8 - ????
-=========================
+# Bitcoin Abe Changelog
+
+## New in 0.8 - ????
 
 * Add support for Bitcoin Core up to v11.x in.
 
@@ -87,21 +88,15 @@ New in 0.8 - ????
 
 * Fix issue where Crypto.Hash.RIPEMD was never being used (was using hashlib's workaround only)
 
-
-New in 0.7.2 - 2012-12-06
-=========================
+## New in 0.7.2 - 2012-12-06
 
 * Fixed bug affecting chains containing duplicate coinbase transactions.
 
-
-New in 0.7.1 - 2012-10-29
-=========================
+## New in 0.7.1 - 2012-10-29
 
 * Fixed bug affecting database upgrade.
 
-
-New in 0.7 - 2012-10-23
-=======================
+## New in 0.7 - 2012-10-23
 
 * Tell search engines not to crawl the whole chain.
 
@@ -123,9 +118,7 @@ New in 0.7 - 2012-10-23
 
 * Minor fixes and updates.
 
-
-New in 0.6 - 2011-08-31
-=======================
+## New in 0.6 - 2011-08-31
 
 * Python packaging; abe.py moved; run as "python -m Abe.abe".
 
@@ -152,9 +145,7 @@ New in 0.6 - 2011-08-31
 
 * Many minor improvements; see the Git log.
 
-
-New in 0.5 - 2011-08-16
-=======================
+## New in 0.5 - 2011-08-16
 
 * Big speed improvement for address history and transaction pages.
 
@@ -177,9 +168,7 @@ New in 0.5 - 2011-08-16
 
 * Many minor improvements; see the Git log.
 
-
-New in 0.4.1 - 2011-08-16
-=========================
+## New in 0.4.1 - 2011-08-16
 
 * Security enhancement: refer to orphan blocks by hash, not height.
 
@@ -202,9 +191,7 @@ New in 0.4.1 - 2011-08-16
 
 * Minor robustness and cosmetic improvements.
 
-
-Major changes from 0.3 to 0.4 (2011-07-04 to 2011-07-15)
-========================================================
+## Major changes from 0.3 to 0.4 (2011-07-04 to 2011-07-15)
 
 * The chain summary page (the one listing several blocks in the same
   chain) loads much faster than before.
@@ -215,7 +202,7 @@ Major changes from 0.3 to 0.4 (2011-07-04 to 2011-07-15)
 * FastCGI support has matured.  See README-FASTCGI.txt for setup.
 
 * Abe supports Weeds currency natively.  Weeds info:
-  http://forum.bitcoin.org/index.php?topic=24209.0
+  <http://forum.bitcoin.org/index.php?topic=24209.0>
 
 * The "datadir" configuration directive can add a new currency without
   changes to Python code.

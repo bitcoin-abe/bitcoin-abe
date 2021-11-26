@@ -1,0 +1,24 @@
+[project]
+python = "^3.8"
+
+[build-system]
+requires = [
+    "setuptools >= 40.9.0",
+    "wheel"
+]
+build-backend = "setuptools.build_meta"
+
+[tool.isort]
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+line_length = 100
+
+# [tool.mypy]
+# plugins = "trio_typing.plugin"
+
+[tool.pytest.ini_options]
+# trio_mode = true
+# addopts = "--disable-socket"
+python_files = "tests.py test_*.py *_tests.py"

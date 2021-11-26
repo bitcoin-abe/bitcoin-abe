@@ -3,7 +3,8 @@
 
 import hashlib
 
-def new(data=''):
-    h = hashlib.new('ripemd160')
-    h.update(data)
-    return h
+
+def new(data=""):
+    _hash = hashlib.new("ripemd160")
+    _hash.update(data)
+    return _hash

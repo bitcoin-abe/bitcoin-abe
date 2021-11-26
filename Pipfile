@@ -1,0 +1,20 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+abe = {editable = true, path = "."}
+base58 = "*"
+flup-py3 = "*"
+mysqlclient = "*"
+pycryptodome = "*"
+psycopg2 = "*"
+
+[dev-packages]
+black = "*"
+pylint = "*"
+pytest = "*"
+
+[requires]
+python_version = "^3.8"

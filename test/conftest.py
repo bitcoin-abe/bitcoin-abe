@@ -1,6 +1,6 @@
 # Copyright(C) 2014 by Abe developers.
 
-# conftest.py: pytest session-scoped objects
+"""conftest.py: pytest session-scoped objects"""
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -16,12 +16,13 @@
 # License along with this program.  If not, see
 # <http://www.gnu.org/licenses/agpl.html>.
 
-from __future__ import print_function
 import pytest
-import db
+from . import db
+
 
 @pytest.fixture(scope="session", params=db.testdb_params())
 def db_server(request):
+    """Database Server to be used in tests"""
     server = db.create_server(request.param)
     request.addfinalizer(server.delete)
     return server
