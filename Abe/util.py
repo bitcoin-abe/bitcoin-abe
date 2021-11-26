@@ -58,7 +58,7 @@ def short_hex(_bytes):
     return _hex[0:4] + "..." + _hex[-4:]
 
 
-NULL_HASH = "\0" * 32
+NULL_HASH = b"\x00" * 32
 GENESIS_HASH_PREV = NULL_HASH
 
 

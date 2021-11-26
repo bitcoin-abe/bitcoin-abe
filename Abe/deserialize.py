@@ -50,7 +50,7 @@ def parse_TxIn(vds):
 
 
 def deserialize_TxIn(data, transaction_index=None, owner_keys=None):
-    if data["prevout_hash"] == "\x00" * 32:
+    if data["prevout_hash"] == b"\x00" * 32:
         result = "TxIn: COIN GENERATED"
         result += " coinbase:" + data["scriptSig"].encode("hex_codec")
     elif transaction_index is not None and data["prevout_hash"] in transaction_index:

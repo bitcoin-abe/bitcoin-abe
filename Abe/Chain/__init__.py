@@ -14,6 +14,8 @@
 # License along with this program.  If not, see
 # <http://www.gnu.org/licenses/agpl.html>.
 
+from mmap import mmap
+from typing import Union
 from .. import deserialize, util
 from ..deserialize import opcodes
 from ..streams import BCDataStream
@@ -82,79 +84,81 @@ class BaseChain:
     def has_feature(self, feature):  # pylint: disable=unused-argument
         return False
 
-    def ds_parse_block_header(self, ds):
-        return deserialize.parse_BlockHeader(ds)
+    def ds_parse_block_header(self, data_stream: BCDataStream) -> dict:
+        return deserialize.parse_BlockHeader(data_stream)
 
-    def ds_parse_transaction(self, ds):
-        return deserialize.parse_Transaction(ds)
+    def ds_parse_transaction(self, data_stream: BCDataStream) -> dict:
+        return deserialize.parse_Transaction(data_stream)
 
-    def ds_parse_block(self, ds):
-        d = self.ds_parse_block_header(ds)
-        d["transactions"] = []
-        nTransactions = ds.read_compact_size()
-        for i in range(nTransactions):
-            d["transactions"].append(self.ds_parse_transaction(ds))
-        return d
+    def ds_parse_block(self, data_stream: BCDataStream) -> dict:
+        header_dict = self.ds_parse_block_header(data_stream)
+        header_dict["transactions"] = []
+        nTransactions = data_stream.read_compact_size()
+        for _ in range(nTransactions):
+            header_dict["transactions"].append(self.ds_parse_transaction(data_stream))
+        return header_dict
 
-    def ds_serialize_block(self, ds, block):
-        self.ds_serialize_block_header(ds, block)
-        ds.write_compact_size(len(block["transactions"]))
+    def ds_serialize_block(self, data_stream: BCDataStream, block) -> None:
+        self.ds_serialize_block_header(data_stream, block)
+        data_stream.write_compact_size(len(block["transactions"]))
         for tx in block["transactions"]:
-            self.ds_serialize_transaction(ds, tx)
+            self.ds_serialize_transaction(data_stream, tx)
 
-    def ds_serialize_block_header(self, ds, block):
-        ds.write_int32(block["version"])
-        ds.write(block["hashPrev"])
-        ds.write(block["hashMerkleRoot"])
-        ds.write_uint32(block["nTime"])
-        ds.write_uint32(block["nBits"])
-        ds.write_uint32(block["nNonce"])
+    def ds_serialize_block_header(self, data_stream: BCDataStream, block) -> None:
+        data_stream.write_int32(block["version"])
+        data_stream.write(block["hashPrev"])
+        data_stream.write(block["hashMerkleRoot"])
+        data_stream.write_uint32(block["nTime"])
+        data_stream.write_uint32(block["nBits"])
+        data_stream.write_uint32(block["nNonce"])
 
-    def ds_serialize_transaction(self, ds, tx):
-        ds.write_int32(tx["version"])
-        ds.write_compact_size(len(tx["txIn"]))
+    def ds_serialize_transaction(self, data_stream: BCDataStream, tx: dict) -> None:
+        data_stream.write_int32(tx["version"])
+        data_stream.write_compact_size(len(tx["txIn"]))
         for txin in tx["txIn"]:
-            self.ds_serialize_txin(ds, txin)
-        ds.write_compact_size(len(tx["txOut"]))
+            self.ds_serialize_txin(data_stream, txin)
+        data_stream.write_compact_size(len(tx["txOut"]))
         for txout in tx["txOut"]:
-            self.ds_serialize_txout(ds, txout)
-        ds.write_uint32(tx["lockTime"])
+            self.ds_serialize_txout(data_stream, txout)
+        data_stream.write_uint32(tx["lockTime"])
 
-    def ds_serialize_txin(self, ds, txin):
-        ds.write(txin["prevout_hash"])
-        ds.write_uint32(txin["prevout_n"])
-        ds.write_string(txin["scriptSig"])
-        ds.write_uint32(txin["sequence"])
+    def ds_serialize_txin(self, data_stream: BCDataStream, txin: dict) -> None:
+        data_stream.write(txin["prevout_hash"])
+        data_stream.write_uint32(txin["prevout_n"])
+        data_stream.write_string(txin["scriptSig"])
+        data_stream.write_uint32(txin["sequence"])
 
-    def ds_serialize_txout(self, ds, txout):
-        ds.write_int64(txout["value"])
-        ds.write_string(txout["scriptPubKey"])
+    def ds_serialize_txout(self, data_stream: BCDataStream, txout: dict) -> None:
+        data_stream.write_int64(txout["value"])
+        data_stream.write_string(txout["scriptPubKey"])
 
     def serialize_block(self, block):
-        ds = BCDataStream()
-        self.ds_serialize_block(ds, block)
-        return ds.input
+        data_stream = BCDataStream()
+        self.ds_serialize_block(data_stream, block)
+        return data_stream.input
 
     def serialize_block_header(self, block):
-        ds = BCDataStream()
-        self.ds_serialize_block_header(ds, block)
-        return ds.input
+        data_stream = BCDataStream()
+        self.ds_serialize_block_header(data_stream, block)
+        return data_stream.input
 
-    def serialize_transaction(self, tx):
-        ds = BCDataStream()
-        self.ds_serialize_transaction(ds, tx)
-        return ds.input
+    def serialize_transaction(self, tx: dict) -> Union[bytearray, mmap, None]:
+        data_stream = BCDataStream()
+        self.ds_serialize_transaction(data_stream, tx)
+        return data_stream.input
 
-    def block_header_hash(self, header):
-        """This is a prototype."""
+    def block_header_hash(self, header: bytes) -> bytes:
+        """This is a prototype. Needs to be the hash of the block header"""
 
-    def ds_block_header_hash(self, ds):
-        return self.block_header_hash(ds.input[ds.read_cursor : ds.read_cursor + 80])
+    def ds_block_header_hash(self, data_stream: BCDataStream) -> bytes:
+        return self.block_header_hash(
+            data_stream.input[data_stream.read_cursor : data_stream.read_cursor + 80]
+        )
 
-    def transaction_hash(self, binary_tx):
+    def transaction_hash(self, binary_tx: bytes) -> bytes:
         return util.double_sha256(binary_tx)
 
-    def merkle_hash(self, hashes):
+    def merkle_hash(self, hashes) -> bytes:
         return util.double_sha256(hashes)
 
     # Based on CBlock::BuildMerkleTree().
@@ -168,13 +172,13 @@ class BaseChain:
             hashes = out
         return hashes and hashes[0]
 
-    def parse_block_header(self, header):
+    def parse_block_header(self, header: bytes) -> dict:
         return self.ds_parse_block_header(util.str_to_ds(header))
 
-    def parse_transaction(self, binary_tx):
+    def parse_transaction(self, binary_tx: bytes) -> dict:
         return self.ds_parse_transaction(util.str_to_ds(binary_tx))
 
-    def is_coinbase_tx(self, tx):
+    def is_coinbase_tx(self, tx: dict) -> dict:
         return (
             len(tx["txIn"]) == 1
             and tx["txIn"][0]["prevout_hash"] == self.coinbase_prevout_hash

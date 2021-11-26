@@ -401,7 +401,7 @@ def test_b14_fees(b14):
 
 
 def test_b14_generated(b14):
-    assert b14["generated"] == 50e8
+    assert b14["generated"] == int(50e8)
 
 
 def test_b14_hash(b14):
@@ -487,7 +487,7 @@ def test_b14_t1i0_binaddr(b14, gen):
 
 
 def test_b14_t1i0_value(b14):
-    assert b14["transactions"][1]["in"][0]["value"] == 50e8
+    assert b14["transactions"][1]["in"][0]["value"] == int(50e8)
 
 
 def test_b14_t1_out(b14):

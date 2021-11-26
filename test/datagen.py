@@ -188,11 +188,12 @@ class Gen:
         return tx
 
     def coinbase(
-        self, txOut: dict[str, Any] = None, value: int = 50e8, **kwargs
+        self, txOut: dict[str, Any] = None, value: int = int(50e8), **kwargs
     ) -> dict[str, Any]:
         """Generate the coinbase transaction."""
         txIn = [self.coinbase_txin(**kwargs)]
-        kwargs.pop("scriptSig")
+        if "scriptSig" in kwargs:
+            kwargs.pop("scriptSig")
         if txOut is None:
             txOut = [self.txout(value=value)]
         return self.tx(txIn, txOut, **kwargs)

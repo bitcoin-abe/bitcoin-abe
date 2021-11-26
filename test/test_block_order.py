@@ -45,7 +45,7 @@ def gen(testdb, request):
         txIn=[
             _gen.txin(prevout=blocks[1]["transactions"][0]["txOut"][0], scriptSig="XXX")
         ],
-        txOut=[_gen.txout(addr="n1pTUVnjZ6GHxujaoJ62P9NBMNjLr5N2EQ", value=50e8)],
+        txOut=[_gen.txout(addr="n1pTUVnjZ6GHxujaoJ62P9NBMNjLr5N2EQ", value=int(50e8))],
     )
     block_a = blocks[-1]
     block_c = _gen.block(prev=block_a, transactions=[_gen.coinbase(), tx1])
@@ -56,7 +56,7 @@ def gen(testdb, request):
         txIn=[
             _gen.txin(prevout=block_c["transactions"][1]["txOut"][0], scriptSig="YYY")
         ],
-        txOut=[_gen.txout(addr="2NFTctsgcAmrgtiboLJUx9q8qu5H1qVpcAb", value=50e8)],
+        txOut=[_gen.txout(addr="2NFTctsgcAmrgtiboLJUx9q8qu5H1qVpcAb", value=int(50e8))],
     )
 
     block_d = _gen.block(prev=block_c, transactions=[_gen.coinbase(), tx2])
@@ -87,4 +87,4 @@ def a2NFT(gen):
 
 def test_a2NFT_balance(a2NFT, gen):
     """Test the wallet's balance"""
-    assert a2NFT["balance"] == {gen.chain.id: 50e8}
+    assert a2NFT["balance"] == {gen.chain.id: int(50e8)}
