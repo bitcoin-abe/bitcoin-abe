@@ -457,7 +457,7 @@ class DataStore:
 
             self.chains_by.id[chain.id] = chain
             self.chains_by.name[chain.name] = chain
-            self.chains_by.magic[bytes(chain.magic, "utf-8")] = chain
+            self.chains_by.magic[chain.magic] = chain
 
     def get_chain_by_id(self, chain_id):
         return self.chains_by.id[int(chain_id)]
@@ -1737,7 +1737,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         found_chain = chain
         if found_chain is None:
             if len(cc) > 0:
-                found_chain = cc[0]["chain"]
+                found_chain = cc[0]["chain"]  # pylint: disable=unsubscriptable-object
             else:
                 # Should not normally get here.
                 found_chain = self.get_default_chain()
@@ -2573,15 +2573,9 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
                 return None
             txpoints += map(parse_escrow_out, out_rows)
 
-        def eq_txpoint(p1, p2):
-            return (
-                eq(p1["nTime"], p2["nTime"])
-                or eq(p1["is_out"], p2["is_out"])
-                or eq(p1["height"], p2["height"])
-                or eq(p1["chain"].name, p2["chain"].name)
-            )
-
-        txpoints.sort(cmp_txpoint)
+        txpoints.sort(
+            key=lambda l: (l["nTime"], l["is_out"], l["height"], l["chain"].name)
+        )
 
         for txpoint in txpoints:
             adj_balance(txpoint)

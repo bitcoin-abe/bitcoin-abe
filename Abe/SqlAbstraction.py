@@ -142,8 +142,16 @@ class SqlAbstraction:
 
                 def pg_to_str(val: Union[bytes, bytearray, memoryview]) -> str:
                     # psycopg2 returns database objects as memory addresses
+                    # XXX This is a really ugly fix need to force bytes as the data structure throughout.
                     val = bytes(val)
-                    return str(val, "utf-8")
+                    try:
+                        return str(val, "utf-8")
+                    except UnicodeDecodeError:
+                        pass
+                    try:
+                        return "".join(map(chr, val))
+                    except UnicodeDecodeError as error:
+                        raise error
 
             binin = to_btype
             binin_hex = to_btype

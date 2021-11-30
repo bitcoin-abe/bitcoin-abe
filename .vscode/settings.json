@@ -197,6 +197,7 @@
         "UNENCRYPTED",
         "unparsable",
         "unportable",
+        "unsubscriptable",
         "unsued",
         "utxo",
         "vals",

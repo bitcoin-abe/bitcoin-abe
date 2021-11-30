@@ -16,8 +16,8 @@
 # License along with this program.  If not, see
 # <http://www.gnu.org/licenses/agpl.html>.
 
-import os
 import json
+import shutil
 import tempfile
 import pytest
 from . import data
@@ -63,14 +63,13 @@ def gen(testdb, request):
 
     # XXX Lots of code duplicated in test_std_tx.py.
     datadir = tempfile.mkdtemp(prefix="abe-test-")
-    # os.chmod(datadir, stat.S_IRWXU)
     _gen.save_blkfile(datadir + "/blk0001.dat", blocks)
 
     _gen.store = testdb.load(
         "--datadir",
         json.dumps([{"dirname": datadir, "chain": chain.name, "loader": "blkfile"}]),
     )
-    request.addfinalizer(os.rmdir(datadir))
+    request.addfinalizer(shutil.rmtree(datadir))
     _gen.chain = _gen.store.get_chain_by_name(chain.name)
 
     return _gen
