@@ -27,6 +27,6 @@ class Bitcoin(Sha256Chain):
         super().__init__(**kwargs)
         self.name = "Bitcoin"
         self.code3 = "BTC"
-        self.address_version = "\x00"
-        self.script_addr_vers = "\x05"
-        self.magic = "\xf9\xbe\xb4\xd9"
+        self.address_version = b"\x00"
+        self.script_addr_vers = b"\x05"
+        self.magic = b"\xf9\xbe\xb4\xd9"

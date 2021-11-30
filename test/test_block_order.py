@@ -23,8 +23,6 @@ import pytest
 from . import data
 from .db import testdb  # pylint: disable=unused-import
 
-# import Abe.Chain
-# from Abe.deserialize import opcodes
 
 # pylint: disable=redefined-outer-name, invalid-name
 @pytest.fixture(scope="module")
@@ -64,16 +62,15 @@ def gen(testdb, request):
     blocks += [block_b, block_c, block_d, block_e]
 
     # XXX Lots of code duplicated in test_std_tx.py.
-    datadir = os.path.dirname(tempfile.mkdtemp(prefix="abe-test-") + "/")
-    request.addfinalizer(os.rmdir(datadir))
-    _gen.save_blkfile(str(datadir.join("blk0001.dat")), blocks)
+    datadir = tempfile.mkdtemp(prefix="abe-test-")
+    # os.chmod(datadir, stat.S_IRWXU)
+    _gen.save_blkfile(datadir + "/blk0001.dat", blocks)
 
     _gen.store = testdb.load(
         "--datadir",
-        json.dumps(
-            [{"dirname": str(datadir), "chain": chain.name, "loader": "blkfile"}]
-        ),
+        json.dumps([{"dirname": datadir, "chain": chain.name, "loader": "blkfile"}]),
     )
+    request.addfinalizer(os.rmdir(datadir))
     _gen.chain = _gen.store.get_chain_by_name(chain.name)
 
     return _gen

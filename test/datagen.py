@@ -25,7 +25,10 @@ from Abe.deserialize import opcodes
 from Abe.streams import BCDataStream
 
 
+# pylint: disable=invalid-name
 class Gen:
+    """Data Factory for Unit Testing"""
+
     def __init__(self, rng=1, chain=None, **kwargs):
         if not hasattr(rng, "randrange"):
             rng = Random(rng)
@@ -39,7 +42,7 @@ class Gen:
         for attr, val in kwargs.items():
             setattr(self, attr, val)
 
-    def random_bytes(self, num_bytes):
+    def random_bytes(self, num_bytes: int) -> str:
         """Generate random bytes of length num_bytes"""
         return "".join(chr(self._rng.randrange(256)) for _ in range(num_bytes))
 
@@ -87,6 +90,7 @@ class Gen:
         return 256 + num  # .to_bytes(1, byteorder="little")
 
     def address_scriptPubKey(self, hash_):
+        """Generate ScriptPubKEy from address hash"""
         return self.encode_script(
             opcodes.OP_DUP,
             opcodes.OP_HASH160,
@@ -96,9 +100,11 @@ class Gen:
         )
 
     def pubkey_scriptPubKey(self, pubkey):
+        """Just encode the PubKey in the ScriptPubKey"""
         return self.encode_script(pubkey, opcodes.OP_CHECKSIG)
 
     def multisig_scriptPubKey(self, m: int, pubkeys: list[Union[bytes, str]]) -> bytes:
+        """Multisig ScriptPubKey"""
         ops = (
             [self.opcode(m)]
             + pubkeys
@@ -106,10 +112,12 @@ class Gen:
         )
         return self.encode_script(*ops)
 
-    def p2sh_scriptPubKey(self, hash_):
+    def p2sh_scriptPubKey(self, hash_) -> bytearray:
+        """SEGWIT address type ScriptPubKey"""
         return self.encode_script(opcodes.OP_HASH160, hash_, opcodes.OP_EQUAL)
 
     def txin(self, **kwargs):
+        """utx_in"""
         txin = {"sequence": 0xFFFFFFFF, "pos": 0}
         txin.update(kwargs)
         if "prevout" in txin:
@@ -118,6 +126,7 @@ class Gen:
         return txin
 
     def coinbase_txin(self, **kwargs) -> dict[str, Any]:
+        """Coinbase tx input"""
         chain = self.chain
         args = {
             "prevout_hash": chain.coinbase_prevout_hash,
@@ -128,6 +137,7 @@ class Gen:
         return self.txin(**args)
 
     def txout(self, **kwargs) -> dict[str, Any]:
+        """utxo"""
         txout = {"value": 1, "pos": 0}
         txout.update(kwargs)
 
@@ -200,13 +210,14 @@ class Gen:
 
     def block(
         self,
-        prev=None,
-        transactions=None,
-        version=1,
-        nTime=1231006506,
-        nBits=0x1D00FFFF,
-        nNonce=253,
-    ):
+        prev: bytes = None,
+        transactions: dict[str, Any] = None,
+        version: int = 1,
+        nTime: int = 1231006506,
+        nBits: int = 0x1D00FFFF,
+        nNonce: int = 253,
+    ) -> dict[str, Any]:
+        """Create a block dictionary"""
         chain = self.chain
 
         if prev is None:
@@ -230,10 +241,12 @@ class Gen:
 
         return block
 
-    def save_blkfile(self, blkfile, blocks):
-        with open(blkfile, "wb") as f:
-            for bobj in blocks:
-                f.write(self.chain.magic)
-                bstr = self.chain.serialize_block(bobj)
-                f.write(struct.pack("<i", len(bstr)))  # pylint: disable=no-member
-                f.write(bstr)
+    def save_blkfile(self, blkfile: str, blocks: dict[str, Any]) -> None:
+        """Save the temporary blockfile"""
+        with open(blkfile, "wb") as file:
+            for block_obj in blocks:
+                file.write(self.chain.magic)
+                bstr = self.chain.serialize_block(block_obj)
+                file.write(struct.pack("<i", len(bstr)))  # pylint: disable=no-member
+                file.write(bstr)
+            file.close()

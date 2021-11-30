@@ -23,7 +23,7 @@ import platform
 import re
 import hashlib
 import json
-from typing import Match, Union
+from typing import Union
 from urllib.request import urlopen
 from Crypto.Hash import SHA256, RIPEMD160
 from base58 import b58decode, b58encode
@@ -122,13 +122,10 @@ def get_search_height(height: int) -> Union[int, None]:
     return height - bit
 
 
-def possible_address(string: Union[str, bytes, bytearray]) -> Union[Match[str], None]:
+def possible_address(string: str) -> bool:
     """Determine if a string matches the regex format of an address.
     This method only accepts b58encoded data"""
-    if not isinstance(string, bytearray):
-        string = bytes(string)
-    string = str(string, "utf-8")
-    return ADDRESS_RE.match(string)
+    return bool(ADDRESS_RE.match(string))
 
 
 def hash_to_address(
@@ -137,20 +134,18 @@ def hash_to_address(
     if isinstance(_hash, str):
         _hash = hex2b(_hash)
     version_hash = bytearray(version) + bytearray(_hash)
-    return b58encode(version_hash + double_sha256(version_hash)[:4])
+    _bytes = bytes(version_hash + double_sha256(version_hash)[:4])
+    return str(b58encode(_bytes), "utf-8")
 
 
-def decode_address(address: Union[bytes, str]) -> tuple[bytes, bytes]:
+def decode_address(address: str) -> tuple[bytes, bytes]:
     _bytes = b58decode(address)
     if len(_bytes) < 25:
         _bytes = ("\0" * (25 - len(_bytes))) + _bytes
     return _bytes[:-24], _bytes[-24:-4]
 
 
-def decode_check_address(
-    address: Union[str, bytes]
-) -> Union[tuple[bytes, bytes], tuple[None, None]]:
-    address = b58encode(address)
+def decode_check_address(address: str) -> Union[tuple[bytes, bytes], tuple[None, None]]:
     if possible_address(address):
         version, _hash = decode_address(address)
         if hash_to_address(version, _hash) == address:
@@ -184,8 +179,8 @@ def hex2b(data: str) -> bytes:
     return bytes.fromhex(data)
 
 
-def b2hex(data: Union[bytes, bytearray]) -> str:
+def b2hex(data: Union[bytes, bytearray, memoryview]) -> str:
     """Convert raw binary data into a hexadecimal string"""
-    if isinstance(data, bytearray):
+    if not isinstance(data, bytes):
         data = bytes(data)
     return bytes.hex(data)

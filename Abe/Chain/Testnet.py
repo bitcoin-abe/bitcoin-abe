@@ -25,9 +25,9 @@ class Testnet(Sha256Chain):
     def __init__(self, **kwargs):
         self.name = "Testnet"
         self.code3 = "BC0"
-        self.address_version = "\x6f"
-        self.script_addr_vers = "\xc4"
-        self.magic = "\xfa\xbf\xb5\xda"
+        self.address_version = b"\x6f"
+        self.script_addr_vers = b"\xc4"
+        self.magic = b"\xfa\xbf\xb5\xda"
         super().__init__(**kwargs)
 
     # XXX

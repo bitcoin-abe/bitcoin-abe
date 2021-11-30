@@ -22,6 +22,7 @@ from ..streams import BCDataStream
 
 
 def create(policy, **kwargs):
+    """Create the database class for testing"""
     mod = __import__(__name__ + "." + policy, fromlist=[policy])
     cls = getattr(mod, policy)
     return cls(policy=policy, **kwargs)
@@ -59,6 +60,8 @@ SCRIPT_TYPE_P2SH = 6
 
 
 class BaseChain:
+    """The basic coin data structure"""
+
     POLICY_ATTRS = [
         "magic",
         "name",

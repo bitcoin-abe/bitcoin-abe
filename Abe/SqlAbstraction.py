@@ -1,6 +1,6 @@
 # Copyright(C) 2011,2012,2013 by John Tobey <jtobey@john-edwin-tobey.org>
 
-# self.py: feature-detecting, SQL-transforming database abstraction layer
+"""sql_abstraction.py: feature-detecting, SQL-transforming database abstraction layer"""
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -19,6 +19,8 @@
 import re
 import decimal
 import logging
+from typing import Union
+from .util import b2hex, hex2b
 
 MAX_SCRIPT = 1000000
 MAX_PUBKEY = 65
@@ -55,7 +57,9 @@ class SqlAbstraction:
 
     def _set_flavour(self):
         # pylint: disable=unnecessary-lambda
-        def identity(val):
+        def identity(
+            val: Union[str, bytes, bytearray, memoryview]
+        ) -> Union[str, bytes, bytearray, memoryview]:
             return val
 
         transform = identity
@@ -77,22 +81,24 @@ class SqlAbstraction:
         # protocol treats them as 256-bit integers and represents them
         # as little endian, we have to reverse them in hex to satisfy
         # human expectations.
-        def rev(val):
+        def rev(
+            val: Union[str, bytes, bytearray, memoryview]
+        ) -> Union[None, bytes, bytearray, memoryview]:
+            if isinstance(val, str):
+                val = bytes(val, "utf-8")
             return None if val is None else val[::-1]
 
-        def to_hex(val):
-            return None if val is None else bytes(val, "utf-8")
+        def to_hex(val: str) -> Union[None, bytes]:
+            return None if val is None else hex2b(val)
 
-        def from_hex(val):
-            return None if val is None else str(val, "utf-8")
+        def from_hex(val: Union[bytes, bytearray, memoryview]) -> Union[None, str]:
+            return None if val is None else b2hex(val)
 
-        def to_hex_rev(val):
-            return None if val is None else bytes(val[::-1], "utf-8")
-            # print(bytes(vbit).decode() == val)
-            # print(bytes(bit).decode()[::-1] == val)
+        def to_hex_rev(val: str) -> Union[None, bytes]:
+            return None if val is None else hex2b(val)[::-1]
 
-        def from_hex_rev(val):
-            return None if val is None else str(val, "utf-8")[::-1]
+        def from_hex_rev(val: Union[bytes, bytearray, memoryview]) -> Union[None, str]:
+            return None if val is None else b2hex(val[::-1])
 
         val = self.config.get("binary_type")
 
@@ -107,36 +113,53 @@ class SqlAbstraction:
             revout_hex = to_hex
 
         elif val in ("buffer", "bytearray", "pg-bytea"):
+
+            def to_str(val: Union[bytes, bytearray, memoryview]) -> str:
+                return str(val, "utf-8")
+
             if val == "bytearray":
 
-                def to_btype(val):
-                    return None if val is None else bytearray(val, "utf-8")
+                def to_btype(
+                    val: Union[str, bytes, memoryview]
+                ) -> Union[None, bytearray]:
+                    if isinstance(val, str):
+                        val = hex2b(val)
+                    return None if val is None else bytearray(val)
 
-            else:
+            elif val == "buffer":
 
-                def to_btype(val):
+                def to_btype(val: Union[bytes, bytearray]) -> memoryview:
                     return None if val is None else memoryview(val)
 
-            def to_str(val):
-                return None if val is None else str(val, "utf-8")
+            else:
+                # PostgreSQL can take binary inputs as '\x[<hexadecimal str>]'
+                # https://www.postgresql.org/docs/14/datatype-binary.html
+                def to_btype(val: Union[str, bytes, bytearray]) -> str:
+                    if isinstance(val, str):
+                        val = bytes(val, "utf-8")
+                    val = b2hex(val)
+                    return "\\x" + val
 
-            # print(bytes(vbit).decode() == val)
-            # print(bytes(bit).decode()[::-1] == val)
+                def pg_to_str(val: Union[bytes, bytearray, memoryview]) -> str:
+                    # psycopg2 returns database objects as memory addresses
+                    val = bytes(val)
+                    return str(val, "utf-8")
+
             binin = to_btype
-            binin_hex = lambda val: to_btype(from_hex(val))
+            binin_hex = to_btype
             binout = to_str
             binout_hex = to_hex
             revin = lambda val: to_btype(rev(val))
-            revin_hex = lambda val: to_btype(from_hex(val))
+            revin_hex = to_btype
             revout = rev
             revout_hex = to_hex
 
             if val == "pg-bytea":
                 transform_stmt = self._binary_as_bytea(transform_stmt)
-                binout = lambda val: to_str(bytes(val))
+                binout = pg_to_str
                 binout_hex = lambda val: bytes(val)
-                revout = lambda val: rev(to_str(bytes(val)))
-                revout_hex = lambda val: bytes(val)
+                revout = lambda val: pg_to_str(rev(val))
+                revout_hex = lambda val: rev(bytes(val))
 
         elif val == "hex":
             transform = self._binary_as_hex(transform)
@@ -335,7 +358,7 @@ class SqlAbstraction:
         return self.conn()
 
     # Run transform_chunk on each chunk between string literals.
-    def _transform_stmt(self, stmt):
+    def _transform_stmt(self, stmt) -> str:
         def transform_chunk(match):
             return self.transform_chunk(match.group(1)) + match.group(2)
 
@@ -372,8 +395,8 @@ class SqlAbstraction:
         patt = re.compile(r"\b((?:VAR)?)BINARY\s*\(\s*([0-9]+)\s*\)")
         x_patt = re.compile(r"X\Z")
 
-        def fixup(match):
-            return match.group(1) + "CHAR(" + str(int(match.group(2)) * 2) + ")"
+        def fixup(match) -> str:
+            return match.group(1) + f"CHAR({int(match.group(2)) * 2})"
 
         def ret(chunk):
             return func(x_patt.sub("", patt.sub(fixup, chunk)))
@@ -619,10 +642,9 @@ class SqlAbstraction:
             self.rollback()
             try:
                 self.ddl(
-                    f"""CREATE TABLE {self.prefix}sequences (
-                    sequence_key VARCHAR(100) NOT NULL PRIMARY KEY,
-                    nextid NUMERIC(30)
-                )"""
+                    f"CREATE TABLE {self.prefix}sequences ("
+                    f"sequence_key VARCHAR(100) NOT NULL PRIMARY KEY,"
+                    f"nextid NUMERIC(30))"
                 )
             except Exception:
                 self.rollback()
@@ -789,7 +811,7 @@ class SqlAbstraction:
 
     def _drop_if_exists(self, otype, name):
         try:
-            self.sql("DROP " + otype + " " + name)
+            self.sql("DROP " + otype + " IF EXISTS " + name)
             self.commit()
         except self.module.DatabaseError:
             self.rollback()
@@ -828,9 +850,9 @@ class SqlAbstraction:
         self.drop_table_if_exists(f"{self.prefix}test_1")
         try:
             self.ddl(
-                f"CREATE TABLE {self.prefix}test_1 ( \
-                    {self.prefix}test_1_id NUMERIC(12) NOT NULL PRIMARY KEY, \
-                        foo VARCHAR(10))"
+                f"CREATE TABLE {self.prefix}test_1 ("
+                f"{self.prefix}test_1_id NUMERIC(12) NOT NULL PRIMARY KEY, "
+                f"foo VARCHAR(10))"
             )
             self.rollback()
             self.selectall(
@@ -948,24 +970,34 @@ class SqlAbstraction:
     def _test_binary_type(self):
         self.drop_table_if_exists(f"{self.prefix}test_1")
         try:
+            bit_type = "BINARY(32)"
             # XXX The 10000 should be configurable: max_desired_binary?
+            var_bit_type = "VARBINARY(10000))"
+
+            if self.config["binary_type"] == "pg-bytea":
+                bit_type = "bytea"
+                var_bit_type = "bytea"
+
             self.ddl(
-                f"""
-                CREATE TABLE {self.prefix}test_1 (
-                    test_id NUMERIC(2) NOT NULL PRIMARY KEY,
-                    test_bit BINARY(32),
-                    test_varbit VARBINARY(10000))"""
+                f"CREATE TABLE {self.prefix}test_1 ("
+                f"test_id NUMERIC(2) NOT NULL PRIMARY KEY,"
+                f"test_bit {bit_type},"
+                f"test_varbit {var_bit_type})"
             )
-            val = str("".join(map(chr, range(0, 256, 8))))
+            val = "".join(map(chr, range(0, 256, 8)))
+            revin = self.revin(val)
+            binin = self.binin(val)
             self.sql(
                 f"INSERT INTO {self.prefix}test_1 (test_id, test_bit, test_varbit) \
                     VALUES (?, ?, ?)",
-                (1, self.revin(val), self.binin(val)),
+                (1, revin, binin),
             )
             (bit, vbit) = self.selectrow(
                 f"SELECT test_bit, test_varbit FROM {self.prefix}test_1"
             )
-            return self.binout(vbit) == val and self.revout(bit) == val
+            binout = self.binout(vbit)
+            revout = self.revout(bit)
+            return binout == val and revout == binout
         except self.module.DatabaseError:
             self.rollback()
             return False

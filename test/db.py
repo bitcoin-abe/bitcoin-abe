@@ -115,16 +115,13 @@ class ServerDB(DB):
     # pylint: disable=no-member
     def __init__(self, dbtype):
         pytest.importorskip(dbtype)
-        self.installation_dir = os.path.dirname(
-            tempfile.mkdtemp(prefix="abe-test-") + "/"
-        )
+        self.installation_dir = tempfile.mkdtemp(prefix="abe-test-") + "/"
+
         print(f"Created temporary directory {self.installation_dir}")
         try:
             self.server = self.install_server()
-        except Exception as e:
-            # print("EXCEPTION %s" % e)
+        except Exception:
             self._delete_tmpdir()
-            # pytest.skip(f"Error {e} now skippig")
             raise
         super().__init__(dbtype, self.get_connect_args())
 
