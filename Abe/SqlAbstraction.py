@@ -299,6 +299,7 @@ class SqlAbstraction:
         self.drop_sequence = drop_sequence
 
     def connect(self):
+        """Connect to the database"""
         cargs = self.connect_args
 
         if cargs is None:

@@ -24,7 +24,13 @@ import re
 import hashlib
 import json
 from typing import List, Any, Optional, Tuple, Union
-from urllib.request import urlopen
+from urllib.request import (
+    HTTPPasswordMgrWithDefaultRealm,
+    HTTPBasicAuthHandler,
+    build_opener,
+    install_opener,
+    urlopen,
+)
 from Crypto.Hash import SHA256, RIPEMD160
 from base58 import b58decode, b58encode
 
@@ -81,32 +87,39 @@ def short_hex(_bytes: Union[bytes, bytearray]) -> str:
 # Hashing Functions #
 #####################
 def sha256(data: Union[bytes, bytearray, memoryview, None]) -> bytes:
+    """sha256"""
     return SHA256.new(data).digest()
 
 
 def double_sha256(data: Union[bytes, bytearray, memoryview, None]) -> bytes:
-    return sha256(sha256(data))
+    """double_sha256"""
+    return bytes(sha256(sha256(data)))
 
 
 def sha3_256(data: Union[bytes, bytearray, memoryview, None]) -> bytes:
+    """sha3_256"""
     if data is None:
         return b""
     return hashlib.sha3_256(data).digest()
 
 
 def pubkey_to_hash(pubkey: Union[bytes, bytearray, memoryview, None]) -> bytes:
+    """pubkey_to_hash"""
     return RIPEMD160.new(SHA256.new(pubkey).digest()).digest()
 
 
 def script_to_hash(script: Union[bytes, bytearray, memoryview, None]) -> bytes:
+    """script_to_hash"""
     return pubkey_to_hash(script)
 
 
 def transaction_hash(binary_tx: bytes) -> bytes:
-    return double_sha256(binary_tx)
+    """transaction_hash"""
+    return bytes(double_sha256(binary_tx))
 
 
 def witness_hash(binary_tx: bytes) -> bytes:
+    """witness_hash"""
     return double_sha256(binary_tx)
 
 
@@ -147,7 +160,8 @@ def SHA256D64(hashes: List[bytes]) -> List[bytes]:  # pylint: disable=invalid-na
 #################################
 # Difficulty and Work Functions #
 #################################
-def calculate_target(nBits: int) -> int:
+def calculate_target(nBits: int) -> int:  # pylint: disable=invalid-name
+    """calculate_target"""
     # cf. CBigNum::SetCompact in bignum.h
     shift = 8 * (((nBits >> 24) & 0xFF) - 3)
     bits = nBits & 0x7FFFFF
@@ -156,30 +170,38 @@ def calculate_target(nBits: int) -> int:
 
 
 def target_to_difficulty(target: int) -> float:
+    """target_to_difficulty"""
     value: float = ((1 << 224) - 1) * 1000 / (target + 1) / 1000.0
     return value
 
 
-def calculate_difficulty(nBits) -> float:
+def calculate_difficulty(nBits) -> float:  # pylint: disable=invalid-name
+    """calculate_difficulty"""
     return target_to_difficulty(calculate_target(nBits))
 
 
 def work_to_difficulty(work: int) -> float:
+    """work_to_difficulty"""
     return work * ((1 << 224) - 1) * 1000 / (1 << 256) / 1000.0
 
 
 def target_to_work(target) -> int:
+    """target_to_work"""
     # XXX will this round using the same rules as C++ Bitcoin?
     return int((1 << 256) / (target + 1))
 
 
-def calculate_work(prev_work: Union[int, None], nBits: int) -> Union[int, None]:
+def calculate_work(
+    prev_work: Union[int, None], nBits: int  # pylint: disable=invalid-name
+) -> Optional[int]:
+    """calculate_work"""
     if prev_work is None:
         return None
     return prev_work + target_to_work(calculate_target(nBits))
 
 
 def work_to_target(work: int) -> int:
+    """work_to_target"""
     return int((1 << 256) / work) - 1
 
 
@@ -187,6 +209,7 @@ def work_to_target(work: int) -> int:
 # Block and Address Tools #
 ###########################
 def get_search_height(height: int) -> Optional[int]:
+    """get_search_height"""
     if height < 2:
         return None
     if height & 1:
@@ -208,6 +231,7 @@ def possible_address(string: Union[str, bytes]) -> bool:
 def hash_to_address(
     version: bytes, _hash: Union[str, bytes, bytearray, memoryview]
 ) -> bytes:
+    """hash_to_address"""
     if isinstance(_hash, str):
         _hash = hex2b(_hash)
     version_hash = bytearray(version) + bytearray(_hash)
@@ -216,6 +240,7 @@ def hash_to_address(
 
 
 def decode_address(address: Union[str, bytes]) -> Tuple[bytes, bytes]:
+    """decode_address"""
     decoded = bytearray(b58decode(address))
     if len(decoded) < 25:
         decoded = bytearray(b"\0" * (25 - len(decoded))) + decoded
@@ -225,6 +250,7 @@ def decode_address(address: Union[str, bytes]) -> Tuple[bytes, bytes]:
 def decode_check_address(
     address: Union[str, bytes]
 ) -> Union[Tuple[bytes, bytes], Tuple[None, None]]:
+    """decode_check_address"""
     if isinstance(address, str):
         address = bytes(address, "utf-8")
     if possible_address(address):
@@ -237,14 +263,26 @@ def decode_check_address(
 ##############################################
 # Data Conversion and Manipulation Functions #
 ##############################################
-# XXX not sure type of method
-def jsonrpc(url: str, method, *params) -> Any:
+def install_rpcopener(url: str, user: str, password: str) -> None:
+    """Reconfigure urlopen to open the rpc connection with BasicAuth"""
+
+    # https://docs.python.org/3.9/howto/urllib2.html#id5
+    password_mgr = HTTPPasswordMgrWithDefaultRealm()
+    password_mgr.add_password(None, url, user, password)
+    handler = HTTPBasicAuthHandler(password_mgr)
+    opener = build_opener(handler)
+    install_opener(opener)
+
+
+def jsonrpc(url: str, method: str, *params) -> Any:
+    """jsonrpc"""
     postdata = json.dumps(
         {"jsonrpc": "2.0", "method": method, "params": params, "id": "x"}
     )
-    with urlopen(url, bytes(postdata, "utf-8")).read() as respdata:
-        resp = json.loads(respdata)
-    if resp.get("error") is not None:
+
+    with urlopen(url, data=bytes(postdata, "utf-8")) as response:
+        resp = json.loads(response.read())
+    if resp["error"] is not None:
         if resp["error"]["code"] == -32601:
             raise JsonrpcMethodNotFound(resp["error"], method, params)
         raise JsonrpcException(resp["error"], method, params)

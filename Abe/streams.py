@@ -147,9 +147,7 @@ class BCDataStream:
         """Read the compact notation for integer compression"""
         if self.input is None:
             raise SerializationError("call write(bytes) before trying to deserialize")
-        size = ord(bytes(self.input[self.read_cursor]))
-        print(self.read_cursor - 87)
-        print(bytes(self.input[self.read_cursor - 88 : self.read_cursor + 205]))
+        size = ord(bytes(self.input[self.read_cursor : self.read_cursor + 1]))
         self.read_cursor += 1
         if size == 253:
             size = self._read_num("<H")

@@ -13,13 +13,15 @@
 # You should have received a copy of the GNU Affero General Public
 # License along with this program.  If not, see
 # <http://www.gnu.org/licenses/agpl.html>.
+"""Chains to be used"""
 
-from typing import List, Union
+from typing import Tuple, Union
 from .. import deserialize, util
 from ..deserialize import opcodes, Transaction, Block, TxIn, TxOut
+from ..typing import ScriptMultisig
 from ..streams import BCDataStream
 
-
+# pylint: disable=invalid-name
 PUBKEY_HASH_LENGTH = 20
 MAX_MULTISIG_KEYS = 3
 
@@ -75,6 +77,7 @@ class BaseChain:
             else:
                 val = None
             setattr(self, attr, val)
+        self.id: int
         self.name: str
         self.code3: str
         self.address_version: bytes
@@ -86,15 +89,16 @@ class BaseChain:
         return False
 
     def ds_parse_block_header(self, data_stream: BCDataStream) -> Block:
-        return deserialize.parse_BlockHeader(data_stream)
+        return deserialize.parse_BlockHeader(data_stream)  # type: ignore
 
     def ds_parse_transaction(self, data_stream: BCDataStream) -> Transaction:
-        return deserialize.parse_Transaction(data_stream)
+        return deserialize.parse_Transaction(data_stream)  # type: ignore
 
     def ds_parse_block(self, data_stream: BCDataStream) -> Block:
         block = self.ds_parse_block_header(data_stream)
         block["transactions"] = []
         nTransactions = data_stream.read_compact_size()
+        # print(nTransactions)
         for _ in range(nTransactions):
             block["transactions"].append(self.ds_parse_transaction(data_stream))
         return block
@@ -156,11 +160,9 @@ class BaseChain:
         self.ds_serialize_transaction(data_stream, tx)
         return data_stream.input
 
-    def ds_block_header_hash(
-        self, data_stream: BCDataStream
-    ) -> Union[memoryview, bytes]:
+    def ds_block_header_hash(self, data_stream: BCDataStream) -> bytes:
         """For a datastream return the hash of the block header"""
-        if isinstance(data_stream.input, memoryview):
+        if isinstance(data_stream.input, (bytearray, memoryview)):
             return util.block_header_hash(
                 data_stream.input[
                     data_stream.read_cursor : data_stream.read_cursor + 80
@@ -204,7 +206,9 @@ class BaseChain:
             return SCRIPT_TYPE_INVALID, script
         return self.parse_decoded_txout_script(decoded)
 
-    def parse_decoded_txout_script(self, decoded):
+    def parse_decoded_txout_script(
+        self, decoded
+    ) -> Tuple[int, Union[bytes, ScriptMultisig, None]]:
         if deserialize.match_decoded(decoded, SCRIPT_ADDRESS_TEMPLATE):
             pubkey_hash = decoded[2][1]
             if len(pubkey_hash) == PUBKEY_HASH_LENGTH:
@@ -224,18 +228,18 @@ class BaseChain:
 
         elif len(decoded) >= 4 and decoded[-1][0] == opcodes.OP_CHECKMULTISIG:
             # cf. bitcoin/src/script.cpp:Solver
-            n = decoded[-2][0] + 1 - opcodes.OP_1
-            m = decoded[0][0] + 1 - opcodes.OP_1
+            n_sig = decoded[-2][0] + 1 - opcodes.OP_1
+            m_sig = decoded[0][0] + 1 - opcodes.OP_1
             if (
-                1 <= m <= n <= MAX_MULTISIG_KEYS
-                and len(decoded) == 3 + n
+                1 <= m_sig <= n_sig <= MAX_MULTISIG_KEYS
+                and len(decoded) == 3 + n_sig
                 and all(
-                    [decoded[i][0] <= opcodes.OP_PUSHDATA4 for i in range(1, 1 + n)]
+                    [decoded[i][0] <= opcodes.OP_PUSHDATA4 for i in range(1, 1 + n_sig)]
                 )
             ):
                 return SCRIPT_TYPE_MULTISIG, {
-                    "m": m,
-                    "pubkeys": [decoded[i][1] for i in range(1, 1 + n)],
+                    "m": m_sig,
+                    "pubkeys": [decoded[i][1] for i in range(1, 1 + n_sig)],
                 }
 
         # Namecoin overrides this to accept name operations.

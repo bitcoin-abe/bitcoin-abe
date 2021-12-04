@@ -153,21 +153,17 @@ def parse_Transaction(vds: BCDataStream, has_nTime=False) -> Transaction:
     # pylint: disable=unused-variable
     start_pos = vds.read_cursor
     nVersion = vds.read_int32()
-    print(f"nVersion: {nVersion}")
     if has_nTime:
         nTime = vds.read_uint32()
     else:
         nTime = None
-    print(f"nTime: {nTime}")
     if hasWitness(vds):
         marker = vds.read_bytes(1)
         flag = vds.read_bytes(1)
     else:
         marker = None
         flag = None
-    print(f"marker: {marker}\nflag: {flag}")
     n_vin = vds.read_compact_size()
-    print(f"nTxIn: {n_vin}")
     txins: List = []
     for i in range(n_vin):
         txins.append(parse_TxIn(vds))
@@ -307,17 +303,11 @@ def parse_BlockHeader(vds: BCDataStream) -> Block:
     data: Block = {}
     header_start = vds.read_cursor
     data["version"] = vds.read_int32()
-    # print(f"version: {data['version']}")
     data["hashPrev"] = vds.read_bytes(32)
-    # print(f"hashPrev: {b2hex(data['hashPrev'])}")
     data["hashMerkleRoot"] = vds.read_bytes(32)
-    # print(f"hashMerkleRoot: {b2hex(data['hashMerkleRoot'])}")
     data["nTime"] = vds.read_uint32()
-    # print(f"nTime: {data['nTime']}")
     data["nBits"] = vds.read_uint32()
-    # print(f"nBits: {data['nBits']}")
     data["nNonce"] = vds.read_uint32()
-    # print(f"nNonce: {data['nNonce']}")
     header_end = vds.read_cursor
     data["__header__"] = bytes(vds.input[header_start:header_end])
     return data
@@ -328,9 +318,7 @@ def parse_Block(vds: BCDataStream) -> Block:
     # pylint: disable=unused-variable
     data = parse_BlockHeader(vds)
     data["transactions"] = []
-    print("Made it!")
     nTransactions = vds.read_compact_size()
-    print("no I really did!")
     if isinstance(data["transactions"], list):
         for i in range(nTransactions):
             data["transactions"].append(parse_Transaction(vds))

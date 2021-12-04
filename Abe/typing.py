@@ -1,6 +1,6 @@
 """A library containing all of the types used in Abe"""
 
-from typing import TypedDict, List, Dict, Tuple, Optional, Union
+from typing import TypedDict, List, Dict, Tuple, Optional
 from Abe.enumeration import Enumeration
 
 
@@ -37,7 +37,15 @@ class Transaction(TypedDict, total=False):
     txOut: List[TxOut]
     witness: Optional[List[Witness]]  # segregated witness
     lockTime: int
-    __data__: Union[bytearray, memoryview, None]
+    __data__: bytes
+
+    # The following are not in the block chain but are computed
+    hash: bytes
+    tx_id: bytes
+    value_in: int
+    value_out: int
+    value_destroyed: int
+    unlinked_count: int
 
 
 class MerkleTx(Transaction, total=False):
@@ -77,6 +85,22 @@ class Block(BlockHeader, total=False):
 
     transactions: List[Transaction]
 
+    # Additional items are computed and not parsed from the blockchain
+    block_id: int  # This is the big endian hex representation
+    hash: bytes
+    height: Optional[int]
+    prev_block_id: int
+    chain_work: Optional[int]
+    value_in: int
+    value_out: int
+    satoshis: int
+    seconds: Optional[int]
+    total_ss: Optional[int]
+    search_block_id: Optional[int]
+    ss: Optional[int]
+    ss_destroyed: Optional[int]
+    value_destroyed: int
+
 
 class CAddress(TypedDict):
     """CAddress Dictionary Type"""
@@ -87,6 +111,13 @@ class CAddress(TypedDict):
     pchReserved: bytes
     ip: str
     port: int
+
+
+class ScriptMultisig(TypedDict):
+    """Type for a multisig script"""
+
+    m: int
+    pubkeys: List[bytes]
 
 
 opcodes = Enumeration(

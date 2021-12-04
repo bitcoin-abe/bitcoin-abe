@@ -1028,7 +1028,7 @@ class Abe:
 
         try:
             history = self.store.export_address_history(
-                address, chain=page["chain"], max_rows=self.address_history_rows_max
+                address, max_rows=self.address_history_rows_max
             )
         except data_store.MalformedAddress:
             page["status"] = "404 Not Found"

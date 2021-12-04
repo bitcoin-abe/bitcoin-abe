@@ -20,7 +20,7 @@ This module combines three functions that might be better split up:
 2. Abstraction over the schema for importing blocks, etc.
 3. Code to load data by scanning blockfiles or using JSON-RPC."""
 
-# pylint: disable=too-many-lines invalid-name
+# pylint: disable=too-many-lines invalid-name fixme
 
 import os
 import re
@@ -30,10 +30,21 @@ import logging
 from logging import config as logging_config
 from random import randint
 import sys
-from typing import Any, Dict, List, Optional, Tuple, Union
-from Abe import readconf, SqlAbstraction, Chain, util, upgrade
-from Abe.constants import *  # pylint: disable=wildcard-import
-from exceptions import (
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from Abe import readconf, SqlAbstraction, Chain, util, upgrade, sql, genesis_tx
+
+from .constants import (
+    CONFIG_DEFAULTS,
+    SCHEMA_VERSION,
+    NULL_PUBKEY_HASH,
+    NULL_PUBKEY_ID,
+    CHAIN_CONFIG,
+    SCHEMA_TYPE,
+    WORK_BITS,
+    PUBKEY_ID_NETWORK_FEE,
+    MAX_PUBKEY,
+)
+from .exceptions import (
     InvalidBlock,
     MerkleRootMismatch,
     MalformedHash,
@@ -42,7 +53,8 @@ from exceptions import (
 )
 from .merkle import Merkle
 from .streams import BCDataStream
-from .util import b2hex, transaction_hash
+from .typing import Block, Transaction
+from .util import b2hex, hex2b, transaction_hash
 
 # bitcointools -- modified deserialize.py to return raw transaction
 
@@ -87,7 +99,7 @@ class DataStore:
             self.config = CONFIG_DEFAULTS.copy()
             self.datadirs = []
             self.use_firstbits = CONFIG_DEFAULTS["use_firstbits"]
-            self._sql = None
+            self._sql: SqlAbstraction.SqlAbstraction = None
             return
         self.dbmodule = __import__(args.dbtype)
 
@@ -168,54 +180,83 @@ class DataStore:
         self.rpcpassword = args.rpcpassword
 
         self.commit()
+        self.binin: Callable
+        self.binin_hex: Callable
+        self.binin_int: Callable
+        self.binout: Callable
+        self.binout_hex: Callable
+        self.binout_int: Callable
+        self.hashin: Callable
+        self.hashin_hex: Callable
+        self.hashin_int: Callable
+        self.hashout: Callable
+        self.hashout_hex: Callable
+        self.intin: Callable
+        self.mempool_tx: Callable
 
-    def set_db(self, data_base):
+    def set_db(self, data_base: SqlAbstraction.SqlAbstraction) -> None:
+        """set_db"""
         self._sql = data_base
 
     def get_db(self):
+        """get_db"""
         return self._sql
 
     def connect(self):
+        """connect"""
         return self._sql.connect()
 
     def reconnect(self):
+        """reconnect"""
         return self._sql.reconnect()
 
     def close(self):
+        """close"""
         self._sql.close()
 
     def commit(self):
+        """commit"""
         self._sql.commit()
 
     def rollback(self):
+        """rollback"""
         if self._sql is not None:
             self._sql.rollback()
 
     def sql(self, stmt, params=()):
+        """sql"""
         self._sql.sql(stmt, params)
 
     def ddl(self, stmt):
+        """ddl"""
         self._sql.ddl(stmt)
 
     def selectrow(self, stmt, params=()):
+        """selectrow"""
         return self._sql.selectrow(stmt, params)
 
     def selectall(self, stmt, params=()):
+        """selectall"""
         return self._sql.selectall(stmt, params)
 
     def rowcount(self):
+        """rowcount"""
         return self._sql.rowcount()
 
     def create_sequence(self, key):
+        """create_sequence"""
         self._sql.create_sequence(key)
 
     def drop_sequence(self, key):
+        """drop_sequence"""
         self._sql.drop_sequence(key)
 
     def new_id(self, key):
+        """new_id"""
         return self._sql.new_id(key)
 
     def init_sql(self):
+        """init_sql"""
         sql_args = self.sql_args
         if hasattr(self, "config"):
             for name in self.config.keys():
@@ -227,6 +268,7 @@ class DataStore:
         self.init_binfuncs()
 
     def init_binfuncs(self):
+        """init_binfuncs"""
         self.binin = self._sql.binin
         self.binin_hex = self._sql.binin_hex
         self.binin_int = self._sql.binin_int
@@ -412,6 +454,7 @@ class DataStore:
             self.datadirs.append(directory_name)
 
     def init_chains(self):
+        """init_chains"""
         self.chains_by = lambda: 0
         self.chains_by.id = {}
         self.chains_by.name = {}
@@ -461,131 +504,31 @@ class DataStore:
             self.chains_by.magic[chain.magic] = chain
 
     def get_chain_by_id(self, chain_id):
+        """get_chain_by_id"""
         return self.chains_by.id[int(chain_id)]
 
     def get_chain_by_name(self, name):
+        """get_chain_by_name"""
         return self.chains_by.name.get(name, None)
 
     def get_default_chain(self):
+        """get_default_chain"""
         self.log.debug("Falling back to default (Bitcoin) policy.")
         return Chain.create(self.default_chain)
 
     def get_ddl(self, key):
+        """get_ddl"""
         return self._ddl[key]
 
     def refresh_ddl(self):
+        """refresh_ddl"""
         self._ddl = {
-            "chain_summary":
-            # XXX I could do a lot with MATERIALIZED views.
-            """CREATE OR REPLACE VIEW chain_summary AS SELECT
-    cc.chain_id,
-    cc.in_longest,
-    b.block_id,
-    b.block_hash,
-    b.block_version,
-    b.block_hashMerkleRoot,
-    b.block_nTime,
-    b.block_nBits,
-    b.block_nNonce,
-    cc.block_height,
-    b.prev_block_id,
-    prev.block_hash prev_block_hash,
-    b.block_chain_work,
-    b.block_num_tx,
-    b.block_value_in,
-    b.block_value_out,
-    b.block_total_satoshis,
-    b.block_total_seconds,
-    b.block_satoshi_seconds,
-    b.block_total_ss,
-    b.block_ss_destroyed
-FROM chain_candidate cc
-JOIN block b ON (cc.block_id = b.block_id)
-LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
-            "txout_detail": """CREATE OR REPLACE VIEW txout_detail AS SELECT
-    cc.chain_id,
-    cc.in_longest,
-    cc.block_id,
-    b.block_hash,
-    b.block_height,
-    block_tx.tx_pos,
-    tx.tx_id,
-    tx.tx_hash,
-    tx.tx_lockTime,
-    tx.tx_version,
-    tx.tx_size,
-    txout.txout_id,
-    txout.txout_pos,
-    txout.txout_value,
-    txout.txout_scriptPubKey,
-    pubkey.pubkey_id,
-    pubkey.pubkey_hash,
-    pubkey.pubkey
-  FROM chain_candidate cc
-  JOIN block b ON (cc.block_id = b.block_id)
-  JOIN block_tx ON (b.block_id = block_tx.block_id)
-  JOIN tx    ON (tx.tx_id = block_tx.tx_id)
-  JOIN txout ON (tx.tx_id = txout.tx_id)
-  LEFT JOIN pubkey ON (txout.pubkey_id = pubkey.pubkey_id)""",
-            "txin_detail": """CREATE OR REPLACE VIEW txin_detail AS SELECT
-    cc.chain_id,
-    cc.in_longest,
-    cc.block_id,
-    b.block_hash,
-    b.block_height,
-    block_tx.tx_pos,
-    tx.tx_id,
-    tx.tx_hash,
-    tx.tx_lockTime,
-    tx.tx_version,
-    tx.tx_size,
-    txin.txin_id,
-    txin.txin_pos,
-    txin.txout_id prevout_id"""
-            + (
-                """,
-    txin.txin_scriptSig,
-    txin.txin_sequence"""
-                if self.keep_scriptsig
-                else """,
-    NULL txin_scriptSig,
-    NULL txin_sequence"""
-            )
-            + """,
-    prevout.txout_value txin_value,
-    prevout.txout_scriptPubKey txin_scriptPubKey,
-    pubkey.pubkey_id,
-    pubkey.pubkey_hash,
-    pubkey.pubkey
-  FROM chain_candidate cc
-  JOIN block b ON (cc.block_id = b.block_id)
-  JOIN block_tx ON (b.block_id = block_tx.block_id)
-  JOIN tx    ON (tx.tx_id = block_tx.tx_id)
-  JOIN txin  ON (tx.tx_id = txin.tx_id)
-  LEFT JOIN txout prevout ON (txin.txout_id = prevout.txout_id)
-  LEFT JOIN pubkey
-      ON (prevout.pubkey_id = pubkey.pubkey_id)""",
-            "txout_approx":
-            # View of txout for drivers like sqlite3 that can not handle large
-            # integer arithmetic.  For them, we transform the definition of
-            # txout_approx_value to DOUBLE PRECISION (approximate) by a CAST.
-            """CREATE OR REPLACE VIEW txout_approx AS SELECT
-    txout_id,
-    tx_id,
-    txout_value txout_approx_value
-  FROM txout""",
-            "configvar":
-            # ABE accounting.  This table is read without knowledge of the
-            # database's SQL quirks, so it must use only the most widely supported
-            # features.
-            """CREATE TABLE IF NOT EXISTS configvar (
-    configvar_name  VARCHAR(100) NOT NULL PRIMARY KEY,
-    configvar_value VARCHAR(255)
-)""",
-            "abe_sequences": """CREATE TABLE IF NOT EXISTS abe_sequences (
-    sequence_key VARCHAR(100) NOT NULL PRIMARY KEY,
-    nextid NUMERIC(30)
-)""",
+            "chain_summary": sql.CHAIN_SUMMARY,
+            "txout_detail": sql.TXOUT_DETAIL,
+            "txin_detail": sql.txin_detail(self.keep_scriptsig),
+            "txout_approx": sql.TXOUT_APPROX,
+            "configvar": sql.CONFIGVAR,
+            "abe_sequences": sql.ABE_SEQUENCES,
         }
 
     def initialize(self):
@@ -597,199 +540,35 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
 
         for stmt in (
             self._ddl["configvar"],
-            """CREATE TABLE IF NOT EXISTS datadir (
-    datadir_id  NUMERIC(10) NOT NULL PRIMARY KEY,
-    dirname     VARCHAR(2000) NOT NULL,
-    blkfile_number NUMERIC(8) NULL,
-    blkfile_offset NUMERIC(20) NULL,
-    chain_id    NUMERIC(10) NULL
-)""",
-            # A block of the type used by Bitcoin.
-            """CREATE TABLE IF NOT EXISTS block (
-    block_id      NUMERIC(14) NOT NULL PRIMARY KEY,
-    block_hash    BINARY(32)  UNIQUE NOT NULL,
-    block_version NUMERIC(10),
-    block_hashMerkleRoot BINARY(32),
-    block_nTime   NUMERIC(20),
-    block_nBits   NUMERIC(10),
-    block_nNonce  NUMERIC(10),
-    block_height  NUMERIC(14) NULL,
-    prev_block_id NUMERIC(14) NULL,
-    search_block_id NUMERIC(14) NULL,
-    block_chain_work BINARY("""
-            + str(int(WORK_BITS / 8))
-            + """),
-    block_value_in NUMERIC(30) NULL,
-    block_value_out NUMERIC(30),
-    block_total_satoshis NUMERIC(26) NULL,
-    block_total_seconds NUMERIC(20) NULL,
-    block_satoshi_seconds NUMERIC(28) NULL,
-    block_total_ss NUMERIC(28) NULL,
-    block_num_tx  NUMERIC(10) NOT NULL,
-    block_ss_destroyed NUMERIC(28) NULL,
-    FOREIGN KEY (prev_block_id)
-        REFERENCES block (block_id),
-    FOREIGN KEY (search_block_id)
-        REFERENCES block (block_id)
-)""",
-            # CHAIN comprises a magic number, a policy, and (indirectly via
-            # CHAIN_LAST_BLOCK_ID and the referenced block's ancestors) a genesis
-            # block, possibly null.  A chain may have a currency code.
-            """CREATE TABLE IF NOT EXISTS chain (
-    chain_id    NUMERIC(10) NOT NULL PRIMARY KEY,
-    chain_name  VARCHAR(100) UNIQUE NOT NULL,
-    chain_code3 VARCHAR(5)  NULL,
-    chain_address_version VARBINARY(100) NOT NULL,
-    chain_script_addr_vers VARBINARY(100) NULL,
-    chain_magic BINARY(4)     NULL,
-    chain_policy VARCHAR(255) NOT NULL,
-    chain_decimals NUMERIC(2) NULL,
-    chain_last_block_id NUMERIC(14) NULL,
-    FOREIGN KEY (chain_last_block_id)
-        REFERENCES block (block_id)
-)""",
-            # CHAIN_CANDIDATE lists blocks that are, or might become, part of the
-            # given chain.  IN_LONGEST is 1 when the block is in the chain, else 0.
-            # IN_LONGEST denormalizes information stored canonically in
-            # CHAIN.CHAIN_LAST_BLOCK_ID and BLOCK.PREV_BLOCK_ID.
-            """CREATE TABLE IF NOT EXISTS chain_candidate (
-    chain_id      NUMERIC(10) NOT NULL,
-    block_id      NUMERIC(14) NOT NULL,
-    in_longest    NUMERIC(1),
-    block_height  NUMERIC(14),
-    PRIMARY KEY (chain_id, block_id),
-    FOREIGN KEY (block_id) REFERENCES block (block_id)
-)""",
-            """CREATE INDEX IF NOT EXISTS x_cc_block ON chain_candidate (block_id)""",
-            """CREATE INDEX IF NOT EXISTS x_cc_chain_block_height
-    ON chain_candidate (chain_id, block_height)""",
-            """CREATE INDEX IF NOT EXISTS x_cc_block_height ON chain_candidate (block_height)""",
-            # An orphan block must remember its hashPrev.
-            """CREATE TABLE IF NOT EXISTS orphan_block (
-    block_id      NUMERIC(14) NOT NULL PRIMARY KEY,
-    block_hashPrev BINARY(32) NOT NULL,
-    FOREIGN KEY (block_id) REFERENCES block (block_id)
-)""",
-            """CREATE INDEX IF NOT EXISTS x_orphan_block_hashPrev
-            ON orphan_block (block_hashPrev)""",
-            # Denormalize the relationship inverse to BLOCK.PREV_BLOCK_ID.
-            """CREATE TABLE IF NOT EXISTS block_next (
-    block_id      NUMERIC(14) NOT NULL,
-    next_block_id NUMERIC(14) NOT NULL,
-    PRIMARY KEY (block_id, next_block_id),
-    FOREIGN KEY (block_id) REFERENCES block (block_id),
-    FOREIGN KEY (next_block_id) REFERENCES block (block_id)
-)""",
-            # A transaction of the type used by Bitcoin.
-            """CREATE TABLE IF NOT EXISTS tx (
-    tx_id         NUMERIC(26) NOT NULL PRIMARY KEY,
-    tx_hash       BINARY(32)  UNIQUE NOT NULL,
-    tx_version    NUMERIC(10),
-    tx_lockTime   NUMERIC(10),
-    tx_size       NUMERIC(10)
-)""",
-            # Mempool TX not linked to any block, we must track them somewhere
-            # for efficient cleanup
-            """CREATE TABLE IF NOT EXISTS unlinked_tx (
-    tx_id        NUMERIC(26) NOT NULL,
-    PRIMARY KEY (tx_id),
-    FOREIGN KEY (tx_id)
-        REFERENCES tx (tx_id)
-)""",
-            # Presence of transactions in blocks is many-to-many.
-            """CREATE TABLE IF NOT EXISTS block_tx (
-    block_id      NUMERIC(14) NOT NULL,
-    tx_id         NUMERIC(26) NOT NULL,
-    tx_pos        NUMERIC(10) NOT NULL,
-    PRIMARY KEY (block_id, tx_id),
-    UNIQUE (block_id, tx_pos),
-    FOREIGN KEY (block_id)
-        REFERENCES block (block_id),
-    FOREIGN KEY (tx_id)
-        REFERENCES tx (tx_id)
-)""",
-            """CREATE INDEX IF NOT EXISTS x_block_tx_tx ON block_tx (tx_id)""",
-            # A public key for sending bitcoins.  PUBKEY_HASH is derivable from a
-            # Bitcoin or Testnet address.
-            """CREATE TABLE IF NOT EXISTS pubkey (
-    pubkey_id     NUMERIC(26) NOT NULL PRIMARY KEY,
-    pubkey_hash   BINARY(20)  UNIQUE NOT NULL,
-    pubkey        VARBINARY("""
-            + str(MAX_PUBKEY)
-            + """) NULL
-)""",
-            """CREATE TABLE IF NOT EXISTS multisig_pubkey (
-    multisig_id   NUMERIC(26) NOT NULL,
-    pubkey_id     NUMERIC(26) NOT NULL,
-    PRIMARY KEY (multisig_id, pubkey_id),
-    FOREIGN KEY (multisig_id) REFERENCES pubkey (pubkey_id),
-    FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id)
-)""",
-            """CREATE INDEX IF NOT EXISTS x_multisig_pubkey_pubkey
-            ON multisig_pubkey (pubkey_id)""",
-            # A transaction out-point.
-            """CREATE TABLE IF NOT EXISTS txout (
-    txout_id      NUMERIC(26) NOT NULL PRIMARY KEY,
-    tx_id         NUMERIC(26) NOT NULL,
-    txout_pos     NUMERIC(10) NOT NULL,
-    txout_value   NUMERIC(30) NOT NULL,
-    txout_scriptPubKey VARBINARY("""
-            + str(MAX_SCRIPT)
-            + """),
-    pubkey_id     NUMERIC(26),
-    UNIQUE (tx_id, txout_pos),
-    FOREIGN KEY (pubkey_id)
-        REFERENCES pubkey (pubkey_id)
-)""",
-            """CREATE INDEX IF NOT EXISTS x_txout_pubkey ON txout (pubkey_id)""",
-            # A transaction in-point.
-            """CREATE TABLE IF NOT EXISTS txin (
-    txin_id       NUMERIC(26) NOT NULL PRIMARY KEY,
-    tx_id         NUMERIC(26) NOT NULL,
-    txin_pos      NUMERIC(10) NOT NULL,
-    txout_id      NUMERIC(26)"""
-            + (
-                """,
-    txin_scriptSig VARBINARY("""
-                + str(MAX_SCRIPT)
-                + """),
-    txin_sequence NUMERIC(10)"""
-                if self.keep_scriptsig
-                else ""
-            )
-            + """,
-    UNIQUE (tx_id, txin_pos),
-    FOREIGN KEY (tx_id)
-        REFERENCES tx (tx_id)
-)""",
-            """CREATE INDEX IF NOT EXISTS x_txin_txout ON txin (txout_id)""",
-            # While TXIN.TXOUT_ID can not be found, we must remember TXOUT_POS,
-            # a.k.a. PREVOUT_N.
-            """CREATE TABLE IF NOT EXISTS unlinked_txin (
-    txin_id       NUMERIC(26) NOT NULL PRIMARY KEY,
-    txout_tx_hash BINARY(32)  NOT NULL,
-    txout_pos     NUMERIC(10) NOT NULL,
-    FOREIGN KEY (txin_id) REFERENCES txin (txin_id)
-)""",
-            """CREATE INDEX IF NOT EXISTS x_unlinked_txin_outpoint
-    ON unlinked_txin (txout_tx_hash, txout_pos)""",
-            """CREATE TABLE IF NOT EXISTS block_txin (
-    block_id      NUMERIC(14) NOT NULL,
-    txin_id       NUMERIC(26) NOT NULL,
-    out_block_id  NUMERIC(14) NOT NULL,
-    PRIMARY KEY (block_id, txin_id),
-    FOREIGN KEY (block_id) REFERENCES block (block_id),
-    FOREIGN KEY (txin_id) REFERENCES txin (txin_id),
-    FOREIGN KEY (out_block_id) REFERENCES block (block_id)
-)""",
+            sql.DATADIR,
+            sql.BLOCK,
+            sql.CHAIN,
+            sql.CHAIN_CANDIDATE,
+            sql.X_CC_BLOCK,
+            sql.X_CC_CHAIN_BLOCK_HEIGHT,
+            sql.X_CC_BLOCK_HEIGHT,
+            sql.ORPHAN_BLOCK,
+            sql.X_ORPHAN_BLOCK_HASHPREV,
+            sql.BLOCK_NEXT,
+            sql.TX,
+            sql.UNLINKED_TX,
+            sql.BLOCK_TX,
+            sql.X_BLOCK_TX_TX,
+            sql.PUBKEY,
+            sql.MULTISIG_PUBKEY,
+            sql.X_MULTISIG_PUBKEY_PUBKEY,
+            sql.TXOUT,
+            sql.X_TXOUT_PUBKEY,
+            sql.txin(self.keep_scriptsig),
+            sql.X_TXIN_TXOUT,
+            sql.UNLINKED_TXIN,
+            sql.X_UNLINKED_TXIN_OUTPUT,
+            sql.BLOCK_TXIN,
             self._ddl["chain_summary"],
             self._ddl["txout_detail"],
             self._ddl["txin_detail"],
             self._ddl["txout_approx"],
-            """CREATE TABLE IF NOT EXISTS abe_lock (
-    lock_id       NUMERIC(10) NOT NULL PRIMARY KEY,
-    pid           VARCHAR(255) NULL
-)""",
+            sql.ABE_LOCK,
         ):
             try:
                 self.ddl(stmt)
@@ -815,28 +594,14 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             self.insert_chain(chain)
 
         self.sql(
-            """
-            INSERT INTO pubkey (pubkey_id, pubkey_hash) VALUES (?, ?)""",
+            """INSERT INTO pubkey (pubkey_id, pubkey_hash) VALUES (?, ?)""",
             (NULL_PUBKEY_ID, self.binin(NULL_PUBKEY_HASH)),
         )
 
         if self.args.use_firstbits:
             self.config["use_firstbits"] = "true"
-            self.ddl(
-                """CREATE TABLE IF NO EXISTS abe_firstbits (
-                    pubkey_id       NUMERIC(26) NOT NULL,
-                    block_id        NUMERIC(14) NOT NULL,
-                    address_version VARBINARY(10) NOT NULL,
-                    firstbits       VARCHAR(50) NOT NULL,
-                    PRIMARY KEY (address_version, pubkey_id, block_id),
-                    FOREIGN KEY (pubkey_id) REFERENCES pubkey (pubkey_id),
-                    FOREIGN KEY (block_id) REFERENCES block (block_id)
-                )"""
-            )
-            self.ddl(
-                """CREATE INDEX IF NOT EXISTS x_abe_firstbits
-                    ON abe_firstbits (address_version, firstbits)"""
-            )
+            self.ddl(sql.ABE_FIRSTBITS)
+            self.ddl(sql.X_ABE_FIRSTBITS)
         else:
             self.config["use_firstbits"] = "false"
 
@@ -846,6 +611,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         self.commit()
 
     def insert_chain(self, chain):
+        """insert_chain"""
         chain.id = self.new_id("chain")
         self.sql(
             """
@@ -866,6 +632,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         )
 
     def get_lock(self):
+        """get_lock"""
         if self.version_below("Abe26"):
             return None
         conn = self.connect()
@@ -897,11 +664,13 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         return conn
 
     def release_lock(self, conn):
+        """release_lock"""
         if conn:
             conn.rollback()
             conn.close()
 
     def version_below(self, vers):
+        """version_below"""
         try:
             schema_version = float(
                 self.config["schema_version"].replace(SCHEMA_TYPE, "")
@@ -912,17 +681,20 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         return schema_version < vers
 
     def configure(self):
+        """configure"""
         config = self._sql.configure()
         self.init_binfuncs()
         for name in config.keys():
             self.config["sql." + name] = config[name]
 
     def save_config(self):
+        """save_config"""
         self.config["schema_version"] = SCHEMA_VERSION
         for name in self.config.keys():
             self.save_configvar(name)
 
     def save_configvar(self, name):
+        """save_configvar"""
         self.sql(
             "UPDATE configvar SET configvar_value = ?" " WHERE configvar_name = ?",
             (self.config[name], name),
@@ -935,10 +707,12 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             )
 
     def set_configvar(self, name, value):
+        """set_configvar"""
         self.config[name] = value
         self.save_configvar(name)
 
     def cache_block(self, block_id, height, prev_id, search_id):
+        """cache_block"""
         assert isinstance(block_id, int), repr(block_id)
         assert isinstance(height, int), repr(height)
         assert prev_id is None or isinstance(prev_id, int)
@@ -968,20 +742,22 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             )
         return block
 
-    def get_block_id_at_height(self, height, descendant_id):
+    def get_block_id_at_height(self, height: Optional[int], descendant_id):
+        """get_block_id_at_height"""
         if height is None:
             return None
         while True:
             block = self._load_block(descendant_id)
             if block["height"] == height:
                 return descendant_id
-            descendant_id = block[
-                "search_id"
-                if util.get_search_height(block["height"]) >= height
-                else "prev_id"
-            ]
+            if util.get_search_height(block["height"]) is not None:
+                if util.get_search_height(block["height"]) >= height:  # type: ignore
+                    descendant_id = block["search_id"]
+                else:
+                    descendant_id = block["prev_id"]
 
     def is_descended_from(self, block_id, ancestor_id):
+        """is_descended_from"""
         # ret = self._is_descended_from(block_id, ancestor_id)
         # self.log.debug("%d is%s descended from %d", block_id, '' if ret else ' NOT', ancestor_id)
         # return ret
@@ -995,9 +771,11 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         )
 
     def get_block_height(self, block_id):
+        """get_block_height"""
         return self._load_block(int(block_id))["height"]
 
     def find_prev(self, _hash):
+        """find_prev"""
         row = self.selectrow(
             """
             SELECT block_id, block_height, block_chain_work,
@@ -1030,7 +808,8 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             int(nTime),
         )
 
-    def import_block(self, block, chain_ids=None, chain=None):
+    def import_block(self, block: Block, chain_ids=None, chain=None):
+        """Import a block"""
 
         # Import new transactions.
 
@@ -1047,7 +826,6 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         all_txins_linked = True
 
         for pos, transaction in enumerate(block["transactions"]):
-
             if "hash" not in transaction:
                 if chain is None:
                     self.log.debug("Falling back to SHA256 transaction hash")
@@ -1088,11 +866,8 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
 
         # Look for the parent block.
         hashPrev = block["hashPrev"]
-        if chain is None:
-            # XXX No longer used.
-            is_genesis = hashPrev == util.GENESIS_HASH_PREV
-        else:
-            is_genesis = hashPrev == chain.genesis_hash_prev
+
+        is_genesis: bool = hashPrev == util.GENESIS_HASH_PREV
 
         (
             prev_block_id,
@@ -1369,6 +1144,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
     # cumulative statistics that are known for b and returns an empty
     # dictionary.
     def adopt_orphans(self, block, orphan_work, chain_ids, chain_mask):
+        """adopt_orphans"""
 
         # XXX As originally written, this function occasionally hit
         # Python's recursion limit.  I am rewriting it iteratively
@@ -1688,7 +1464,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             where.append("block_height = ? AND in_longest = 1")
             bind.append(block_number)
 
-        sql = (
+        _sql = (
             """
             SELECT
                 chain_id,
@@ -1719,7 +1495,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
                 in_longest DESC,
                 chain_id DESC"""
         )
-        rows = self.selectall(sql, bind)
+        rows = self.selectall(_sql, bind)
 
         if len(rows) == 0:
             return None
@@ -1755,14 +1531,14 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             height,
             prev_block_hash,
             block_chain_work,
-            value_in,
-            value_out,
+            _,  # value_in,
+            _,  # value_out,
             satoshis,
-            seconds,
+            _,  # seconds,
             sat_sec,
             total_ss,
             destroyed,
-            num_tx,
+            _,  # num_tx,
         ) = (
             row[0],
             self.hashout_hex(row[1]),
@@ -1785,8 +1561,8 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         )
 
         next_hashes = [
-            self.hashout_hex(hash)
-            for hash, il in self.selectall(
+            self.hashout_hex(_hash)
+            for _hash, il in self.selectall(
                 """
             SELECT DISTINCT n.block_hash, cc.in_longest
               FROM block_next bn
@@ -1924,6 +1700,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         return block
 
     def tx_find_id_and_value(self, transaction, is_coinbase, check_only=False):
+        """tx_find_id_and_value"""
         # Attention: value_out/undestroyed much match what is calculated in
         # import_tx
         row = self.selectrow(
@@ -1964,6 +1741,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         return None
 
     def import_tx(self, transaction, is_coinbase, chain):
+        """import_tx"""
         tx_id = self.new_id("tx")
         dbhash = self.hashin(transaction["hash"])
 
@@ -2094,6 +1872,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         return tx_id
 
     def import_and_commit_tx(self, transaction, is_coinbase, chain):
+        """import_and_commit_tx"""
         try:
             tx_id = self.import_tx(transaction, is_coinbase, chain)
             self.commit()
@@ -2108,6 +1887,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         return tx_id
 
     def maybe_import_binary_tx(self, chain_name, binary_tx):
+        """maybe_import_binary_tx"""
         if chain_name is None:
             chain = self.get_default_chain()
         else:
@@ -2125,15 +1905,15 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             self.import_tx(transaction, chain.is_coinbase_tx(transaction), chain)
             self.imported_bytes(transaction["size"])
 
-    def export_tx(self, tx_id=None, tx_hash=None, decimals=8, format="api", chain=None):
+    def export_tx(self, tx_id=None, tx_hash=None, decimals=8, fmt="api", chain=None):
         """Return a dict as seen by /rawtx or None if not found."""
 
         # TODO: merge _export_tx_detail with export_tx.
-        if format == "browser":
+        if fmt == "browser":
             return self._export_tx_detail(tx_hash, chain=chain)
 
-        transaction = {}
-        is_bin = format == "binary"
+        transaction: Transaction = {}
+        is_bin = fmt == "binary"
 
         if tx_id is not None:
             row = self.selectrow(
@@ -2254,8 +2034,8 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
     def _export_tx_detail(self, tx_hash, chain):
         try:
             dbhash = self.hashin_hex(tx_hash)
-        except TypeError:
-            raise MalformedHash()
+        except TypeError as error:
+            raise MalformedHash() from error
 
         row = self.selectrow(
             """
@@ -2390,8 +2170,9 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         return transaction
 
     def export_address_history(
-        self, address, chain=None, max_rows=-1, types=frozenset(["direct", "escrow"])
+        self, address, max_rows=-1, types=frozenset(["direct", "escrow"])
     ) -> Union[Dict[str, Any], None]:
+        """export_address_history"""
         version, binaddr = util.decode_check_address(address)
         if binaddr is None:
             raise MalformedAddress("Invalid address")
@@ -2615,6 +2396,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
     # number and policy for the given chains.  Updates CHAIN_CANDIDATE
     # and CHAIN.CHAIN_LAST_BLOCK_ID as appropriate.
     def offer_block_to_chains(self, block, chain_ids):
+        """offer_block_to_chains"""
         block["top"] = self.adopt_orphans(block, 0, chain_ids, chain_ids)
         for chain_id in chain_ids:
             self._offer_block_to_chain(block, chain_id)
@@ -2704,7 +2486,8 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             )
             self.do_vers_firstbits(addr_vers, block["block_id"])
 
-    def offer_existing_block(self, hash, chain_id):
+    def offer_existing_block(self, _hash, chain_id):
+        """offer_existing_blocks"""
         block_row = self.selectrow(
             """
             SELECT block_id, block_height, block_chain_work,
@@ -2714,7 +2497,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
               FROM block
              WHERE block_hash = ?
         """,
-            (self.hashin(hash),),
+            (self.hashin(_hash),),
         )
 
         if not block_row:
@@ -2756,6 +2539,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         return True
 
     def find_next_blocks(self, block_id):
+        """find_next_blocks"""
         ret = []
         for row in self.selectall(
             "SELECT next_block_id FROM block_next WHERE block_id = ?", (block_id,)
@@ -2764,6 +2548,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         return ret
 
     def find_chains_containing_block(self, block_id):
+        """find_chains_containing_blocks"""
         ret = []
         for row in self.selectall(
             "SELECT chain_id FROM chain_candidate WHERE block_id = ?", (block_id,)
@@ -2772,11 +2557,13 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         return frozenset(ret)
 
     def get_prev_block_id(self, block_id):
+        """get_prev_block_id"""
         return self.selectrow(
             "SELECT prev_block_id FROM block WHERE block_id = ?", (block_id,)
         )[0]
 
     def disconnect_block(self, block_id, chain_id):
+        """disconnect_block"""
         self.sql(
             """
             UPDATE chain_candidate
@@ -2786,6 +2573,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         )
 
     def connect_block(self, block_id, chain_id):
+        """connect_block"""
         self.sql(
             """
             UPDATE chain_candidate
@@ -2795,6 +2583,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         )
 
     def lookup_txout(self, tx_hash, txout_pos):
+        """lookup_txout"""
         row = self.selectrow(
             """
             SELECT txout.txout_id, txout.txout_value
@@ -2814,7 +2603,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             return self.pubkey_hash_to_id(data)
 
         if script_type == Chain.SCRIPT_TYPE_PUBKEY:
-            return self.pubkey_to_id(chain, data)
+            return self.pubkey_to_id(data)
 
         if script_type == Chain.SCRIPT_TYPE_MULTISIG:
             script_hash = util.script_to_hash(script)
@@ -2824,7 +2613,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
                 "SELECT 1 FROM multisig_pubkey WHERE multisig_id = ?", (multisig_id,)
             ):
                 for pubkey in set(data["pubkeys"]):
-                    pubkey_id = self.pubkey_to_id(chain, pubkey)
+                    pubkey_id = self.pubkey_to_id(pubkey)
                     self.sql(
                         """
                         INSERT INTO multisig_pubkey (multisig_id, pubkey_id)
@@ -2839,9 +2628,11 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         return None
 
     def pubkey_hash_to_id(self, pubkey_hash):
+        """pubkey_hash_to_id"""
         return self._pubkey_id(pubkey_hash, None)
 
-    def pubkey_to_id(self, chain, pubkey):
+    def pubkey_to_id(self, pubkey):
+        """pubkey_to_id"""
         pubkey_hash = util.pubkey_to_hash(pubkey)
         return self._pubkey_id(pubkey_hash, pubkey)
 
@@ -2870,17 +2661,20 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         return pubkey_id
 
     def flush(self):
+        """flush"""
         if self.bytes_since_commit > 0:
             self.commit()
             self.log.debug("commit")
             self.bytes_since_commit = 0
 
     def imported_bytes(self, size):
+        """imported_bytes"""
         self.bytes_since_commit += size
         if self.bytes_since_commit >= self.commit_bytes:
             self.flush()
 
     def catch_up(self):
+        """catch_up"""
         for dircfg in self.datadirs:
             try:
                 loader = dircfg["loader"] or self.default_loader
@@ -2889,15 +2683,15 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
                 elif loader in ("rpc", "rpc,blkfile", "default"):
                     if not self.catch_up_rpc(dircfg):
                         if loader == "rpc":
-                            raise Exception("RPC load failed")
+                            raise IOError("RPC load failed")
                         self.log.debug("catch_up_rpc: abort")
                         self.catch_up_dir(dircfg)
                 else:
-                    raise Exception("Unknown datadir loader: %s" % loader)
+                    raise IOError(f"Unknown datadir loader: {loader}")
 
                 self.flush()
 
-            except Exception as e:
+            except IOError:
                 self.log.exception("Failed to catch up %s", dircfg)
                 self.rollback()
 
@@ -2912,36 +2706,32 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         if chain_id is None:
             self.log.error("no chain_id")
             return False
-        chain = self.chains_by.id[chain_id]
+        chain: Chain.BaseChain = self.chains_by.id[chain_id]
 
         conffile = dircfg.get("conf") or chain.datadir_conf_file_name
         conffile = os.path.join(dircfg["dirname"], conffile)
         try:
-            conf = dict(
-                [
-                    line.strip().split("=", 1) if "=" in line else (line.strip(), True)
-                    for line in open(conffile)
-                    if line != "" and line[0] not in "#\r\n"
-                ]
-            )
-        except Exception as e:
-            self.log.error("failed to load %s: %s", conffile, e)
+            with open(conffile, encoding="utf-8") as file:
+                conf = dict(
+                    [
+                        line.strip().split("=", 1)
+                        if "=" in line
+                        else (line.strip(), True)
+                        for line in file
+                        if line != "" and line[0] not in "#\r\n"
+                    ]
+                )
+        except (OSError, IOError) as error:
+            self.log.error("failed to load %s: %s", conffile, error)
             return False
 
         rpcuser = self.rpcuser
         rpcpassword = self.rpcpassword
         rpcconnect = conf.get("rpcconnect", "127.0.0.1")
         rpcport = conf.get("rpcport", chain.datadir_rpcport)
-        url = (
-            "http://"
-            + rpcuser
-            + ":"
-            + rpcpassword
-            + "@"
-            + rpcconnect
-            + ":"
-            + str(rpcport)
-        )
+        url = f"http://{rpcconnect}:{str(rpcport)}/"
+        util.install_rpcopener(url, rpcuser, rpcpassword)
+
         data_stream = BCDataStream()
 
         if self.rpc_load_mempool:
@@ -2991,7 +2781,6 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
 
                 # The genesis transaction is unavailable.  This is
                 # normal.
-                import genesis_tx
 
                 rpc_tx_hex = genesis_tx.get(rpc_tx_hash)
                 if rpc_tx_hex is None:
@@ -3000,8 +2789,8 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
                     )
                     return None
 
-            rpc_tx = rpc_tx_hex.decode("hex")
-            tx_hash = rpc_tx_hash.decode("hex")[::-1]
+            rpc_tx = hex2b(rpc_tx_hex)
+            tx_hash = hex2b(rpc_tx_hash)[::-1]
 
             computed_tx_hash = transaction_hash(rpc_tx)
             if tx_hash != computed_tx_hash:
@@ -3018,9 +2807,9 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             """Find the first new block."""
 
             while height > 0:
-                hash = get_blockhash(height - 1)
+                _hash = get_blockhash(height - 1)
 
-                if hash is not None and (1,) == self.selectrow(
+                if _hash is not None and (1,) == self.selectrow(
                     """
                     SELECT 1
                       FROM chain_candidate cc
@@ -3028,11 +2817,11 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
                      WHERE b.block_hash = ?
                        AND b.block_height IS NOT NULL
                        AND cc.chain_id = ?""",
-                    (self.hashin_hex(str(hash)), chain.id),
+                    (self.hashin_hex(str(_hash)), chain.id),
                 ):
                     break
 
-                next_hash = hash
+                next_hash = _hash
                 height -= 1
 
             return (height, next_hash)
@@ -3088,39 +2877,29 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             # bitcoind connectivity.
             try:
                 next_hash = get_blockhash(height)
-            except util.JsonrpcException as e:
-                raise
-            except Exception as e:
+            except util.JsonrpcException as error:
+                raise error
+            except Exception as error:
                 # Connectivity failure.
-                self.log.error("RPC failed: %s", e)
+                self.log.error("RPC failed: %s", error)
                 return False
-
             # Get the first new block (looking backward until hash match)
             height, next_hash = first_new_block(height, next_hash)
 
             # Import new blocks.
             rpc_hash = next_hash or get_blockhash(height)
-            if rpc_hash is None:
-                rpc_hash = catch_up_mempool(height)
-            while rpc_hash is not None:
-                hash = rpc_hash.decode("hex")[::-1]
 
-                if self.offer_existing_block(hash, chain.id):
+            while rpc_hash is not None:
+                _hash = hex2b(rpc_hash)[::-1]
+                if self.offer_existing_block(_hash, chain.id):
                     rpc_hash = get_blockhash(height + 1)
                 else:
                     # get full RPC block with "getblock <hash> False"
-                    data_stream.write(rpc("getblock", rpc_hash, False).decode("hex"))
+                    data_stream.write(hex2b(rpc("getblock", rpc_hash, False)))
                     block_hash = chain.ds_block_header_hash(data_stream)
                     block = chain.ds_parse_block(data_stream)
-                    assert hash == block_hash
+                    assert _hash == block_hash
                     block["hash"] = block_hash
-
-                    # XXX Shouldn't be needed since we deserialize a valid block already
-                    if (
-                        util.block_header_hash(chain.serialize_block_header(block))
-                        != hash
-                    ):
-                        raise InvalidBlock("block hash mismatch")
 
                     self.import_block(block, chain=chain)
                     self.imported_bytes(data_stream.read_cursor)
@@ -3128,13 +2907,13 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
                     rpc_hash = get_blockhash(height + 1)
 
                 height += 1
-                if rpc_hash is None:
-                    rpc_hash = catch_up_mempool(height)
-                    # Also look backwards in case we end up on an orphan block.
-                    # NB: Call only when rpc_hash is not None, otherwise
-                    #     we'll override catch_up_mempool's behavior.
-                    if rpc_hash:
-                        height, rpc_hash = first_new_block(height, rpc_hash)
+
+            rpc_hash = catch_up_mempool(height)
+            # Also look backwards in case we end up on an orphan block.
+            # NB: Call only when rpc_hash is not None, otherwise
+            #     we'll override catch_up_mempool's behavior.
+            if rpc_hash:
+                height, rpc_hash = first_new_block(height, rpc_hash)
 
         except util.JsonrpcMethodNotFound as e:
             self.log.error("bitcoind %s not supported", e.method)
@@ -3148,6 +2927,8 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
 
     # Load all blocks starting at the current file and offset.
     def catch_up_dir(self, dircfg):
+        """catch_up_dir"""
+
         def open_blkfile(number):
             self._refresh_dircfg(dircfg)
             blkfile = {
@@ -3208,7 +2989,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             try:
                 self.import_blkdat(dircfg, data_stream, blkfile["name"])
             except Exception:
-                self.log.warning("Exception at %d" % data_stream.read_cursor)
+                self.log.warning("Exception at %d", data_stream.read_cursor)
                 try_close_file(data_stream)
                 raise
 
@@ -3248,8 +3029,12 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
 
     # Load all blocks from the given data stream.
     def import_blkdat(
-        self, dircfg: Dict, data_stream: BCDataStream, filename: str = "[unknown]"
+        self,
+        dircfg: Dict[str, Any],
+        data_stream: BCDataStream,
+        filename: str = "[unknown]",
     ) -> None:
+        """import_blkdat"""
         if data_stream.input is None:
             raise SerializationError(
                 f"No data was read when importing block data from {filename}."
@@ -3267,8 +3052,8 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             magic = data_stream.read_bytes(4)
 
             # Assume no real magic number starts with a NUL.
-            if magic[0] == "\0":
-                if filenum > 99999 and magic == "\0\0\0\0":
+            if magic[0] == b"\0":
+                if filenum > 99999 and magic == b"\0\0\0\0":
                     # As of Bitcoin 0.8, files often end with a NUL span.
                     data_stream.read_cursor = offset
                     break
@@ -3288,7 +3073,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
 
             # Assume blocks obey the respective policy if they get here.
             chain_id = dircfg["chain_id"]
-            chain = self.chains_by.id.get(chain_id, None)
+            chain: Chain.BaseChain = self.chains_by.id.get(chain_id, None)
 
             if chain is None:
                 chain = self.chains_by.magic.get(magic, None)
@@ -3337,16 +3122,16 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
                 break
             end = data_stream.read_cursor + length
 
-            hash = chain.ds_block_header_hash(data_stream)
+            _hash = chain.ds_block_header_hash(data_stream)
 
             # XXX should decode target and check hash against it to
             # avoid loading garbage data.  But not for merged-mined or
             # CPU-mined chains that use different proof-of-work
             # algorithms.
 
-            if not self.offer_existing_block(hash, chain.id):
+            if not self.offer_existing_block(_hash, chain.id):
                 block = chain.ds_parse_block(data_stream)
-                block["hash"] = hash
+                block["hash"] = _hash
 
                 if (
                     self.log.isEnabledFor(logging.DEBUG)
@@ -3356,7 +3141,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
                         self.log.debug(
                             "Chain %d genesis tx: %s",
                             chain.id,
-                            block["transactions"][0]["__data__"].encode("hex"),
+                            b2hex(block["transactions"][0]["__data__"]),
                         )
                     except Exception:
                         pass
@@ -3379,15 +3164,17 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             self.save_blkfile_offset(dircfg, data_stream.read_cursor)
 
     def blkfile_name(self, dircfg, number=None):
+        """blkfile_name"""
         if number is None:
             number = dircfg["blkfile_number"]
         if number > 9999:
             return os.path.join(
-                dircfg["dirname"], "blocks", "blk%05d.dat" % (number - 100000,)
+                dircfg["dirname"], "blocks", f"blk{(number - 100000):05}.dat"
             )
-        return os.path.join(dircfg["dirname"], "blk%04d.dat" % (number,))
+        return os.path.join(dircfg["dirname"], f"blk{number:04}.dat")
 
     def save_blkfile_offset(self, dircfg, offset):
+        """save_blkfile_offset"""
         self.sql(
             """
             UPDATE datadir
@@ -3429,6 +3216,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
                 dircfg["blkfile_offset"] = offset
 
     def get_block_number(self, chain_id):
+        """get_block_number"""
         row = self.selectrow(
             """
             SELECT block_height
@@ -3442,6 +3230,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         return int(row[0]) if row else -1
 
     def get_target(self, chain_id):
+        """get_target"""
         rows = self.selectall(
             """
             SELECT b.block_nBits
@@ -3453,7 +3242,8 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         return util.calculate_target(int(rows[0][0])) if rows else None
 
     def get_received_and_last_block_id(self, chain_id, pubkey_hash, block_height=None):
-        sql = (
+        """get_received_and_last_block_id"""
+        _sql = (
             """
             SELECT COALESCE(value_sum, 0), c.chain_last_block_id
               FROM chain c LEFT JOIN (
@@ -3481,19 +3271,21 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         dbhash = self.binin(pubkey_hash)
 
         return self.selectrow(
-            sql,
+            _sql,
             (dbhash, chain_id, chain_id)
             if block_height is None
             else (dbhash, chain_id, block_height, chain_id),
         )
 
     def get_received(self, chain_id, pubkey_hash, block_height=None):
+        """get_received"""
         return self.get_received_and_last_block_id(chain_id, pubkey_hash, block_height)[
             0
         ]
 
     def get_sent_and_last_block_id(self, chain_id, pubkey_hash, block_height=None):
-        sql = (
+        """get_sent_and_last_block_id"""
+        _sql = (
             """
             SELECT COALESCE(value_sum, 0), c.chain_last_block_id
               FROM chain c LEFT JOIN (
@@ -3522,23 +3314,25 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         dbhash = self.binin(pubkey_hash)
 
         return self.selectrow(
-            sql,
+            _sql,
             (dbhash, chain_id, chain_id)
             if block_height is None
             else (dbhash, chain_id, block_height, chain_id),
         )
 
     def get_sent(self, chain_id, pubkey_hash, block_height=None):
+        """get_sent"""
         return self.get_sent_and_last_block_id(chain_id, pubkey_hash, block_height)[0]
 
     def get_balance(self, chain_id, pubkey_hash):
+        """get_balance"""
         sent, last_block_id = self.get_sent_and_last_block_id(chain_id, pubkey_hash)
         received, last_block_id_2 = self.get_received_and_last_block_id(
             chain_id, pubkey_hash
         )
 
         # Deal with the race condition.
-        for i in range(2):
+        for _ in range(2):
             if last_block_id == last_block_id_2:
                 break
 
@@ -3569,14 +3363,15 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
 
         return received - sent
 
-    def firstbits_full(self, version, hash):
+    def firstbits_full(self, version, _hash):
         """
         Return the address in lowercase.  An initial substring of this
         will become the firstbits.
         """
-        return util.hash_to_address(version, hash).lower()
+        return util.hash_to_address(version, _hash).lower()
 
     def insert_firstbits(self, pubkey_id, block_id, addr_vers, fb):
+        """insert_firstbits"""
         self.sql(
             """
             INSERT INTO abe_firstbits (
@@ -3587,6 +3382,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         )
 
     def cant_do_firstbits(self, addr_vers, block_id, pubkey_id):
+        """cant_do_firstbits"""
         self.log.info(
             "No firstbits for pubkey_id %d, block_id %d, version '%s'",
             pubkey_id,
@@ -3627,7 +3423,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             ids1.add(pubkey_id)
 
         count = 0
-        for fb1, ids1 in pubkeys.iteritems():
+        for fb1, ids1 in enumerate(pubkeys):
             count += self.do_firstbits(addr_vers, block_id, fb1, ids1, full)
         return count
 
@@ -3672,7 +3468,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
                 address_version, self.binout(pubkey_hash)
             )
 
-        for pubkey_id, s in full.iteritems():
+        for pubkey_id, s in enumerate(full):
             if s is None:
                 continue
 
@@ -3719,11 +3515,12 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             ids.add(pubkey_id)
 
         count = 0
-        for fb, ids in pubkeys.iteritems():
+        for fb, ids in enumerate(pubkeys):
             count += self.do_firstbits(addr_vers, block_id, fb, ids, full)
         return count
 
     def firstbits_to_addresses(self, fb, chain_id=None):
+        """firstbits_to_addresses"""
         dbfb = fb.lower()
         ret = []
         bind = [fb[0 : (i + 1)] for i in range(len(fb))]
@@ -3791,7 +3588,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
                 ret = fb
         return ret
 
-    def clean_unlinked_tx(self, known_tx=set()):
+    def clean_unlinked_tx(self, known_tx=None):
         """This method cleans up all unlinked tx'es found in table
         `unlinked_tx` except where the tx hash is provided in known_tx
         """
@@ -3805,7 +3602,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         if not rows:
             return
 
-        if type(known_tx) is not set:
+        if not isinstance(known_tx, set):
             # convert list to set for faster lookups
             known_tx = set(known_tx)
 
@@ -3888,10 +3685,13 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
 
 
 def new(args) -> DataStore:
+    """Instantiate a new DataStore"""
     return DataStore(args)
 
 
-class CmdLine(object):
+class CmdLine:
+    """Command Line interface"""
+
     def __init__(self, argv, conf=None):
         self.argv = argv
         if conf is None:
@@ -3900,9 +3700,11 @@ class CmdLine(object):
             self.conf = conf.copy()
 
     def usage(self):
+        """usage"""
         return "Sorry, no help is available."
 
     def init(self) -> Tuple[Union[DataStore, None], Any]:
+        """init"""
 
         self.conf.update({"debug": None, "logging": None})
         self.conf.update(CONFIG_DEFAULTS)

@@ -157,6 +157,8 @@
         "RIPEMD",
         "rpcconnect",
         "rpclog",
+        "rpcopen",
+        "rpcopener",
         "rpcpassword",
         "rpcport",
         "rpcuser",
