@@ -5,17 +5,19 @@ name = "pypi"
 
 [packages]
 abe = {editable = true, path = "."}
-base58 = "*"
-flup-py3 = "*"
-mysqlclient = "*"
-pycryptodome = "*"
-psycopg2 = "*"
+base58 = "~=2.1"
+flup-py3 = "~=1.0"
+mysqlclient = "~=2.1"
+pycryptodome = "~=3.12"
+psycopg2 = "~=2.9"
 
 [dev-packages]
 black = "*"
 pylint = "*"
 pytest = "*"
+pytest-cov = "*"
+pytest-socket = "*"
 mypy = "*"
 
 [requires]
-python_version = "~3.8"
+python_version = "3.9"

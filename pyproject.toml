@@ -4,9 +4,20 @@ python = "^3.8"
 [build-system]
 requires = [
     "setuptools >= 40.9.0",
-    "wheel"
+    "wheel",
+    "base58 ~= 2.1",
+    "flup-py3 ~= 1.0",
+    "pycryptodome ~= 3.12"
 ]
 build-backend = "setuptools.build_meta"
+
+[project.optional-dependencies]
+mysql = [
+  "mysqlclient ~= 2.1"
+]
+psql = [
+  "psycopg2 ~= 2.9"
+]
 
 [tool.isort]
 multi_line_output = 3
@@ -15,10 +26,6 @@ force_grid_wrap = 0
 use_parentheses = true
 line_length = 100
 
-# [tool.mypy]
-# plugins = "trio_typing.plugin"
-
 [tool.pytest.ini_options]
-# trio_mode = true
-# addopts = "--disable-socket"
+addopts = "--disable-socket"
 python_files = "tests.py test_*.py *_tests.py"

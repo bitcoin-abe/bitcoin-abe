@@ -52,7 +52,7 @@ class Merkle:
     """
 
     def __init__(self, data: List[bytes]):
-        self.leaves = data
+        self.leaves: List[bytes] = data
         self.hashes: List[bytes]
         self.mutated: bool
 
@@ -70,6 +70,7 @@ class Merkle:
             bytes: If len(hashes) == 0 this returns b"" otherwise it returns the Merkle root.
         """
 
+        hashes: List[bytes]
         try:
             hashes = self.hashes
         except (NameError, AttributeError):
@@ -83,7 +84,7 @@ class Merkle:
 
         while len(hashes) > 1:
 
-            size = len(hashes)
+            size: int = len(hashes)
 
             for i in (j for j in range(0, size, 2) if j + 1 < size):
                 if hashes[i] == hashes[i + 1]:
@@ -117,7 +118,7 @@ class Merkle:
             Tuple[bytes, bool]: Tuple of the root hash and if there were any mutations
         """
 
-        size = len(self.leaves)
+        size: int = len(self.leaves)
         if size == 0:
             # return b""
             raise IndexError("A zero length block was passed.")
@@ -144,7 +145,7 @@ class Merkle:
             Tuple[bytes, bool]: Tuple of the root hash and if there were any mutations
         """
 
-        size = len(self.leaves)
+        size: int = len(self.leaves)
         if size == 0:
             # return b""
             raise IndexError("A zero length witness block was passed.")

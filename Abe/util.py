@@ -290,13 +290,17 @@ def jsonrpc(url: str, method: str, *params) -> Any:
 
 
 # Abstract hex-binary conversions
-def hex2b(data: str) -> bytes:
+def hex2b(data: Optional[str]) -> bytes:
     """Convert a hexadecimal string into binary data"""
+    if data is None:
+        return b""
     return bytes.fromhex(data)
 
 
-def b2hex(data: Union[bytes, bytearray, memoryview]) -> str:
+def b2hex(data: Union[bytes, bytearray, memoryview, None]) -> str:
     """Convert raw binary data into a hexadecimal string"""
+    if data is None:
+        return ""
     if not isinstance(data, bytes):
         data = bytes(data)
     return bytes.hex(data)
