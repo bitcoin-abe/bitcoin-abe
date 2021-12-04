@@ -18,8 +18,8 @@
 """Reconfigure an Abe instance."""
 
 import sys
-from .data_store import CmdLine
-from . import firstbits
+from Abe import firstbits
+from Abe.data_store import CmdLine
 
 
 def keep_scriptsig_reconfigure(store, args):

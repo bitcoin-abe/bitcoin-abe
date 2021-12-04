@@ -16,13 +16,16 @@
 # License along with this program.  If not, see
 # <http://www.gnu.org/licenses/agpl.html>.
 
-import pytest
+from typing import Optional
+from pytest import fixture, FixtureRequest
 from . import db
+from .db import DataBasetype
 
 
-@pytest.fixture(scope="session", params=db.testdb_params())
-def db_server(request):
+@fixture(scope="session", params=db.testdb_params())
+def db_server(request: FixtureRequest) -> Optional[DataBasetype]:
     """Database Server to be used in tests"""
-    server = db.create_server(request.param)
-    request.addfinalizer(server.delete)
+    server = db.create_server(request.param)  # type:ignore
+    if server is not None:
+        request.addfinalizer(server.delete)
     return server

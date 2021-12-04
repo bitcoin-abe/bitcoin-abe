@@ -19,12 +19,12 @@
 from Abe import util
 
 
-def test_calculate_target_004c792d():
+def test_calculate_target_004c792d() -> None:
     """test_calculate_target_004c792d"""
     assert util.calculate_target(0x004C792D) == 0
 
 
-def test_calculate_target_1d00ffff():
+def test_calculate_target_1d00ffff() -> None:
     """test_calculate_target_1d00ffff"""
     assert (
         util.calculate_target(0x1D00FFFF)
@@ -32,7 +32,7 @@ def test_calculate_target_1d00ffff():
     )
 
 
-def test_calculate_target_1c00800e():
+def test_calculate_target_1c00800e() -> None:
     """test_calculate_target_1c00800e"""
     assert (
         util.calculate_target(0x1C00800E)
@@ -40,7 +40,7 @@ def test_calculate_target_1c00800e():
     )
 
 
-def test_calculate_target_1b0e7256():
+def test_calculate_target_1b0e7256() -> None:
     """test_calculate_target_1b0e7256"""
     assert (
         util.calculate_target(0x1B0E7256)
@@ -48,7 +48,7 @@ def test_calculate_target_1b0e7256():
     )
 
 
-def test_calculate_target_1b0098fa():
+def test_calculate_target_1b0098fa() -> None:
     """test_calculate_target_1b0098fa"""
     assert (
         util.calculate_target(0x1B0098FA)
@@ -56,7 +56,7 @@ def test_calculate_target_1b0098fa():
     )
 
 
-def test_calculate_target_1a6a93b3():
+def test_calculate_target_1a6a93b3() -> None:
     """test_calculate_target_1a6a93b3"""
     assert (
         util.calculate_target(0x1A6A93B3)
@@ -64,7 +64,7 @@ def test_calculate_target_1a6a93b3():
     )
 
 
-def test_calculate_target_1a022fbe():
+def test_calculate_target_1a022fbe() -> None:
     """test_calculate_target_1a022fbe"""
     assert (
         util.calculate_target(0x1A022FBE)
@@ -72,7 +72,7 @@ def test_calculate_target_1a022fbe():
     )
 
 
-def test_calculate_target_1900896c():
+def test_calculate_target_1900896c() -> None:
     """test_calculate_target_1900896c"""
     assert (
         util.calculate_target(0x1900896C)
@@ -80,7 +80,7 @@ def test_calculate_target_1900896c():
     )
 
 
-def test_calculate_target_1e0fffff():
+def test_calculate_target_1e0fffff() -> None:
     """test_calculate_target_1e0fffff"""
     assert (
         util.calculate_target(0x1E0FFFFF)
@@ -88,7 +88,7 @@ def test_calculate_target_1e0fffff():
     )
 
 
-def test_calculate_target_1f123456():
+def test_calculate_target_1f123456() -> None:
     """test_calculate_target_1f123456"""
     assert (
         util.calculate_target(0x1F123456)
@@ -96,7 +96,7 @@ def test_calculate_target_1f123456():
     )
 
 
-def test_calculate_target_80555555():
+def test_calculate_target_80555555() -> None:
     # pylint: disable=line-too-long
     """test_calculate_target_80555555"""
     assert (
@@ -105,21 +105,21 @@ def test_calculate_target_80555555():
     )
 
 
-def test_calculate_target_00777777():
+def test_calculate_target_00777777() -> None:
     """test_calculate_target_00777777"""
     assert util.calculate_target(0x00777777) == 0x0
 
 
-def test_calculate_target_01cccccc():
+def test_calculate_target_01cccccc() -> None:
     """test_calculate_target_01cccccc"""
     assert util.calculate_target(0x01CCCCCC) == -0x4C
 
 
-def test_calculate_target_02666666():
+def test_calculate_target_02666666() -> None:
     """test_calculate_target_02666666"""
     assert util.calculate_target(0x02666666) == 0x6666
 
 
-def test_calculate_target_03aaaaaa():
+def test_calculate_target_03aaaaaa() -> None:
     """test_calculate_target_03aaaaaa"""
     assert util.calculate_target(0x03AAAAAA) == -0x2AAAAA

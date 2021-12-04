@@ -20,7 +20,7 @@ import re
 import decimal
 import logging
 from typing import Union
-from .util import b2hex, hex2b
+from Abe.util import b2hex, hex2b
 
 MAX_SCRIPT = 1000000
 MAX_PUBKEY = 65
@@ -128,13 +128,13 @@ class SqlAbstraction:
 
             elif val == "buffer":
 
-                def to_btype(val: Union[bytes, bytearray]) -> memoryview:
+                def to_btype(val: Union[bytes, bytearray]) -> memoryview:  # type:ignore
                     return None if val is None else memoryview(val)
 
             else:
                 # PostgreSQL can take binary inputs as '\x[<hexadecimal str>]'
                 # https://www.postgresql.org/docs/14/datatype-binary.html
-                def to_btype(val: Union[str, bytes, bytearray]) -> str:
+                def to_btype(val: Union[str, bytes, bytearray]) -> str:  # type:ignore
                     if isinstance(val, str):
                         val = bytes(val, "utf-8")
                     val = b2hex(val)
@@ -404,7 +404,8 @@ class SqlAbstraction:
         x_patt = re.compile(r"X\Z")
 
         def fixup(match) -> str:
-            return match.group(1) + f"CHAR({int(match.group(2)) * 2})"
+            val: str = match.group(1) + f"CHAR({int(match.group(2)) * 2})"
+            return val
 
         def ret(chunk):
             return func(x_patt.sub("", patt.sub(fixup, chunk)))

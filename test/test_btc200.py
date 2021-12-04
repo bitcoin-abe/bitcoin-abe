@@ -17,159 +17,168 @@
 # <http://www.gnu.org/licenses/agpl.html>.
 
 import os
-import pytest
+from typing import Union
+from pytest import fixture
 import Abe.Chain
+from Abe.data_store import DataStore
 from Abe.util import hex2b
-from .db import testdb  # pylint: disable=unused-import
+from .db import (  # pylint: disable=unused-import
+    testdb,
+    SqliteMemoryDB,
+    MysqlDB,
+    PostgresDB,
+)
 
 
 # pylint: disable=redefined-outer-name
-@pytest.fixture(scope="module")
-def btc200(testdb):
+@fixture(scope="module")
+def btc200(
+    testdb: Union[SqliteMemoryDB, MysqlDB, PostgresDB]
+) -> Union[DataStore, None]:
     dirname = os.path.join(os.path.split(__file__)[0], "btc200")
     store = testdb.load("--datadir", dirname)
     return store
 
 
-def test_block_number(btc200):
+def test_block_number(btc200: Union[DataStore, None]) -> None:
     assert btc200.get_block_number(1) == 200
 
 
-@pytest.fixture(scope="module")
-def coinbase_200(btc200):
+@fixture(scope="module")
+def coinbase_200(btc200: Union[DataStore, None]) -> Union[dict, None]:
     return btc200.export_tx(
         tx_hash="2b1f06c2401d3b49a33c3f5ad5864c0bc70044c4068f9174546f3cfc1887d5ba"
     )
 
 
-def test_coinbase_hash(coinbase_200):
+def test_coinbase_hash(coinbase_200: Union[dict, None]) -> None:
     assert (
         coinbase_200["hash"]
         == "2b1f06c2401d3b49a33c3f5ad5864c0bc70044c4068f9174546f3cfc1887d5ba"
     )
 
 
-def test_coinbase_in(coinbase_200):
+def test_coinbase_in(coinbase_200: Union[dict, None]) -> None:
     assert len(coinbase_200["in"]) == 1
     assert coinbase_200["vin_sz"] == 1
 
 
-def test_coinbase_lock_time(coinbase_200):
+def test_coinbase_lock_time(coinbase_200: Union[dict, None]) -> None:
     assert coinbase_200["lock_time"] == 0
 
 
-def test_coinbase_prev_out(coinbase_200):
+def test_coinbase_prev_out(coinbase_200: Union[dict, None]) -> None:
     assert coinbase_200["in"][0]["prev_out"] == {
         "hash": "0000000000000000000000000000000000000000000000000000000000000000",
         "n": 4294967295,
     }
 
 
-def test_coinbase_raw_scriptSig(coinbase_200):
+def test_coinbase_raw_scriptSig(coinbase_200: Union[dict, None]) -> None:
     assert coinbase_200["in"][0]["raw_scriptSig"] == "04ffff001d0138"
 
 
-def test_coinbase_out(coinbase_200):
+def test_coinbase_out(coinbase_200: Union[dict, None]) -> None:
     assert len(coinbase_200["out"]) == 1
     assert coinbase_200["vout_sz"] == 1
 
 
-def test_coinbase_raw_scriptPubKey(coinbase_200):
+def test_coinbase_raw_scriptPubKey(coinbase_200: Union[dict, None]):
     assert (
         coinbase_200["out"][0]["raw_scriptPubKey"]
         == "41045e071dedd1ed03721c6e9bba28fc276795421a378637fb41090192bb9f208630dcbac5862a3baeb9df3ca6e4e256b7fd2404824c20198ca1b004ee2197866433ac"
     )
 
 
-def test_coinbase_value(coinbase_200):
+def test_coinbase_value(coinbase_200: Union[dict, None]) -> None:
     assert coinbase_200["out"][0]["value"] == "50.00000000"
 
 
-def test_coinbase_size(coinbase_200):
+def test_coinbase_size(coinbase_200: Union[dict, None]) -> None:
     assert coinbase_200["size"] == 134
 
 
-def test_coinbase_ver(coinbase_200):
+def test_coinbase_ver(coinbase_200: Union[dict, None]) -> None:
     assert coinbase_200["ver"] == 1
 
 
-@pytest.fixture(scope="module")
-def b182t1(btc200):
+@fixture(scope="module")
+def b182t1(btc200: Union[DataStore, None]) -> Union[dict, None]:
     return btc200.export_tx(
         tx_hash="591e91f809d716912ca1d4a9295e70c3e78bab077683f79350f101da64588073",
         format="browser",
     )
 
 
-def test_tx_hash(b182t1):
+def test_tx_hash(b182t1: Union[dict, None]) -> None:
     assert (
         b182t1["hash"]
         == "591e91f809d716912ca1d4a9295e70c3e78bab077683f79350f101da64588073"
     )
 
 
-def test_tx_version(b182t1):
+def test_tx_version(b182t1: Union[dict, None]) -> None:
     assert b182t1["version"] == 1
 
 
-def test_tx_lockTime(b182t1):
+def test_tx_lockTime(b182t1: Union[dict, None]) -> None:
     assert b182t1["lockTime"] == 0
 
 
-def test_tx_size(b182t1):
+def test_tx_size(b182t1: Union[dict, None]) -> None:
     assert b182t1["size"] == 275
 
 
-def test_tx_cc(b182t1):
+def test_tx_cc(b182t1: Union[dict, None]) -> None:
     assert len(b182t1["chain_candidates"]) == 1
 
 
-def test_tx_chain_name(b182t1):
+def test_tx_chain_name(b182t1: Union[dict, None]) -> None:
     assert b182t1["chain_candidates"][0]["chain"].name == "Bitcoin"
 
 
-def test_tx_in_longest(b182t1):
+def test_tx_in_longest(b182t1: Union[dict, None]) -> None:
     assert b182t1["chain_candidates"][0]["in_longest"]
 
 
-def test_tx_block_nTime(b182t1):
+def test_tx_block_nTime(b182t1: Union[dict, None]) -> None:
     assert b182t1["chain_candidates"][0]["block_nTime"] == 1231740736
 
 
-def test_tx_block_height(b182t1):
+def test_tx_block_height(b182t1: Union[dict, None]) -> None:
     assert b182t1["chain_candidates"][0]["block_height"] == 182
 
 
-def test_tx_block_hash(b182t1):
+def test_tx_block_hash(b182t1: Union[dict, None]) -> None:
     assert (
         b182t1["chain_candidates"][0]["block_hash"]
         == "0000000054487811fc4ff7a95be738aa5ad9320c394c482b27c0da28b227ad5d"
     )
 
 
-def test_tx_tx_pos(b182t1):
+def test_tx_tx_pos(b182t1: Union[dict, None]) -> None:
     assert b182t1["chain_candidates"][0]["tx_pos"] == 1
 
 
-def test_tx_in(b182t1):
+def test_tx_in(b182t1: Union[dict, None]) -> None:
     assert len(b182t1["in"]) == 1
 
 
-def test_tx_in_pos(b182t1):
+def test_tx_in_pos(b182t1: Union[dict, None]) -> None:
     assert b182t1["in"][0]["pos"] == 0
 
 
-def test_tx_in_binscript(b182t1):
+def test_tx_in_binscript(b182t1: Union[dict, None]) -> None:
     assert b182t1["in"][0]["binscript"] == hex2b(
         "47304402201f27e51caeb9a0988a1e50799ff0af94a3902403c3ad4068b063e7b4d1b0a76702206713f69bd344058b0dee55a9798759092d0916dbbc3e592fee43060005ddc17401"
     )
 
 
-def test_tx_in_value(b182t1):
+def test_tx_in_value(b182t1: Union[dict, None]) -> None:
     assert b182t1["in"][0]["value"] == 3000000000
 
 
-def test_tx_in_prev_out(b182t1):
+def test_tx_in_prev_out(b182t1: Union[dict, None]) -> None:
     assert (
         b182t1["in"][0]["o_hash"]
         == "a16f3ce4dd5deb92d98ef5cf8afeaf0775ebca408f708b2146c4fb42b41e14be"
@@ -177,26 +186,26 @@ def test_tx_in_prev_out(b182t1):
     assert b182t1["in"][0]["o_pos"] == 1
 
 
-def test_tx_in_script_type(b182t1):
+def test_tx_in_script_type(b182t1: Union[dict, None]) -> None:
     assert b182t1["in"][0]["script_type"] == Abe.Chain.SCRIPT_TYPE_PUBKEY
 
 
-def test_tx_in_binaddr(b182t1):
+def test_tx_in_binaddr(b182t1: Union[dict, None]) -> None:
     assert b182t1["in"][0]["binaddr"] == hex2b(
         "11b366edfc0a8b66feebae5c2e25a7b6a5d1cf31"
     )
 
 
-def test_tx_out(b182t1):
+def test_tx_out(b182t1: Union[dict, None]) -> None:
     assert len(b182t1["out"]) == 2
 
 
-def test_tx_out_pos(b182t1):
+def test_tx_out_pos(b182t1: Union[dict, None]) -> None:
     assert b182t1["out"][0]["pos"] == 0
     assert b182t1["out"][1]["pos"] == 1
 
 
-def test_tx_out_binscript(b182t1):
+def test_tx_out_binscript(b182t1: Union[dict, None]) -> None:
     assert b182t1["out"][0]["binscript"] == hex2b(
         "410401518fa1d1e1e3e162852d68d9be1c0abad5e3d6297ec95f1f91b909dc1afe616d6876f92918451ca387c4387609ae1a895007096195a824baf9c38ea98c09c3ac"
     )
@@ -205,12 +214,12 @@ def test_tx_out_binscript(b182t1):
     )
 
 
-def test_tx_out_value(b182t1):
+def test_tx_out_value(b182t1: Union[dict, None]) -> None:
     assert b182t1["out"][0]["value"] == 100000000
     assert b182t1["out"][1]["value"] == 2900000000
 
 
-def test_tx_out_redeemed(b182t1):
+def test_tx_out_redeemed(b182t1: Union[dict, None]) -> None:
     assert b182t1["out"][0]["o_hash"] is None
     assert b182t1["out"][0]["o_pos"] is None
     assert (
@@ -220,7 +229,7 @@ def test_tx_out_redeemed(b182t1):
     assert b182t1["out"][1]["o_pos"] == 0
 
 
-def test_tx_out_binaddr(b182t1):
+def test_tx_out_binaddr(b182t1: Union[dict, None]) -> None:
     assert b182t1["out"][0]["binaddr"] == hex2b(
         "db3b465a2b678e0bdc3e4944bb41abb5a795ae04"
     )
@@ -229,9 +238,9 @@ def test_tx_out_binaddr(b182t1):
     )
 
 
-def test_tx_value_in(b182t1):
+def test_tx_value_in(b182t1: Union[dict, None]) -> None:
     assert b182t1["value_in"] == 3000000000
 
 
-def test_tx_value_out(b182t1):
+def test_tx_value_out(b182t1: Union[dict, None]) -> None:
     assert b182t1["value_out"] == 3000000000

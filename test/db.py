@@ -19,18 +19,23 @@
 import json
 import contextlib
 import os
-import tempfile
 from pathlib import Path
+import shutil
 import subprocess
+from subprocess import Popen
+import tempfile
 import time
+from typing import Any, Callable, Dict, Generator, List, Optional, Union
 import MySQLdb
 import psycopg2
 import pytest
+from pytest import FixtureRequest
 from Abe.data_store import CmdLine
 
 
-def testdb_params():
+def testdb_params() -> List[str]:
     """Provides a list of the database server types to be tested."""
+
     dbs = os.environ.get("ABE_TEST_DB")
     if dbs is not None:
         return dbs.split()
@@ -40,7 +45,9 @@ def testdb_params():
 
 
 # XXX
-def ignore_errors(thunk):
+def ignore_errors(thunk: Callable) -> Callable:
+    """Ignore any and all errors. Use very sparingly"""
+
     def doit():
         # pylint: disable=broad-except
         try:
@@ -49,22 +56,6 @@ def ignore_errors(thunk):
             pass
 
     return doit
-
-
-@pytest.fixture(scope="module")
-def testdb(request, db_server):
-    request.addfinalizer(ignore_errors(db_server.dropdb))
-    return db_server
-
-
-def create_server(dbtype=None):
-    if dbtype in (None, "sqlite3", "sqlite"):
-        return SqliteMemoryDB()
-    if dbtype in ("mysql", "MySQLdb"):
-        return MysqlDB()
-    if dbtype in ("psycopg2", "postgres"):
-        return PostgresDB()
-    pytest.skip(f"Unknown dbtype: {dbtype}")
 
 
 class DB:
@@ -113,21 +104,21 @@ class SqliteMemoryDB(SqliteDB):
 
 class ServerDB(DB):
     # pylint: disable=no-member
-    def __init__(self, dbtype):
+    def __init__(self, dbtype: str):
         pytest.importorskip(dbtype)
-        self.installation_dir = tempfile.mkdtemp(prefix="abe-test-") + "/"
+        self.installation_dir = tempfile.mkdtemp(prefix="abe-test-")
 
         print(f"Created temporary directory {self.installation_dir}")
         try:
-            self.server = self.install_server()
+            self.server = self.install_server()  # type: ignore
         except Exception:
             self._delete_tmpdir()
             raise
-        super().__init__(dbtype, self.get_connect_args())
+        super().__init__(dbtype, self.get_connect_args())  # type: ignore
 
     @contextlib.contextmanager
-    def root(self):
-        conn = self.connect_as_root()
+    def root(self) -> Generator:
+        conn = self.connect_as_root()  # type: ignore
         cur = conn.cursor()
         try:
             yield cur
@@ -147,7 +138,7 @@ class ServerDB(DB):
 
     def _delete_tmpdir(self):
         if os.environ.get("ABE_TEST_KEEP_TMPDIR", "") == "":
-            os.rmdir(self.installation_dir)
+            shutil.rmtree(self.installation_dir)
             print(f"Deleted temporary directory {self.installation_dir}")
 
 
@@ -159,7 +150,7 @@ class MysqlDB(ServerDB):
     def __init__(self):
         super().__init__("MySQLdb")
 
-    def get_connect_args(self):
+    def get_connect_args(self) -> Dict[str, str]:
         return {
             "user": "abe",
             "passwd": "Bitcoin",
@@ -167,15 +158,15 @@ class MysqlDB(ServerDB):
             "unix_socket": self.socket,
         }
 
-    def install_server(self):
+    def install_server(self) -> Optional[Popen[bytes]]:
         self.socket = self.installation_dir + "/mysql.sock"
         Path(self.installation_dir + "/data").mkdir(exist_ok=True)
         Path(self.installation_dir + "/tmp").mkdir(exist_ok=True)
         Path(self.installation_dir + "/log").mkdir(exist_ok=True)
 
         mycnf = self.installation_dir + "/my.cnf"
-        with open(mycnf, "w", encoding="UTF8") as mycnf:
-            mycnf.write(
+        with open(mycnf, "w", encoding="UTF8") as file:
+            file.write(
                 "[mysqld]\n"
                 + f"basedir={self.installation_dir}\n"
                 + f"datadir={self.installation_dir}/data\n"
@@ -186,17 +177,17 @@ class MysqlDB(ServerDB):
                 + "pid-file=mysqld.pid\n"
                 + f"tmpdir={self.installation_dir}/tmp\n"
             )
-            mycnf.close()
+            file.close()
         subprocess.check_call(
             [
                 "mysqld",
-                "--defaults-file=" + mycnf.name,
+                "--defaults-file=" + file.name,
                 "--initialize",
                 "-h",
                 self.installation_dir + "/data",
             ]
         )
-        server = subprocess.Popen(["mysqld", "--defaults-file=" + mycnf.name])
+        server = subprocess.Popen(["mysqld", "--defaults-file=" + file.name])
         tries = 30
         for i in range(tries):
             try:
@@ -208,23 +199,24 @@ class MysqlDB(ServerDB):
                     raise error
             finally:
                 time.sleep(1)
+        return None
 
-    def connect_as_root(self):
+    def connect_as_root(self) -> Any:
         conn = MySQLdb.connect(unix_socket=self.socket, user="root")
         return conn
 
-    def createdb(self):
+    def createdb(self) -> None:
         with self.root() as cur:
             cur.execute("CREATE DATABASE abe")
             cur.execute("GRANT ALL ON abe.* TO 'abe'@'localhost'")
         DB.createdb(self)
 
-    def dropdb(self):
+    def dropdb(self) -> None:
         DB.dropdb(self)
         with self.root() as cur:
             cur.execute("DROP DATABASE abe")
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         subprocess.check_call(
             ["mysqladmin", "-S", self.socket, "-u", "root", "shutdown"]
         )
@@ -235,7 +227,7 @@ class PostgresDB(ServerDB):
 
     def __init__(self):
         self.bindir = str(
-            subprocess.Popen(["pg_config", "--bindir"], stdout=subprocess.PIPE)
+            Popen(["pg_config", "--bindir"], stdout=subprocess.PIPE)
             .communicate()[0]
             .rstrip(),
             "utf-8",
@@ -243,20 +235,20 @@ class PostgresDB(ServerDB):
         print(f"The binder is: {self.bindir}")
         super().__init__("psycopg2")
 
-    def get_connect_args(self):
+    def get_connect_args(self) -> Dict[str, str]:
         return {
             "user": "abe",
             "password": "Bitcoin",
             "database": "abe",
-            "host": str(self.installation_dir),
+            "host": self.installation_dir,
         }
 
-    def install_server(self):
+    def install_server(self) -> Optional[Popen[bytes]]:
         subprocess.check_call(
             [
                 os.path.join(self.bindir, "initdb"),
                 "-D",
-                str(self.installation_dir),
+                self.installation_dir,
                 "-U",
                 "postgres",
             ]
@@ -277,21 +269,20 @@ class PostgresDB(ServerDB):
         for i in range(tries):
             try:
                 with self.root() as cur:
-                    cur.execute("COMMIT")  # XXX
-                    cur.execute("CREATE USER abe PASSWORD 'Bitcoin'")
-                    cur.execute("COMMIT")
+                    cur.execute("CREATE ROLE abe WITH PASSWORD 'Bitcoin' LOGIN")
                 return server
             except psycopg2.OperationalError as error:
                 if i + 1 == tries:
                     raise error
             finally:
                 time.sleep(1)
+        return None
 
-    def connect_as_root(self):
-        conn = psycopg2.connect(host=str(self.installation_dir), user="postgres")
+    def connect_as_root(self) -> Any:
+        conn = psycopg2.connect(host=self.installation_dir, user="postgres")
         return conn
 
-    def createdb(self):
+    def createdb(self) -> None:
         with self.root() as cur:
             cur.execute("COMMIT")  # XXX
             cur.execute("CREATE DATABASE abe")
@@ -299,14 +290,14 @@ class PostgresDB(ServerDB):
             cur.execute("COMMIT")
         DB.createdb(self)
 
-    def dropdb(self):
+    def dropdb(self) -> None:
         DB.dropdb(self)
         with self.root() as cur:
             cur.execute("COMMIT")  # XXX
             cur.execute("DROP DATABASE abe")
             cur.execute("COMMIT")
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         subprocess.check_call(
             [
                 os.path.join(self.bindir, "pg_ctl"),
@@ -317,3 +308,30 @@ class PostgresDB(ServerDB):
                 "immediate",
             ]
         )
+
+
+DataBasetype = Union[SqliteMemoryDB, MysqlDB, PostgresDB]
+
+
+@pytest.fixture(scope="module")
+def testdb(
+    request: FixtureRequest,
+    db_server: Union[SqliteMemoryDB, MysqlDB, PostgresDB],
+) -> DataBasetype:
+    """Create a test database"""
+
+    request.addfinalizer(ignore_errors(db_server.dropdb))
+    return db_server
+
+
+def create_server(dbtype: Union[str, None] = None) -> Optional[DataBasetype]:
+    """Create a DB Server instance using a string input"""
+
+    if dbtype in (None, "sqlite3", "sqlite"):
+        return SqliteMemoryDB()
+    if dbtype in ("mysql", "MySQLdb"):
+        return MysqlDB()
+    if dbtype in ("psycopg2", "postgres"):
+        return PostgresDB()
+    pytest.skip(f"Unknown dbtype: {dbtype}")
+    return None

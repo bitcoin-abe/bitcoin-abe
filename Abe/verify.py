@@ -17,12 +17,26 @@
 # License along with this program.  If not, see
 # <http://www.gnu.org/licenses/agpl.html>.
 
+"""[summary]
+
+Raises:
+    Exception: [description]
+    Exception: [description]
+
+Returns:
+    [type]: [description]
+"""
+
 import sys
 import getopt
 import logging
-from .data_store import CmdLine
-from .util import NULL_HASH
+from logging import Logger
+from Abe import util
+from Abe.Chain import BaseChain
+from Abe.data_store import CmdLine, DataStore
+from Abe.util import NULL_HASH
 
+# pylint: disable=invalid-name
 
 # List of block statistics to check.
 BLOCK_STATS_LIST = [
@@ -37,7 +51,9 @@ BLOCK_STATS_LIST = [
 
 
 class AbeVerify:
-    def __init__(self, store, logger):
+    """AbeVerify"""
+
+    def __init__(self, store: DataStore, logger: Logger):
         self.store = store
         self.logger = logger
         self.block_min = None
@@ -60,7 +76,8 @@ class AbeVerify:
             "btibad": 0,  # txin_id's linked to wrong block (untested)
         }
 
-    def verify_blockchain(self, chain_id, chain):
+    def verify_blockchain(self, chain_id, chain: BaseChain) -> None:
+
         # Reset stats
         self.stats = {key: 0 for key in self.stats}
 
@@ -108,7 +125,7 @@ class AbeVerify:
                 )
 
             if self.ckbti:
-                self.verify_block_txin(block_id, chain_id)
+                self.verify_block_txin(block_id)
                 self.procstats(
                     "Block txins",
                     block_height,
@@ -162,6 +179,16 @@ class AbeVerify:
             self.store.commit()
 
     def procstats(self, name, height, checked, bad, blocks=False, last=False):
+        """[summary]
+
+        Args:
+            name ([type]): [description]
+            height ([type]): [description]
+            checked ([type]): [description]
+            bad ([type]): [description]
+            blocks (bool, optional): [description]. Defaults to False.
+            last (bool, optional): [description]. Defaults to False.
+        """
         if blocks is False:
             blocks = checked
 
@@ -171,7 +198,7 @@ class AbeVerify:
                 "%d %s (%sheight: %d): %s bad", checked, name, lst, height, bad
             )
 
-    def verify_tx_merkle_hash(self, block_id, chain):
+    def verify_tx_merkle_hash(self, block_id, chain: BaseChain) -> None:
         block_height, merkle_root, num_tx = self.store.selectrow(
             """
             SELECT b.block_height, b.block_hashMerkleRoot, b.block_num_tx
@@ -202,7 +229,7 @@ class AbeVerify:
                 len(tree),
             )
             bad = 1
-        root = chain.merkle_root(tree) or NULL_HASH
+        root = util.merkle_root(tree) or NULL_HASH
         if root != merkle_root:
             self.logger.info(
                 "block %d (id %s): block_hashMerkleRoot mismatch",
@@ -213,7 +240,8 @@ class AbeVerify:
         self.stats["mbad"] += bad
         self.stats["mchecked"] += 1
 
-    def verify_block_txin(self, block_id, chain_id):
+    def verify_block_txin(self, block_id):
+        """"""
         rows = self.store.selectall(
             """
             SELECT txin_id, out_block_id
@@ -329,12 +357,8 @@ class AbeVerify:
             elif self.repair:
                 raise Exception(
                     "Repair with broken prev block, dazed and "
-                    "confused... block %s (height %s): %s"
-                    % (
-                        block_id,
-                        block_height,
-                        str((prev_satoshis, prev_seconds, prev_ss, prev_total_ss)),
-                    )
+                    f"confused... block {block_id} (height {block_height}): "
+                    f"{str((prev_satoshis, prev_seconds, prev_ss, prev_total_ss))}"
                 )
             else:
                 # Prev block contain broken data; cannot check current (and
@@ -465,8 +489,8 @@ class AbeVerify:
 
         if None in b.values():
             raise Exception(
-                "Stats computation error: block %d (height %d): "
-                "%s" % (block_id, block_height, str(b))
+                f"Stats computation error: block {block_id} (height {block_height}): "
+                f"{str(b)}"
             )
 
         # Finally... Check stats values match between d and b
@@ -667,7 +691,7 @@ def main(argv):
             chk.repair = True
 
     if args:
-        print("Extra argument: %s!\n\n" % args[0], cmdline.usage())
+        print(f"Extra argument: {args[0]}!\n\n", cmdline.usage())
         return 1
 
     if True not in (chk.ckmerkle, chk.ckbti, chk.ckstats):

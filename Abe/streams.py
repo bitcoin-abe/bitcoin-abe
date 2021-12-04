@@ -2,14 +2,14 @@
 import struct
 import mmap
 from typing import Union
-from .exceptions import SerializationError
+from Abe.exceptions import SerializationError
 
 
 class BCDataStream:
     """Bitcoin's CDataStream Class"""
 
     def __init__(self):
-        self.input = None
+        self.input: Union[bytearray, memoryview, None] = None
         self.read_cursor = int(0)
 
     def clear(self) -> None:
@@ -21,12 +21,12 @@ class BCDataStream:
         """Initialize with string of bytes"""
         if self.input is None:
             self.input = bytearray(_bytes)
-        else:
+        elif isinstance(self.input, bytearray):
             self.input += bytearray(_bytes)
 
     def map_file(self, file, start: int) -> None:
         """Initialize with bytes from file"""
-        self.input = mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ)
+        self.input = memoryview(mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ))
         self.read_cursor = start
 
     def seek_file(self, position: int) -> None:
@@ -69,57 +69,87 @@ class BCDataStream:
 
     def read_bytes(self, length: int) -> bytes:
         """Read the bytes from the cursor position"""
+        if self.input is None:
+            raise SerializationError("call write(bytes) before trying to deserialize")
+
         try:
             result = self.input[self.read_cursor : self.read_cursor + length]
             self.read_cursor += length
             return result
+
         except IndexError as error:
             raise SerializationError("attempt to read past end of buffer") from error
 
+    def read_marker(self) -> bytes:
+        """Read the marker for BIP 141/144 transactions"""
+        if self.input is None:
+            raise SerializationError("call write(bytes) before trying to deserialize")
+
+        return bytes(self.input[self.read_cursor : self.read_cursor + 1])
+
     def read_boolean(self) -> bool:
+        """Read a boolean"""
         return self.read_bytes(1)[0] != b"\x00"
 
     def read_int16(self) -> int:
+        """read_int16"""
         return self._read_num("<h")
 
     def read_uint16(self) -> int:
+        """read_uint16"""
         return self._read_num("<H")
 
     def read_int32(self) -> int:
+        """read_int32"""
         return self._read_num("<i")
 
     def read_uint32(self) -> int:
+        """read_uint32"""
         return self._read_num("<I")
 
     def read_int64(self) -> int:
+        """read_int64"""
         return self._read_num("<q")
 
     def read_uint64(self) -> int:
+        """read_uint64"""
         return self._read_num("<Q")
 
     def write_boolean(self, val: int) -> None:
+        """write_boolean"""
         self.write(b"\x01" if val else b"\x00")
 
     def write_int16(self, num: int) -> None:
+        """write_int16"""
         self._write_num("<h", num)
 
     def write_uint16(self, num: int) -> None:
+        """write_uint16"""
         self._write_num("<H", num)
 
     def write_int32(self, num: int) -> None:
+        """write_int32"""
         self._write_num("<i", num)
 
     def write_uint32(self, num: int) -> None:
+        """write_uint32"""
         self._write_num("<I", num)
 
     def write_int64(self, num: int) -> None:
+        """write_int64"""
         self._write_num("<q", num)
 
     def write_uint64(self, num: int) -> None:
+        """write_uint64"""
         self._write_num("<Q", num)
 
     def read_compact_size(self) -> int:
-        size = ord(self.input[self.read_cursor])
+        """Read the compact notation for integer compression"""
+        if self.input is None:
+            raise SerializationError("call write(bytes) before trying to deserialize")
+        size = ord(bytes(self.input[self.read_cursor]))
+        print(self.read_cursor - 87)
+        print(bytes(self.input[self.read_cursor - 88 : self.read_cursor + 205]))
         self.read_cursor += 1
         if size == 253:
             size = self._read_num("<H")
@@ -130,6 +160,7 @@ class BCDataStream:
         return size
 
     def write_compact_size(self, size: int) -> None:
+        """Write an integer in its compressed form"""
         if size < 0:
             raise SerializationError("attempt to write size < 0")
         # specify the unsigned integer type
@@ -147,6 +178,11 @@ class BCDataStream:
 
     def _read_num(self, _format: str) -> int:
         # pylint: disable=no-member
+
+        if self.input is None:
+            raise SerializationError("call write(bytes) before trying to deserialize")
+
+        num: int
         (num,) = struct.unpack_from(_format, self.input, self.read_cursor)
         self.read_cursor += struct.calcsize(_format)
         return num

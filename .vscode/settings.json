@@ -1,6 +1,7 @@
 {
-    "python.linting.pylintEnabled": true,
     "python.linting.enabled": true,
+    "python.linting.pylintEnabled": true,
+    "python.linting.mypyEnabled": true,
     "python.testing.pytestArgs": [
         "test"
     ],
@@ -18,6 +19,7 @@
         "Andresen",
         "bazfoobar",
         "bdfh",
+        "Bech",
         "binfuncs",
         "binin",
         "bitcoind",
@@ -187,6 +189,7 @@
         "Tuku",
         "tvars",
         "txcount",
+        "txids",
         "txin",
         "txins",
         "txns",
@@ -199,6 +202,7 @@
         "unportable",
         "unsubscriptable",
         "unsued",
+        "urandom",
         "utxo",
         "vals",
         "vbit",

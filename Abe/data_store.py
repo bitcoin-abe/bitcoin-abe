@@ -20,7 +20,7 @@ This module combines three functions that might be better split up:
 2. Abstraction over the schema for importing blocks, etc.
 3. Code to load data by scanning blockfiles or using JSON-RPC."""
 
-# pylint: disable=too-many-lines
+# pylint: disable=too-many-lines invalid-name
 
 import os
 import re
@@ -30,20 +30,21 @@ import logging
 from logging import config as logging_config
 from random import randint
 import sys
-from . import readconf
-from .constants import *  # pylint: disable=wildcard-import
-from . import SqlAbstraction, Chain, util, upgrade
-from .exceptions import (
+from typing import Any, Dict, List, Optional, Tuple, Union
+from Abe import readconf, SqlAbstraction, Chain, util, upgrade
+from Abe.constants import *  # pylint: disable=wildcard-import
+from exceptions import (
     InvalidBlock,
     MerkleRootMismatch,
     MalformedHash,
     MalformedAddress,
+    SerializationError,
 )
+from .merkle import Merkle
 from .streams import BCDataStream
+from .util import b2hex, transaction_hash
 
 # bitcointools -- modified deserialize.py to return raw transaction
-
-from operator import eq
 
 
 class DataStore:
@@ -1045,17 +1046,14 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         # can avoid a query if we notice this.
         all_txins_linked = True
 
-        for pos in range(len(block["transactions"])):
-            transaction = block["transactions"][pos]
+        for pos, transaction in enumerate(block["transactions"]):
 
             if "hash" not in transaction:
                 if chain is None:
                     self.log.debug("Falling back to SHA256 transaction hash")
                     transaction["hash"] = util.double_sha256(transaction["__data__"])
                 else:
-                    transaction["hash"] = chain.transaction_hash(
-                        transaction["__data__"]
-                    )
+                    transaction["hash"] = transaction_hash(transaction["__data__"])
 
             tx_hash_array.append(transaction["hash"])
             transaction["tx_id"] = self.tx_find_id_and_value(transaction, pos == 0)
@@ -1085,7 +1083,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
 
         if chain is not None:
             # Verify Merkle root.
-            if block["hashMerkleRoot"] != chain.merkle_root(tx_hash_array):
+            if block["hashMerkleRoot"] != Merkle(tx_hash_array).root():
                 raise MerkleRootMismatch(block["hash"], tx_hash_array)
 
         # Look for the parent block.
@@ -1605,7 +1603,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         txout["address_version"] = chain.address_version
 
         if script_type == Chain.SCRIPT_TYPE_PUBKEY:
-            txout["binaddr"] = chain.pubkey_hash(data)
+            txout["binaddr"] = util.pubkey_to_hash(data)
         elif script_type == Chain.SCRIPT_TYPE_ADDRESS:
             txout["binaddr"] = data
         elif script_type == Chain.SCRIPT_TYPE_P2SH:
@@ -1613,16 +1611,18 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             txout["binaddr"] = data
         elif script_type == Chain.SCRIPT_TYPE_MULTISIG:
             txout["required_signatures"] = data["m"]
-            txout["binaddr"] = chain.pubkey_hash(scriptPubKey)
+            txout["binaddr"] = util.pubkey_to_hash(scriptPubKey)
             txout["subbinaddr"] = [
-                chain.pubkey_hash(pubkey) for pubkey in data["pubkeys"]
+                util.pubkey_to_hash(pubkey) for pubkey in data["pubkeys"]
             ]
         elif script_type == Chain.SCRIPT_TYPE_BURN:
             txout["binaddr"] = NULL_PUBKEY_HASH
         else:
             txout["binaddr"] = None
 
-    def export_block(self, chain=None, block_hash=None, block_number=None):
+    def export_block(
+        self, chain=None, block_hash=None, block_number=None
+    ) -> Optional[Dict[str, Any]]:
         """
         Return a dict with the following:
 
@@ -1736,8 +1736,10 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         # "chain" may be None, but "found_chain" will not.
         found_chain = chain
         if found_chain is None:
-            if len(cc) > 0:
-                found_chain = cc[0]["chain"]  # pylint: disable=unsubscriptable-object
+            if len(cc) > 0:  # type: ignore
+                found_chain = cc[0][  # type: ignore # pylint: disable=unsubscriptable-object
+                    "chain"
+                ]
             else:
                 # Should not normally get here.
                 found_chain = self.get_default_chain()
@@ -1797,7 +1799,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         ]
 
         tx_ids = []
-        txs = {}
+        txs: Dict[str, Any] = {}
         block_out = 0
         block_in = 0
 
@@ -1917,7 +1919,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         if is_stake_chain and block["is_proof_of_stake"]:
             block["proof_of_stake_generated"] = -txs[tx_ids[1]]["fees"]
             txs[tx_ids[1]]["fees"] = 0
-            block["fees"] += block["proof_of_stake_generated"]
+            block["fees"] += block["proof_of_stake_generated"]  # type: ignore
 
         return block
 
@@ -2111,7 +2113,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         else:
             chain = self.get_chain_by_name(chain_name)
 
-        tx_hash = chain.transaction_hash(binary_tx)
+        tx_hash = transaction_hash(binary_tx)
 
         (count,) = self.selectrow(
             "SELECT COUNT(1) FROM tx WHERE tx_hash = ?", (self.hashin(tx_hash),)
@@ -2389,7 +2391,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
 
     def export_address_history(
         self, address, chain=None, max_rows=-1, types=frozenset(["direct", "escrow"])
-    ):
+    ) -> Union[Dict[str, Any], None]:
         version, binaddr = util.decode_check_address(address)
         if binaddr is None:
             raise MalformedAddress("Invalid address")
@@ -2419,7 +2421,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
                 counts[txpoint["is_out"]] += 1
 
         dbhash = self.binin(binaddr)
-        txpoints = []
+        txpoints: List[Dict[str, Any]] = []
 
         def parse_row(
             is_out,
@@ -2432,7 +2434,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             pos,
             value,
             script=None,
-        ):
+        ) -> Dict[str, Any]:
             chain = self.get_chain_by_id(chain_id)
             txpoint = {
                 "type": row_type,
@@ -2604,7 +2606,8 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         ):
             if "subbinaddr" not in hist:
                 hist["subbinaddr"] = []
-            hist["subbinaddr"].append(self.binout(subbinaddr))
+            if isinstance(hist["subbinaddr"], List):
+                hist["subbinaddr"].append(self.binout(subbinaddr))
 
         return hist
 
@@ -2814,7 +2817,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             return self.pubkey_to_id(chain, data)
 
         if script_type == Chain.SCRIPT_TYPE_MULTISIG:
-            script_hash = chain.script_hash(script)
+            script_hash = util.script_to_hash(script)
             multisig_id = self._pubkey_id(script_hash, script)
 
             if not self.selectrow(
@@ -2839,7 +2842,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         return self._pubkey_id(pubkey_hash, None)
 
     def pubkey_to_id(self, chain, pubkey):
-        pubkey_hash = chain.pubkey_hash(pubkey)
+        pubkey_hash = util.pubkey_to_hash(pubkey)
         return self._pubkey_id(pubkey_hash, pubkey)
 
     def _pubkey_id(self, pubkey_hash, pubkey):
@@ -3000,7 +3003,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             rpc_tx = rpc_tx_hex.decode("hex")
             tx_hash = rpc_tx_hash.decode("hex")[::-1]
 
-            computed_tx_hash = chain.transaction_hash(rpc_tx)
+            computed_tx_hash = transaction_hash(rpc_tx)
             if tx_hash != computed_tx_hash:
                 # raise InvalidBlock('transaction hash mismatch')
                 self.log.warning(
@@ -3114,7 +3117,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
 
                     # XXX Shouldn't be needed since we deserialize a valid block already
                     if (
-                        chain.block_header_hash(chain.serialize_block_header(block))
+                        util.block_header_hash(chain.serialize_block_header(block))
                         != hash
                     ):
                         raise InvalidBlock("block hash mismatch")
@@ -3244,7 +3247,15 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
             dircfg["blkfile_offset"] = 0
 
     # Load all blocks from the given data stream.
-    def import_blkdat(self, dircfg, data_stream: BCDataStream, filename="[unknown]"):
+    def import_blkdat(
+        self, dircfg: Dict, data_stream: BCDataStream, filename: str = "[unknown]"
+    ) -> None:
+        if data_stream.input is None:
+            raise SerializationError(
+                f"No data was read when importing block data from {filename}."
+            )
+        # have to read the input into memory use bytes to keep immutable
+        data_stream.input = bytes(data_stream.input)  # type:ignore
         filenum = dircfg["blkfile_number"]
         data_stream.read_cursor = dircfg["blkfile_offset"]
 
@@ -3265,7 +3276,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
                 data_stream.read_cursor = offset
                 while data_stream.read_cursor < len(data_stream.input):
                     size = min(len(data_stream.input) - data_stream.read_cursor, 1000)
-                    data = data_stream.read_bytes(size).lstrip("\0")
+                    data = data_stream.read_bytes(size).lstrip(b"\0")
                     if data != "":
                         data_stream.read_cursor -= len(data)
                         break
@@ -3286,7 +3297,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
                 self.log.warning(
                     "Chain not found for magic number %s in block file %s at"
                     " offset %d.",
-                    magic.encode("hex"),
+                    b2hex(magic),
                     filename,
                     offset,
                 )
@@ -3299,12 +3310,10 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
                     data_stream.read_cursor = offset
                     break
 
-                self.log.info(
-                    "Scanning for initial magic number %s.", magic.encode("hex")
-                )
+                self.log.info("Scanning for initial magic number %s.", b2hex(magic))
 
                 data_stream.read_cursor = offset
-                offset = data_stream.input.find(magic, offset)
+                offset = data_stream.input.find(magic, offset.to_bytes())  # type:ignore
                 if offset == -1:
                     self.log.info("Magic number scan unsuccessful.")
                     break
@@ -3878,7 +3887,7 @@ LEFT JOIN block prev ON (b.prev_block_id = prev.block_id)""",
         self.sql("DELETE FROM tx WHERE tx_id = ?", (tx_id,))
 
 
-def new(args):
+def new(args) -> DataStore:
     return DataStore(args)
 
 
@@ -3893,7 +3902,7 @@ class CmdLine(object):
     def usage(self):
         return "Sorry, no help is available."
 
-    def init(self):
+    def init(self) -> Tuple[Union[DataStore, None], Any]:
 
         self.conf.update({"debug": None, "logging": None})
         self.conf.update(CONFIG_DEFAULTS)

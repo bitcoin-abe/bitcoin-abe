@@ -19,9 +19,9 @@
 """Load blocks in different order for testing."""
 
 import sys
-from . import util
-from .data_store import CmdLine
-from .streams import BCDataStream
+from Abe import util
+from Abe.data_store import CmdLine
+from Abe.streams import BCDataStream
 
 
 def mixup_blocks(store, data_stream, count, datadir_chain=None, seed=None):

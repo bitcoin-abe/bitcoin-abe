@@ -19,8 +19,8 @@
 
 import sys
 from random import randint
-from . import Chain, firstbits, util
-from .constants import NULL_PUBKEY_HASH, NULL_PUBKEY_ID, SCRIPT_NETWORK_FEE
+from Abe import Chain, firstbits, util
+from Abe.constants import NULL_PUBKEY_HASH, NULL_PUBKEY_ID, SCRIPT_NETWORK_FEE
 
 
 def run_upgrades_locked(store, _upgrades):
@@ -178,7 +178,7 @@ def init_block_txin(store):
                     store.log.info("commit %d", count)
         tried += 1
         if tried % 1000 == 0:
-            sys.stdout.write("\r%d/%d " % (added, tried))
+            sys.stdout.write(f"\r{added}/{tried} ")
             sys.stdout.flush()
 
     store.log.info("done.")
@@ -1208,7 +1208,7 @@ def drop_policy(store):
     for stmt in ["ALTER TABLE chain DROP COLUMN policy_id", "DROP TABLE policy"]:
         try:
             store.ddl(stmt)
-        except store.dbmodule.DatabaseError as e:
+        except store.dbmodule.DatabaseError:
             store.log.warning("Cleanup failed, ignoring: %s", stmt)
 
 

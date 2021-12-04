@@ -1,9 +1,9 @@
 """encode/decode base58 in the same way that Bitcoin does"""
 
-from typing import Union
+from typing import Optional, Union
 from base58 import b58encode, b58decode
 from Crypto.Hash import SHA256, RIPEMD160
-from .util import hex2b, b2hex
+from util import hex2b, b2hex
 
 # XXX This file only supports P2PKH and neither P2SH, Bech32, nor P2TR
 
@@ -15,8 +15,12 @@ def hash_160(public_key: Union[bytes, bytearray, memoryview, None]) -> bytes:
     return hash_2
 
 
-def hash_160_to_bc_address(h160: bytes, version: bytes = b"\x00") -> bytes:
+def hash_160_to_bc_address(
+    h160: Optional[bytes], version: bytes = b"\x00"
+) -> Optional[bytes]:
     """Convert a hash160 into an address. The default address type is for Bitcoin"""
+    if h160 is None:
+        return None
     vh160 = version + h160
     hash_3 = SHA256.new(SHA256.new(vh160).digest()).digest()
     addr = vh160 + hash_3[0:4]
@@ -25,15 +29,15 @@ def hash_160_to_bc_address(h160: bytes, version: bytes = b"\x00") -> bytes:
 
 def public_key_to_bc_address(
     public_key: Union[bytes, bytearray, memoryview, None], version: bytes = b"\x00"
-) -> bytes:
+) -> Optional[bytes]:
     """Generate the address from a public key. The default address type is for Bitcoin"""
     if public_key is None:
-        return b""
+        return None
     h160 = hash_160(public_key)
     return hash_160_to_bc_address(h160, version)
 
 
-def bc_address_to_hash_160(addr: Union[bytes, str]) -> bytes:
+def bc_address_to_hash_160(addr: bytes) -> bytes:
     """Convert an address into a hash160"""
     return b58decode(addr)
 

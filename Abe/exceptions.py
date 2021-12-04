@@ -1,4 +1,5 @@
 """Specific Exceptions used in Abe."""
+from util import b2hex
 
 
 class EnumException(Exception):
@@ -23,7 +24,7 @@ class MerkleRootMismatch(InvalidBlock):
 
     def __str__(self):
         return f"Block header Merkle root does not match its transactions. \
-                block hash={self.block_hash[::-1].encode('hex')}"
+                block hash={b2hex(self.block_hash[::-1])}"
 
 
 class MalformedHash(ValueError):
@@ -32,22 +33,3 @@ class MalformedHash(ValueError):
 
 class MalformedAddress(ValueError):
     """Bad address"""
-
-
-class JsonrpcException(Exception):
-    """JSON RPC exceptions"""
-
-    def __init__(self, error, method, params):
-        Exception.__init__(self)
-        self.code = error["code"]
-        self.message = error["message"]
-        self.data = error.get("data")
-        self.method = method
-        self.params = params
-
-    def __str__(self):
-        return self.method + ": " + self.message + " (code " + str(self.code) + ")"
-
-
-class JsonrpcMethodNotFound(JsonrpcException):
-    """No JSON RPC Method Found"""

@@ -1,13 +1,14 @@
 """Constants used by multiple files """
 # pylint: disable=unused-import
-from .Chain import PUBKEY_HASH_LENGTH
-from .SqlAbstraction import MAX_SCRIPT, MAX_PUBKEY, NO_CLOB
+from typing import Any, Dict
+from Abe.Chain import PUBKEY_HASH_LENGTH
+from Abe.SqlAbstraction import MAX_SCRIPT, MAX_PUBKEY, NO_CLOB
 
 
 SCHEMA_TYPE = "Abe"
 SCHEMA_VERSION = SCHEMA_TYPE + "41"
 
-CONFIG_DEFAULTS = {
+CONFIG_DEFAULTS: Dict[str, Any] = {
     "dbtype": None,
     "connect_args": None,
     "binary_type": None,
@@ -90,7 +91,7 @@ CHAIN_CONFIG = [
     # "code3":"", "address_version":"\x", "magic":""},
 ]
 
-NULL_PUBKEY_HASH = "\0" * PUBKEY_HASH_LENGTH
+NULL_PUBKEY_HASH = b"\x00" * PUBKEY_HASH_LENGTH
 NULL_PUBKEY_ID = 0
 PUBKEY_ID_NETWORK_FEE = NULL_PUBKEY_ID
 SCRIPT_NETWORK_FEE = NULL_PUBKEY_ID

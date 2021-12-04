@@ -18,39 +18,102 @@
 
 from random import Random
 import struct
-from typing import Any, Union
+from typing import Any, Optional, TypedDict, Union, List, Dict
 from Abe import Chain, util
-from Abe.util import hex2b
-from Abe.deserialize import opcodes
-from Abe.streams import BCDataStream
+from Abe.Chain import BaseChain
 
+# from Abe.data_store import DataStore
+from Abe.merkle import Merkle
+from Abe.streams import BCDataStream
+from Abe.typing import Block, BlockHeader, TxOut, TxIn, Witness, opcodes
+from Abe.util import b2hex, hex2b
+
+# from .db import DataBasetype
 
 # pylint: disable=invalid-name
+
+
+class MultiSig(TypedDict, total=False):
+    """Multisig Data Structure"""
+
+    m: int
+    pubkeys: List[bytes]
+
+
+class TxOutTest(TxOut, total=False):
+    """Output Transaction Testing Data Structure"""
+
+    hash: bytes
+    pos: int
+    multisig: Optional[MultiSig]
+    pubkey: bytes
+    addr: bytes
+
+
+class TxInTest(TxIn, total=False):
+    """TxIn Data Structure"""
+
+    pos: int
+
+
+class TransactionTest(TypedDict, total=False):
+    """Testing Transaction Data Structure"""
+
+    version: int
+    nTime: Optional[bytes]  # This is for some alt.
+    marker: Optional[bytes]  # SegWit marker
+    flag: Optional[bytes]  # SegWit flag
+    txIn: List[TxIn]
+    txOut: List[TxOutTest]
+    witness: Optional[List[Witness]]  # segregated witness
+    lockTime: int
+    __data__: Union[bytearray, memoryview, None]
+    hash: bytes
+
+
+class BlockTest(BlockHeader, total=False):
+    """Testing Block Dictionary Type"""
+
+    transactions: List[TransactionTest]
+    hash: bytes
+
+
 class Gen:
     """Data Factory for Unit Testing"""
 
-    def __init__(self, rng=1, chain=None, **kwargs):
-        if not hasattr(rng, "randrange"):
-            rng = Random(rng)
+    def __init__(
+        self,
+        chain: BaseChain = None,
+        # data_base: DataBasetype = None,
+        seed: Any = None,
+        **kwargs,
+    ):
         if chain is None:
             chain = Chain.create("Testnet")
 
-        self._rng = rng
+        if seed is None:
+            seed = b"This is the default seed."
+
+        self._random = Random(seed)
         self.chain = chain
-        self.blocks = []
+        self.blocks: List[BlockTest] = []
+        # if data_base is not None:
+        #     db_args = data_base.get_connect_args()
+        # self.store = DataStore(db_args)
 
         for attr, val in kwargs.items():
             setattr(self, attr, val)
 
-    def random_bytes(self, num_bytes: int) -> str:
+    def random_bytes(self, num_bytes: int) -> bytes:
         """Generate random bytes of length num_bytes"""
-        return "".join(chr(self._rng.randrange(256)) for _ in range(num_bytes))
+        rand_bytes: bytes = self._random.randbytes(num_bytes)  # type: ignore
+        return rand_bytes
 
     def random_addr_hash(self):
         """Generate a random address hash"""
         return self.random_bytes(20)
 
-    def encode_script(self, *script_data) -> bytearray:
+    def encode_script(self, *script_data) -> Union[bytearray, memoryview, None]:
         """Encode OP_CODES and script contents into bytes.
         Do not pass into here a hex string unless if the hex string is to be utf-8 encoded.
         If hexadecimal data is to be kept unchanged it needs to be passed in as bytes
@@ -67,7 +130,7 @@ class Gen:
                 raise ValueError(val)
         return data_stream.input
 
-    def opcode(self, num: int) -> bytes:
+    def opcode(self, num: int) -> int:
         """
         Returns a binary representation of the OP_CODE using an integer input:
             num = -1    OP_RESERVED
@@ -89,43 +152,43 @@ class Gen:
             return num  # .to_bytes(1, byteorder="little")
         return 256 + num  # .to_bytes(1, byteorder="little")
 
-    def address_scriptPubKey(self, hash_):
+    def address_scriptPubKey(self, _hash: bytes) -> Union[bytearray, memoryview, None]:
         """Generate ScriptPubKEy from address hash"""
         return self.encode_script(
             opcodes.OP_DUP,
             opcodes.OP_HASH160,
-            hash_,
+            _hash,
             opcodes.OP_EQUALVERIFY,
             opcodes.OP_CHECKSIG,
         )
 
-    def pubkey_scriptPubKey(self, pubkey):
+    def pubkey_scriptPubKey(
+        self, pubkey: Union[str, bytes]
+    ) -> Union[bytearray, memoryview, None]:
         """Just encode the PubKey in the ScriptPubKey"""
         return self.encode_script(pubkey, opcodes.OP_CHECKSIG)
 
-    def multisig_scriptPubKey(self, m: int, pubkeys: list[Union[bytes, str]]) -> bytes:
+    def multisig_scriptPubKey(self, m: int, pubkeys: List[bytes]) -> bytes:
         """Multisig ScriptPubKey"""
-        ops = (
-            [self.opcode(m)]
-            + pubkeys
-            + [self.opcode(len(pubkeys)), opcodes.OP_CHECKMULTISIG]
-        )
-        return self.encode_script(*ops)
+        ops: List[Any] = [self.opcode(m)]
+        ops += pubkeys
+        ops += [self.opcode(len(pubkeys)), opcodes.OP_CHECKMULTISIG]
+        script = self.encode_script(*tuple(ops))
+        if script is None:
+            raise IOError
+        return bytes(script)
 
-    def p2sh_scriptPubKey(self, hash_) -> bytearray:
+    def p2sh_scriptPubKey(self, hash_: bytes) -> Union[bytearray, memoryview, None]:
         """SEGWIT address type ScriptPubKey"""
         return self.encode_script(opcodes.OP_HASH160, hash_, opcodes.OP_EQUAL)
 
-    def txin(self, **kwargs):
+    def txin(self, **kwargs) -> TxInTest:
         """utx_in"""
-        txin = {"sequence": 0xFFFFFFFF, "pos": 0}
-        txin.update(kwargs)
-        if "prevout" in txin:
-            txin["prevout_hash"] = txin["prevout"]["hash"]
-            txin["prevout_n"] = txin["prevout"]["pos"]
+        txin: TxInTest = {"sequence": 0xFFFFFFFF, "pos": 0}
+        txin.update(kwargs)  # type: ignore
         return txin
 
-    def coinbase_txin(self, **kwargs) -> dict[str, Any]:
+    def coinbase_txin(self, **kwargs) -> TxInTest:
         """Coinbase tx input"""
         chain = self.chain
         args = {
@@ -136,42 +199,55 @@ class Gen:
         args.update(kwargs)
         return self.txin(**args)
 
-    def txout(self, **kwargs) -> dict[str, Any]:
+    def txout(self, **kwargs) -> TxOutTest:
         """utxo"""
-        txout = {"value": 1, "pos": 0}
-        txout.update(kwargs)
+        txout: TxOutTest = {"value": 1, "pos": 0}
+        txout.update(kwargs)  # type: ignore
 
         if "scriptPubKey" in txout:
             pass
-        elif "multisig" in txout:
+        elif "multisig" in txout and txout["multisig"] is not None:
             txout["scriptPubKey"] = self.multisig_scriptPubKey(
                 txout["multisig"]["m"], txout["multisig"]["pubkeys"]
             )
         elif "pubkey" in txout:
-            txout["scriptPubKey"] = self.pubkey_scriptPubKey(txout["pubkey"])
+            pubkey = self.pubkey_scriptPubKey(txout["pubkey"])
+            if pubkey is not None:
+                txout["scriptPubKey"] = bytes(pubkey)
         elif "addr" in txout:
             version, hash_ = util.decode_check_address(txout["addr"])
-            if version == self.chain.address_version:
-                txout["scriptPubKey"] = self.address_scriptPubKey(hash_)
-            elif version == self.chain.script_addr_vers:
-                txout["scriptPubKey"] = self.p2sh_scriptPubKey(hash_)
+            if version == self.chain.address_version and hash_ is not None:
+                address = self.address_scriptPubKey(hash_)
+                if address is not None:
+                    txout["scriptPubKey"] = bytes(address)
+            elif version == self.chain.script_addr_vers and hash_ is not None:
+                p2sh = self.p2sh_scriptPubKey(hash_)
+                if p2sh is not None:
+                    txout["scriptPubKey"] = bytes(p2sh)
             else:
+                if version is None:
+                    b_version = "(None)"
+                else:
+                    b_version = b2hex(version)
                 raise ValueError(
-                    f"Invalid address version {version} not in \
-                        ({self.chain.address_version}, {self.chain.script_addr_vers})"
+                    f"Invalid address version {b_version} not in "
+                    f"({b2hex(self.chain.address_version)}, "
+                    f"{b2hex(self.chain.script_addr_vers)})"
                 )
         else:
-            txout["scriptPubKey"] = self.address_scriptPubKey(self.random_addr_hash())
+            rand_address = self.address_scriptPubKey(self.random_addr_hash())
+            if rand_address is not None:
+                txout["scriptPubKey"] = bytes(rand_address)
 
         return txout
 
     def tx(
         self,
-        txIn: dict[str, Any],
-        txOut: dict[str, Any],
+        txIn: List[TxInTest],
+        txOut: List[TxOutTest],
         version: int = 1,
         lockTime: int = 0,
-    ) -> dict[str, Any]:
+    ) -> TransactionTest:
         """Generate a dict of the data in a tx"""
         chain = self.chain
 
@@ -183,23 +259,22 @@ class Gen:
             arg["pos"] = i
             return self.txout(**arg)
 
-        tx = {
+        tx: TransactionTest = {
             "version": version,
             "txIn": [parse_txin(i, arg) for i, arg in enumerate(txIn)],
             "txOut": [parse_txout(i, arg) for i, arg in enumerate(txOut)],
             "lockTime": lockTime,
         }
-        tx["__data__"] = chain.serialize_transaction(tx)
-        tx["hash"] = chain.transaction_hash(tx["__data__"])
-
-        for txout in tx["txOut"]:
-            txout["hash"] = tx["hash"]
+        tx["__data__"] = chain.serialize_transaction(tx)  # type: ignore
+        if tx["__data__"] is not None:
+            for txout in tx["txOut"]:
+                txout["hash"] = util.transaction_hash(tx["__data__"])
 
         return tx
 
     def coinbase(
-        self, txOut: dict[str, Any] = None, value: int = int(50e8), **kwargs
-    ) -> dict[str, Any]:
+        self, txOut: List[TxOutTest] = None, value: int = int(50e8), **kwargs
+    ) -> TransactionTest:
         """Generate the coinbase transaction."""
         txIn = [self.coinbase_txin(**kwargs)]
         if "scriptSig" in kwargs:
@@ -211,42 +286,54 @@ class Gen:
     def block(
         self,
         prev: bytes = None,
-        transactions: dict[str, Any] = None,
+        transactions: List[TransactionTest] = None,
         version: int = 1,
         nTime: int = 1231006506,
         nBits: int = 0x1D00FFFF,
         nNonce: int = 253,
-    ) -> dict[str, Any]:
+    ) -> BlockTest:
         """Create a block dictionary"""
         chain = self.chain
 
         if prev is None:
             prev = chain.genesis_hash_prev
-        elif isinstance(prev, dict):
+        elif isinstance(prev, Dict):
             prev = prev["hash"]
 
         if transactions is None:
             transactions = [self.coinbase()]
-
-        block = {
+        merkle_root_hash = Merkle([tx["hash"] for tx in transactions]).root()
+        block: Block = {
             "version": version,
             "hashPrev": prev,
-            "hashMerkleRoot": chain.merkle_root([tx["hash"] for tx in transactions]),
+            "hashMerkleRoot": merkle_root_hash,
             "nTime": nTime,
             "nBits": nBits,
             "nNonce": nNonce,
-            "transactions": transactions,
         }
-        block["hash"] = chain.block_header_hash(chain.serialize_block_header(block))
+        header = chain.serialize_block_header(block)  # type: ignore
+        if header is not None:
+            block["__header__"] = header
+        block_test: BlockTest = {}
+        for key, value in block.items():
+            block_test[key] = value  # type: ignore
+        if block_test["__header__"] is not None:
+            block_test["hash"] = util.block_header_hash(block_test["__header__"])
 
-        return block
+        return block_test
 
-    def save_blkfile(self, blkfile: str, blocks: dict[str, Any]) -> None:
+    def save_blkfile(self, blkfile: str, blocks: List[BlockTest]) -> None:
         """Save the temporary blockfile"""
         with open(blkfile, "wb") as file:
             for block_obj in blocks:
                 file.write(self.chain.magic)
-                bstr = self.chain.serialize_block(block_obj)
-                file.write(struct.pack("<i", len(bstr)))  # pylint: disable=no-member
-                file.write(bstr)
+                block: Block = {}
+                for key, _ in block.items():
+                    block[key] = block_obj[key]  # type: ignore
+                bstr = self.chain.serialize_block(block)
+                if bstr is not None:
+                    file.write(
+                        struct.pack("<i", len(bstr))  # pylint: disable=no-member
+                    )
+                    file.write(bstr)
             file.close()

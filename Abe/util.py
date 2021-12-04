@@ -23,16 +23,34 @@ import platform
 import re
 import hashlib
 import json
-from typing import Union
+from typing import List, Any, Optional, Tuple, Union
 from urllib.request import urlopen
 from Crypto.Hash import SHA256, RIPEMD160
 from base58 import b58decode, b58encode
-from .streams import BCDataStream
-from .exceptions import JsonrpcMethodNotFound, JsonrpcException
 
 NULL_HASH = b"\x00" * 32
 GENESIS_HASH_PREV = NULL_HASH
 ADDRESS_RE = re.compile("[1-9A-HJ-NP-Za-km-z]{26,}\\Z")
+
+
+class JsonrpcException(Exception):
+    """JSON RPC exceptions"""
+
+    def __init__(self, error, method, params):
+        Exception.__init__(self)
+        self.code = error["code"]
+        self.message = error["message"]
+        self.data = error.get("data")
+        self.method = method
+        self.params = params
+
+    def __str__(self):
+        return self.method + ": " + self.message + " (code " + str(self.code) + ")"
+
+
+class JsonrpcMethodNotFound(JsonrpcException):
+    """No JSON RPC Method Found"""
+
 
 # This function comes from bitcointools, bct-LICENSE.txt.
 def determine_db_dir() -> str:
@@ -59,6 +77,9 @@ def short_hex(_bytes: Union[bytes, bytearray]) -> str:
     return _hex[0:4] + "..." + _hex[-4:]
 
 
+#####################
+# Hashing Functions #
+#####################
 def sha256(data: Union[bytes, bytearray, memoryview, None]) -> bytes:
     return SHA256.new(data).digest()
 
@@ -68,6 +89,8 @@ def double_sha256(data: Union[bytes, bytearray, memoryview, None]) -> bytes:
 
 
 def sha3_256(data: Union[bytes, bytearray, memoryview, None]) -> bytes:
+    if data is None:
+        return b""
     return hashlib.sha3_256(data).digest()
 
 
@@ -75,6 +98,55 @@ def pubkey_to_hash(pubkey: Union[bytes, bytearray, memoryview, None]) -> bytes:
     return RIPEMD160.new(SHA256.new(pubkey).digest()).digest()
 
 
+def script_to_hash(script: Union[bytes, bytearray, memoryview, None]) -> bytes:
+    return pubkey_to_hash(script)
+
+
+def transaction_hash(binary_tx: bytes) -> bytes:
+    return double_sha256(binary_tx)
+
+
+def witness_hash(binary_tx: bytes) -> bytes:
+    return double_sha256(binary_tx)
+
+
+def block_header_hash(header: Union[bytes, bytearray, memoryview, None]) -> bytes:
+    """Provides the double SHA256 hash of the blockheader"""
+    return double_sha256(header)
+
+
+def SHA256D64(hashes: List[bytes]) -> List[bytes]:  # pylint: disable=invalid-name
+    """Concatenates an even list of hashes into a list of hashes of half the original length.
+    Note: This is named after a similar and far more complete function in crypto/sha256.h
+
+    Args:
+        hashes (List[bytes]): An even length list of hashes.
+
+    Raises:
+        IndexError: if the list is not even
+
+    Returns:
+        List[bytes]: A list of new hashes half the original length
+    """
+
+    size = len(hashes)
+
+    if size & 1:
+        raise IndexError("Only an even length list can be passed.")
+
+    _hashes = []
+
+    for i in range(0, size, 2):
+        j = i + 1
+        concat_bytes = bytearray(hashes[i]) + bytearray(hashes[j])
+        _hashes.append(double_sha256(concat_bytes))
+    hashes = _hashes
+    return hashes
+
+
+#################################
+# Difficulty and Work Functions #
+#################################
 def calculate_target(nBits: int) -> int:
     # cf. CBigNum::SetCompact in bignum.h
     shift = 8 * (((nBits >> 24) & 0xFF) - 3)
@@ -83,9 +155,9 @@ def calculate_target(nBits: int) -> int:
     return sign * (bits << shift if shift >= 0 else bits >> -shift)
 
 
-# XXX need to get the type of target whether int of float
-def target_to_difficulty(target) -> float:
-    return ((1 << 224) - 1) * 1000 / (target + 1) / 1000.0
+def target_to_difficulty(target: int) -> float:
+    value: float = ((1 << 224) - 1) * 1000 / (target + 1) / 1000.0
+    return value
 
 
 def calculate_difficulty(nBits) -> float:
@@ -111,7 +183,10 @@ def work_to_target(work: int) -> int:
     return int((1 << 256) / work) - 1
 
 
-def get_search_height(height: int) -> Union[int, None]:
+###########################
+# Block and Address Tools #
+###########################
+def get_search_height(height: int) -> Optional[int]:
     if height < 2:
         return None
     if height & 1:
@@ -122,9 +197,11 @@ def get_search_height(height: int) -> Union[int, None]:
     return height - bit
 
 
-def possible_address(string: str) -> bool:
+def possible_address(string: Union[str, bytes]) -> bool:
     """Determine if a string matches the regex format of an address.
     This method only accepts b58encoded data"""
+    if isinstance(string, bytes):
+        string = str(string, "utf-8")
     return bool(ADDRESS_RE.match(string))
 
 
@@ -135,17 +212,21 @@ def hash_to_address(
         _hash = hex2b(_hash)
     version_hash = bytearray(version) + bytearray(_hash)
     _bytes = bytes(version_hash + double_sha256(version_hash)[:4])
-    return str(b58encode(_bytes), "utf-8")
+    return b58encode(_bytes)
 
 
-def decode_address(address: str) -> tuple[bytes, bytes]:
-    _bytes = b58decode(address)
-    if len(_bytes) < 25:
-        _bytes = ("\0" * (25 - len(_bytes))) + _bytes
-    return _bytes[:-24], _bytes[-24:-4]
+def decode_address(address: Union[str, bytes]) -> Tuple[bytes, bytes]:
+    decoded = bytearray(b58decode(address))
+    if len(decoded) < 25:
+        decoded = bytearray(b"\0" * (25 - len(decoded))) + decoded
+    return bytes(decoded[:-24]), bytes(decoded[-24:-4])
 
 
-def decode_check_address(address: str) -> Union[tuple[bytes, bytes], tuple[None, None]]:
+def decode_check_address(
+    address: Union[str, bytes]
+) -> Union[Tuple[bytes, bytes], Tuple[None, None]]:
+    if isinstance(address, str):
+        address = bytes(address, "utf-8")
     if possible_address(address):
         version, _hash = decode_address(address)
         if hash_to_address(version, _hash) == address:
@@ -153,13 +234,16 @@ def decode_check_address(address: str) -> Union[tuple[bytes, bytes], tuple[None,
     return None, None
 
 
+##############################################
+# Data Conversion and Manipulation Functions #
+##############################################
 # XXX not sure type of method
-def jsonrpc(url: str, method, *params) -> str:
+def jsonrpc(url: str, method, *params) -> Any:
     postdata = json.dumps(
         {"jsonrpc": "2.0", "method": method, "params": params, "id": "x"}
     )
-    respdata = urlopen(url, postdata).read()
-    resp = json.loads(respdata)
+    with urlopen(url, bytes(postdata, "utf-8")).read() as respdata:
+        resp = json.loads(respdata)
     if resp.get("error") is not None:
         if resp["error"]["code"] == -32601:
             raise JsonrpcMethodNotFound(resp["error"], method, params)
@@ -167,13 +251,7 @@ def jsonrpc(url: str, method, *params) -> str:
     return resp["result"]
 
 
-def str_to_ds(data: str) -> BCDataStream:
-    data_stream = BCDataStream()
-    data_stream.write(data)
-    return data_stream
-
-
-# Abstract hex-binary conversions for Python 3.
+# Abstract hex-binary conversions
 def hex2b(data: str) -> bytes:
     """Convert a hexadecimal string into binary data"""
     return bytes.fromhex(data)

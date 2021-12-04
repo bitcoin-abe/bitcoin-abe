@@ -183,3 +183,24 @@ Abe: a free block chain browser for Bitcoin-based currencies.
 _Copyright © 2011,2012,2013 by Abe developers._ \
 _License: GNU Affero General Public License, see the file_ [`LICENSE.md`](LICENSE.md). \
 _Portions Copyright (c) 2010 Gavin Andresen, see_ [`bct-LICENSE.txt`](bct-LICENSE.txt).
+
+```hex
+01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 3b a3 ed fd 7a 7b 12 b2 7a c7 2c 3e
+67 76 8f 61 7f c8 1b c3 88 8a 51 32 3a 9f b8 aa
+4b 1e 5e 4a 29 ab 5f 49 ff ff 00 1d 1d ac 2b 7c
+01 01 00 00 00 01 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 ff ff ff ff 4d 04 ff ff 00 1d
+01 04 45  T  h  e     T  i  m  e  s     0  3  /
+ J  a  n  /  2  0  0  9     C  h  a  n  c  e  l
+ l  o  r     o  n     b  r  i  n  k     o  f
+ s  e  c  o  n  d     b  a  i  l  o  u  t     f
+ o  r     b  a  n  k  s ff ff ff ff 01 00 f2 05
+2a 01 00 00 00 43 41 04 67 8a fd b0 fe 55 48 27
+19 67 f1 a6 71 30 b7 10 5c d6 a8 28 e0 39 09 a6
+79 62 e0 ea 1f 61 de b6 49 f6 bc 3f 4c ef 38 c4
+f3 55 04 e5 1e c1 12 de 5c 38 4d f7 ba 0b 8d 57
+8a 4c 70 2b 6b f1 1d 5f ac 00 00 00 00
+```

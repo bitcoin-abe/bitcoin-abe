@@ -18,7 +18,7 @@
 """Delete a chain from the database, etc."""
 
 import sys
-from .data_store import CmdLine
+from data_store import CmdLine
 
 
 def commit(store):
@@ -98,7 +98,7 @@ def rewind_datadir(store, dirname):
     commit(store)
 
 
-def rewind_chain_blockfile(store, name, chain_id):
+def rewind_chain_blockfile(store, chain_id):
     store.sql(
         """
         UPDATE datadir
@@ -173,7 +173,7 @@ def del_chain_blocks_1(store, name, chain_id):
         commit(store)
 
 
-def del_chain_block_tx(store, name, chain_id):
+def del_chain_block_tx(store, chain_id):
     store.sql(
         """
         DELETE FROM block_tx WHERE block_id IN (
@@ -190,8 +190,8 @@ def delete_chain_blocks(store, name, chain_id=None):
 
     store.log.info("Deleting blocks in chain %s", name)
     del_chain_blocks_1(store, name, chain_id)
-    del_chain_block_tx(store, name, chain_id)
-    del_chain_blocks_2(store, name, chain_id)
+    del_chain_block_tx(store, chain_id)
+    del_chain_blocks_2(store, chain_id)
 
 
 def delete_chain_transactions(store, name, chain_id=None):
@@ -248,7 +248,7 @@ def delete_chain_transactions(store, name, chain_id=None):
     ):
         tx_ids.append(int(row[0]))
 
-    del_chain_block_tx(store, name, chain_id)
+    del_chain_block_tx(store, chain_id)
 
     deleted = 0
     store.log.info("Deleting from tx...")
@@ -266,10 +266,10 @@ def delete_chain_transactions(store, name, chain_id=None):
     store.log.info("Deleted %d from tx.", deleted)
     commit(store)
 
-    del_chain_blocks_2(store, name, chain_id)
+    del_chain_blocks_2(store, chain_id)
 
 
-def del_chain_blocks_2(store, name, chain_id):
+def del_chain_blocks_2(store, chain_id):
     block_ids = []
     for row in store.selectall(
         "SELECT block_id FROM chain_candidate WHERE chain_id = ?", (chain_id,)
@@ -289,7 +289,7 @@ def del_chain_blocks_2(store, name, chain_id):
         deleted += store.rowcount()
     store.log.info("Deleted %d from block.", deleted)
 
-    rewind_chain_blockfile(store, name, chain_id)
+    rewind_chain_blockfile(store, chain_id)
     commit(store)
 
 
