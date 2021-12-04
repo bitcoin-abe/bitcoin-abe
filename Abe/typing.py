@@ -89,7 +89,7 @@ class Block(BlockHeader, total=False):
     block_id: int  # This is the big endian hex representation
     hash: bytes
     height: Optional[int]
-    prev_block_id: int
+    prev_block_id: Optional[int]
     chain_work: Optional[int]
     value_in: int
     value_out: int

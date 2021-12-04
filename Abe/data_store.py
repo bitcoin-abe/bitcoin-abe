@@ -251,9 +251,9 @@ class DataStore:
         """drop_sequence"""
         self._sql.drop_sequence(key)
 
-    def new_id(self, key):
+    def new_id(self, key: str) -> int:
         """new_id"""
-        return self._sql.new_id(key)
+        return int(self._sql.new_id(key))
 
     def init_sql(self):
         """init_sql"""
@@ -711,18 +711,22 @@ class DataStore:
         self.config[name] = value
         self.save_configvar(name)
 
-    def cache_block(self, block_id, height, prev_id, search_id):
+    def cache_block(self, block_id, height, prev_block_id, search_block_id) -> Block:
         """cache_block"""
         assert isinstance(block_id, int), repr(block_id)
         assert isinstance(height, int), repr(height)
-        assert prev_id is None or isinstance(prev_id, int)
-        assert search_id is None or isinstance(search_id, int)
-        block = {"height": height, "prev_id": prev_id, "search_id": search_id}
+        assert prev_block_id is None or isinstance(prev_block_id, int)
+        assert search_block_id is None or isinstance(search_block_id, int)
+        block: Block = {
+            "height": height,
+            "prev_block_id": prev_block_id,
+            "search_block_id": search_block_id,
+        }
         self._blocks[block_id] = block
         return block
 
-    def _load_block(self, block_id):
-        block = self._blocks.get(block_id)
+    def _load_block(self, block_id) -> Optional[Block]:
+        block: Block = self._blocks.get(block_id)
         if block is None:
             row = self.selectrow(
                 """
@@ -733,28 +737,37 @@ class DataStore:
             )
             if row is None:
                 return None
-            height, prev_id, search_id = row
+            height, prev_block_id, search_block_id = row
             block = self.cache_block(
                 block_id,
                 int(height),
-                None if prev_id is None else int(prev_id),
-                None if search_id is None else int(search_id),
+                None if prev_block_id is None else int(prev_block_id),
+                None if search_block_id is None else int(search_block_id),
             )
         return block
 
-    def get_block_id_at_height(self, height: Optional[int], descendant_id):
+    def get_block_id_at_height(
+        self, height: Optional[int], descendant_id: Optional[int]
+    ) -> Optional[int]:
         """get_block_id_at_height"""
         if height is None:
             return None
+
         while True:
             block = self._load_block(descendant_id)
+
+            if block is None or block["height"] is None:
+                raise LookupError
+
             if block["height"] == height:
                 return descendant_id
-            if util.get_search_height(block["height"]) is not None:
-                if util.get_search_height(block["height"]) >= height:  # type: ignore
-                    descendant_id = block["search_id"]
-                else:
-                    descendant_id = block["prev_id"]
+
+            search_height = util.get_search_height(block["height"])
+            descendant_id = block[
+                "prev_block_id"  # type: ignore
+                if search_height is None or search_height < height
+                else "search_block_id"
+            ]
 
     def is_descended_from(self, block_id, ancestor_id):
         """is_descended_from"""
@@ -770,11 +783,25 @@ class DataStore:
             and self.get_block_id_at_height(height, block_id) == ancestor_id
         )
 
-    def get_block_height(self, block_id):
+    def get_block_height(self, block_id: int) -> Optional[int]:
         """get_block_height"""
-        return self._load_block(int(block_id))["height"]
+        block: Optional[Block] = self._load_block(block_id)
+        if block is None:
+            return None
+        return block["height"]
 
-    def find_prev(self, _hash):
+    def find_prev(
+        self, _hash
+    ) -> Tuple[
+        Optional[int],
+        Optional[int],
+        Optional[int],
+        Optional[int],
+        Optional[int],
+        Optional[int],
+        Optional[int],
+        Optional[int],
+    ]:
         """find_prev"""
         row = self.selectrow(
             """
@@ -798,9 +825,9 @@ class DataStore:
             nTime,
         ) = row
         return (
-            block_id,
+            int(block_id),
             None if height is None else int(height),
-            self.binout_int(chain_work),
+            int(self.binout_int(chain_work)),
             None if satoshis is None else int(satoshis),
             None if seconds is None else int(seconds),
             None if satoshi_seconds is None else int(satoshi_seconds),
@@ -819,7 +846,7 @@ class DataStore:
         block["value_in"] = 0
         block["value_out"] = 0
         block["value_destroyed"] = 0
-        tx_hash_array = []
+        tx_hash_array: List[bytes] = []
 
         # In the common case, all the block's txins _are_ linked, and we
         # can avoid a query if we notice this.
@@ -852,11 +879,12 @@ class DataStore:
                 block["value_in"] = None
             elif block["value_in"] is not None:
                 block["value_in"] += transaction["value_in"]
+
             block["value_out"] += transaction["value_out"]
             block["value_destroyed"] += transaction["value_destroyed"]
 
         # Get a new block ID.
-        block_id = int(self.new_id("block"))
+        block_id: int = self.new_id("block")
         block["block_id"] = block_id
 
         if chain is not None:
@@ -865,7 +893,7 @@ class DataStore:
                 raise MerkleRootMismatch(block["hash"], tx_hash_array)
 
         # Look for the parent block.
-        hashPrev = block["hashPrev"]
+        hashPrev: bytes = block["hashPrev"]
 
         is_genesis: bool = hashPrev == util.GENESIS_HASH_PREV
 
@@ -884,14 +912,17 @@ class DataStore:
             else self.find_prev(hashPrev)
         )
 
-        block["prev_block_id"] = prev_block_id
+        if prev_block_id is not None:
+            block["prev_block_id"] = prev_block_id
+
         block["height"] = None if prev_height is None else prev_height + 1
         block["chain_work"] = util.calculate_work(prev_work, block["nBits"])
 
-        if prev_seconds is None:
+        if prev_seconds is None or prev_nTime is None:
             block["seconds"] = None
         else:
             block["seconds"] = prev_seconds + block["nTime"] - prev_nTime
+
         if prev_satoshis is None or prev_satoshis < 0 or block["value_in"] is None:
             # XXX Abuse this field to save work in adopt_orphans.
             block["satoshis"] = -1 - block["value_destroyed"]
@@ -903,7 +934,12 @@ class DataStore:
                 - block["value_destroyed"]
             )
 
-        if prev_satoshis is None or prev_satoshis < 0:
+        if (
+            prev_satoshis is None
+            or prev_satoshis < 0
+            or prev_nTime is None
+            or prev_total_ss is None
+        ):
             ss_created = None
             block["total_ss"] = None
         else:
@@ -914,8 +950,8 @@ class DataStore:
             block["search_block_id"] = None
         else:
             block["search_block_id"] = self.get_block_id_at_height(
-                util.get_search_height(int(block["height"])),
-                None if prev_block_id is None else int(prev_block_id),
+                util.get_search_height(block["height"]),
+                None if prev_block_id is None else prev_block_id,
             )
 
         # Insert the block table row.
@@ -1004,7 +1040,11 @@ class DataStore:
                         lambda transaction: transaction["tx_id"], block["transactions"]
                     ),
                 )
-                if ss_created is None or prev_ss is None:
+                if (
+                    ss_created is None
+                    or prev_ss is None
+                    or block["ss_destroyed"] is None
+                ):
                     block["ss"] = None
                 else:
                     block["ss"] = prev_ss + ss_created - block["ss_destroyed"]
@@ -2828,7 +2868,7 @@ class DataStore:
 
         def catch_up_mempool(height):
             # Next height check time
-            height_chk = time.time() + 1
+            height_chk = time.time() + 30
 
             while self.rpc_load_mempool:
                 # Import the memory pool.
@@ -3130,7 +3170,7 @@ class DataStore:
             # algorithms.
 
             if not self.offer_existing_block(_hash, chain.id):
-                block = chain.ds_parse_block(data_stream)
+                block: Block = chain.ds_parse_block(data_stream)
                 block["hash"] = _hash
 
                 if (

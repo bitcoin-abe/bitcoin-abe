@@ -95,9 +95,9 @@ class BaseChain:
         return deserialize.parse_Transaction(data_stream)  # type: ignore
 
     def ds_parse_block(self, data_stream: BCDataStream) -> Block:
-        block = self.ds_parse_block_header(data_stream)
+        block: Block = self.ds_parse_block_header(data_stream)
         block["transactions"] = []
-        nTransactions = data_stream.read_compact_size()
+        nTransactions: int = data_stream.read_compact_size()
         # print(nTransactions)
         for _ in range(nTransactions):
             block["transactions"].append(self.ds_parse_transaction(data_stream))
