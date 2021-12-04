@@ -144,40 +144,42 @@ def hasWitness(vds: BCDataStream) -> bool:
 
 def parse_scriptWitness(vds: BCDataStream) -> Witness:
     """Parse the witness stream data to dict"""
-    data: Witness = {"witness": vds.read_bytes(vds.read_compact_size())}
-    return data
+    witness: Witness = {"witness": vds.read_bytes(vds.read_compact_size())}
+    return witness
 
 
 def parse_Transaction(vds: BCDataStream, has_nTime=False) -> Transaction:
     """Parse a transaction from the data stream into a dict"""
-    # pylint: disable=unused-variable
-    start_pos = vds.read_cursor
-    nVersion = vds.read_int32()
+    # The structure is taken from:
+    # https://github.com/bitcoin/bips/blob/master/bip-0144.mediawiki
+
+    start_pos: int = vds.read_cursor
+    nVersion: int = vds.read_int32()
     if has_nTime:
-        nTime = vds.read_uint32()
+        nTime: Optional[bytes] = vds.read_uint32()
     else:
         nTime = None
     if hasWitness(vds):
-        marker = vds.read_bytes(1)
-        flag = vds.read_bytes(1)
+        marker: Optional[bytes] = vds.read_bytes(1)
+        flag: Optional[bytes] = vds.read_bytes(1)
     else:
         marker = None
         flag = None
-    n_vin = vds.read_compact_size()
-    txins: List = []
-    for i in range(n_vin):
+    n_vin: int = vds.read_compact_size()
+    txins: List[TxIn] = []
+    for _ in range(n_vin):
         txins.append(parse_TxIn(vds))
     n_vout = vds.read_compact_size()
-    txouts: List = []
-    for i in range(n_vout):
+    txouts: List[TxOut] = []
+    for _ in range(n_vout):
         txouts.append(parse_TxOut(vds))
     if marker is not None:
-        witness: Optional[List] = []
-        if witness is not None:
-            for i in range(n_vin):
-                witness.append(parse_scriptWitness(vds))
+        script_witnesses: Optional[List[Witness]] = []
+        if script_witnesses is not None:
+            for _ in range(n_vin):
+                script_witnesses.append(parse_scriptWitness(vds))
     else:
-        witness = None
+        script_witnesses = None
 
     data: Transaction = {
         "version": nVersion,
@@ -186,7 +188,7 @@ def parse_Transaction(vds: BCDataStream, has_nTime=False) -> Transaction:
         "flag": flag,
         "txIn": txins,
         "txOut": txouts,
-        "witness": witness,
+        "scriptWitnesses": script_witnesses,
         "lockTime": vds.read_uint32(),
         "__data__": vds.input[start_pos : vds.read_cursor],
     }

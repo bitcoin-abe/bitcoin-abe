@@ -35,7 +35,7 @@ class Transaction(TypedDict, total=False):
     flag: Optional[bytes]  # SegWit flag
     txIn: List[TxIn]
     txOut: List[TxOut]
-    witness: Optional[List[Witness]]  # segregated witness
+    scriptWitnesses: Optional[List[Witness]]  # segregated witness
     lockTime: int
     __data__: bytes
 
