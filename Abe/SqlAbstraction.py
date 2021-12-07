@@ -1,30 +1,32 @@
 # Copyright(C) 2011,2012,2013 by John Tobey <jtobey@john-edwin-tobey.org>
 
-# sql.py: feature-detecting, SQL-transforming database abstraction layer
+"""sql_abstraction.py: feature-detecting, SQL-transforming database abstraction layer"""
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
 # published by the Free Software Foundation, either version 3 of the
 # License, or (at your option) any later version.
-# 
+#
 # This program is distributed in the hope that it will be useful, but
 # WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 # Affero General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU Affero General Public
 # License along with this program.  If not, see
 # <http://www.gnu.org/licenses/agpl.html>.
 
 import re
+import decimal
 import logging
+from typing import Union
+from .util import b2hex, hex2b
+from .constants import MAX_SCRIPT, NO_CLOB
 
-MAX_SCRIPT = 1000000
-MAX_PUBKEY = 65
-NO_CLOB = 'BUG_NO_CLOB'
 STMT_RE = re.compile(r"([^']+)((?:'[^']*')?)")
 
-class SqlAbstraction(object):
+
+class SqlAbstraction:
 
     """
     Database abstraction class based on DB-API 2 and standard SQL with
@@ -32,342 +34,413 @@ class SqlAbstraction(object):
     Oracle, ODBC, and IBM DB2.
     """
 
-    def __init__(sql, args):
-        sql.module = args.module
-        sql.connect_args = args.connect_args
-        sql.prefix = args.prefix
-        sql.config = args.config
-        sql.binary_type = args.binary_type
-        sql.int_type = args.int_type
+    def __init__(self, args):
+        self.module = args.module
+        self.connect_args = args.connect_args
+        self.prefix = args.prefix
+        self.config = args.config
+        self.binary_type = args.binary_type
+        self.int_type = args.int_type
 
-        sql.log    = logging.getLogger(__name__)
-        sql.sqllog = logging.getLogger(__name__ + ".sql")
+        self.log = logging.getLogger(__name__)
+        self.sqllog = logging.getLogger(__name__ + ".sql")
         if not args.log_sql:
-            sql.sqllog.setLevel(logging.WARNING)
+            self.sqllog.setLevel(logging.WARNING)
 
-        sql._conn = None
-        sql._cursor = None
-        sql.auto_reconnect = False
-        sql.in_transaction = False
-        sql._set_flavour()
+        self._conn = None
+        self._cursor = None
+        self.auto_reconnect = False
+        self.in_transaction = False
+        self._set_flavour()
 
-    def _set_flavour(sql):
-        def identity(x):
-            return x
+    def _set_flavour(self):
+        # pylint: disable=unnecessary-lambda
+        def identity(
+            val: Union[str, bytes, bytearray, memoryview]
+        ) -> Union[str, bytes, bytearray, memoryview]:
+            return val
+
         transform = identity
-        transform_stmt = sql._transform_stmt
-        selectall = sql._selectall
+        transform_stmt = self._transform_stmt
+        selectall = self._selectall
 
-        if sql.module.paramstyle in ('format', 'pyformat'):
-            transform_stmt = sql._qmark_to_format(transform_stmt)
-        elif sql.module.paramstyle == 'named':
-            transform_stmt = sql._qmark_to_named(transform_stmt)
-        elif sql.module.paramstyle != 'qmark':
-            sql.log.warning("Database parameter style is "
-                            "%s, trying qmark", sql.module.paramstyle)
-            pass
+        if self.module.paramstyle in ("format", "pyformat"):
+            transform_stmt = self._qmark_to_format(transform_stmt)
+        elif self.module.paramstyle == "named":
+            transform_stmt = self._qmark_to_named(transform_stmt)
+        elif self.module.paramstyle != "qmark":
+            self.log.warning(
+                "Database parameter style is " "%s, trying qmark",
+                self.module.paramstyle,
+            )
 
         # Binary I/O with the database.
         # Reversed versions exist for Bitcoin hashes; since the
         # protocol treats them as 256-bit integers and represents them
         # as little endian, we have to reverse them in hex to satisfy
         # human expectations.
-        def rev(x):
-            return None if x is None else x[::-1]
-        def to_hex(x):
-            return None if x is None else str(x).encode('hex')
-        def from_hex(x):
-            return None if x is None else x.decode('hex')
-        def to_hex_rev(x):
-            return None if x is None else str(x)[::-1].encode('hex')
-        def from_hex_rev(x):
-            return None if x is None else x.decode('hex')[::-1]
+        def rev(
+            val: Union[str, bytes, bytearray, memoryview]
+        ) -> Union[None, bytes, bytearray, memoryview]:
+            if isinstance(val, str):
+                val = bytes(val, "utf-8")
+            return None if val is None else val[::-1]
 
-        val = sql.config.get('binary_type')
+        def to_hex(val: str) -> Union[None, bytes]:
+            return None if val is None else hex2b(val)
 
-        if val in (None, 'str', "binary"):
-            binin       = identity
-            binin_hex   = from_hex
-            binout      = identity
-            binout_hex  = to_hex
-            revin       = rev
-            revin_hex   = from_hex
-            revout      = rev
-            revout_hex  = to_hex
+        def from_hex(val: Union[bytes, bytearray, memoryview]) -> Union[None, str]:
+            return None if val is None else b2hex(val)
+
+        def to_hex_rev(val: str) -> Union[None, bytes]:
+            return None if val is None else hex2b(val)[::-1]
+
+        def from_hex_rev(val: Union[bytes, bytearray, memoryview]) -> Union[None, str]:
+            return None if val is None else b2hex(val[::-1])
+
+        val = self.config.get("binary_type")
+
+        if val in (None, "str", "binary"):
+            binin = identity
+            binin_hex = from_hex
+            binout = identity
+            binout_hex = to_hex
+            revin = rev
+            revin_hex = from_hex
+            revout = rev
+            revout_hex = to_hex
 
         elif val in ("buffer", "bytearray", "pg-bytea"):
+
+            def to_str(val: Union[bytes, bytearray, memoryview]) -> str:
+                return str(val, "utf-8")
+
             if val == "bytearray":
-                def to_btype(x):
-                    return None if x is None else bytearray(x)
+
+                def to_btype(
+                    val: Union[str, bytes, memoryview]
+                ) -> Union[None, bytearray]:
+                    if isinstance(val, str):
+                        val = hex2b(val)
+                    return None if val is None else bytearray(val)
+
+            elif val == "buffer":
+
+                def to_btype(val: Union[bytes, bytearray]) -> memoryview:  # type:ignore
+                    return None if val is None else memoryview(val)
+
             else:
-                def to_btype(x):
-                    return None if x is None else buffer(x)
+                # PostgreSQL can take binary inputs as '\x[<hexadecimal str>]'
+                # https://www.postgresql.org/docs/14/datatype-binary.html
+                def to_btype(val: Union[str, bytes, bytearray]) -> str:  # type:ignore
+                    if isinstance(val, str):
+                        val = bytes(val, "utf-8")
+                    val = b2hex(val)
+                    return "\\x" + val
 
-            def to_str(x):
-                return None if x is None else str(x)
+                def pg_to_str(val: Union[bytes, bytearray, memoryview]) -> str:
+                    # psycopg2 returns database objects as memory addresses
+                    # XXX This is a really ugly fix need to force bytes as the data structure throughout.
+                    val = bytes(val)
+                    try:
+                        return str(val, "utf-8")
+                    except UnicodeDecodeError:
+                        pass
+                    try:
+                        return "".join(map(chr, val))
+                    except UnicodeDecodeError as error:
+                        raise error
 
-            binin       = to_btype
-            binin_hex   = lambda x: to_btype(from_hex(x))
-            binout      = to_str
-            binout_hex  = to_hex
-            revin       = lambda x: to_btype(rev(x))
-            revin_hex   = lambda x: to_btype(from_hex(x))
-            revout      = rev
-            revout_hex  = to_hex
+            binin = to_btype
+            binin_hex = to_btype
+            binout = to_str
+            binout_hex = to_hex
+            revin = lambda val: to_btype(rev(val))
+            revin_hex = to_btype
+            revout = rev
+            revout_hex = to_hex
 
             if val == "pg-bytea":
-                transform_stmt = sql._binary_as_bytea(transform_stmt)
+                transform_stmt = self._binary_as_bytea(transform_stmt)
+                binout = pg_to_str
+                binout_hex = lambda val: bytes(val)
+                revout = lambda val: pg_to_str(rev(val))
+                revout_hex = lambda val: rev(bytes(val))
 
         elif val == "hex":
-            transform = sql._binary_as_hex(transform)
-            binin       = to_hex
-            binin_hex   = identity
-            binout      = from_hex
-            binout_hex  = identity
-            revin       = to_hex_rev
-            revin_hex   = identity
-            revout      = from_hex_rev
-            revout_hex  = identity
+            transform = self._binary_as_hex(transform)
+            binin = to_hex
+            binin_hex = identity
+            binout = from_hex
+            binout_hex = identity
+            revin = to_hex_rev
+            revin_hex = identity
+            revout = from_hex_rev
+            revout_hex = identity
 
         else:
-            raise Exception("Unsupported binary-type %s" % (val,))
+            raise Exception(f"Unsupported binary-type {val}")
 
-        val = sql.config.get('int_type')
-        if val in (None, 'int'):
+        val = self.config.get("int_type")
+        if val in (None, "int"):
             intin = identity
 
-        elif val == 'decimal':
-            import decimal
-            def _intin(x):
-                return None if x is None else decimal.Decimal(x)
+        elif val == "decimal":
+
+            def _intin(val):
+                return None if val is None else decimal.Decimal(val)
+
             intin = _intin
 
-        elif val == 'str':
-            def _intin(x):
-                return None if x is None else str(x)
+        elif val == "str":
+
+            def _intin(val):
+                return None if val is None else str(val)
+
             intin = _intin
             # Work around sqlite3's integer overflow.
-            transform = sql._approximate(transform)
+            transform = self._approximate(transform)
 
         else:
-            raise Exception("Unsupported int-type %s" % (val,))
+            raise Exception(f"Unsupported int-type {val}")
 
-        val = sql.config.get('sequence_type')
-        if val in (None, 'update'):
-            new_id = lambda key: sql._new_id_update(key)
-            create_sequence = lambda key: sql._create_sequence_update(key)
-            drop_sequence = lambda key: sql._drop_sequence_update(key)
+        val = self.config.get("sequence_type")
+        if val in (None, "update"):
+            new_id = lambda key: self._new_id_update(key)
+            create_sequence = lambda key: self._create_sequence_update(key)
+            drop_sequence = lambda key: self._drop_sequence_update(key)
 
-        elif val == 'mysql':
-            new_id = lambda key: sql._new_id_mysql(key)
-            create_sequence = lambda key: sql._create_sequence_mysql(key)
-            drop_sequence = lambda key: sql._drop_sequence_mysql(key)
+        elif val == "mysql":
+            new_id = lambda key: self._new_id_mysql(key)
+            create_sequence = lambda key: self._create_sequence_mysql(key)
+            drop_sequence = lambda key: self._drop_sequence_mysql(key)
 
         else:
-            create_sequence = lambda key: sql._create_sequence(key)
-            drop_sequence = lambda key: sql._drop_sequence(key)
+            create_sequence = lambda key: self._create_sequence(key)
+            drop_sequence = lambda key: self._drop_sequence(key)
 
-            if val == 'oracle':
-                new_id = lambda key: sql._new_id_oracle(key)
-            elif val == 'nvf':
-                new_id = lambda key: sql._new_id_nvf(key)
-            elif val == 'postgres':
-                new_id = lambda key: sql._new_id_postgres(key)
-            elif val == 'db2':
-                new_id = lambda key: sql._new_id_db2(key)
-                create_sequence = lambda key: sql._create_sequence_db2(key)
+            if val == "oracle":
+                new_id = lambda key: self._new_id_oracle(key)
+            elif val == "nvf":
+                new_id = lambda key: self._new_id_nvf(key)
+            elif val == "postgres":
+                new_id = lambda key: self._new_id_postgres(key)
+            elif val == "db2":
+                new_id = lambda key: self._new_id_db2(key)
+                create_sequence = lambda key: self._create_sequence_db2(key)
             else:
-                raise Exception("Unsupported sequence-type %s" % (val,))
+                raise Exception(f"Unsupported sequence-type {val}")
 
         # Convert Oracle LOB to str.
-        if hasattr(sql.module, "LOB") and isinstance(sql.module.LOB, type):
-            def fix_lob(fn):
-                def ret(x):
-                    return None if x is None else fn(str(x))
+        if hasattr(self.module, "LOB") and isinstance(self.module.LOB, type):
+
+            def fix_lob(func):
+                def ret(val):
+                    return None if val is None else func(str(val))
+
                 return ret
+
             binout = fix_lob(binout)
             binout_hex = fix_lob(binout_hex)
 
-        val = sql.config.get('limit_style')
-        if val in (None, 'native'):
+        val = self.config.get("limit_style")
+        if val in (None, "native"):
             pass
-        elif val == 'emulated':
-            selectall = sql.emulate_limit(selectall)
+        elif val == "emulated":
+            selectall = self.emulate_limit(selectall)
 
-        val = sql.config.get('concat_style')
-        if val in (None, 'ansi'):
+        val = self.config.get("concat_style")
+        if val in (None, "ansi"):
             pass
-        elif val == 'mysql':
-            transform_stmt = sql._transform_concat(transform_stmt)
+        elif val == "mysql":
+            transform_stmt = self._transform_concat(transform_stmt)
             # Also squeeze in MySQL VARBINARY length fix
             # Some MySQL version do not auto-convert to BLOB
-            transform_stmt = sql._transform_varbinary(transform_stmt)
+            transform_stmt = self._transform_varbinary(transform_stmt)
 
-        transform_stmt = sql._append_table_epilogue(transform_stmt)
+        transform_stmt = self._append_table_epilogue(transform_stmt)
 
-        transform = sql._fallback_to_lob(transform)
-        transform = sql._fallback_to_approximate(transform)
+        transform = self._fallback_to_lob(transform)
+        transform = self._fallback_to_approximate(transform)
 
-        sql.transform_chunk = transform
-        sql.transform_stmt = transform_stmt
-        sql.selectall = selectall
-        sql._cache = {}
+        self.transform_chunk = transform
+        self.transform_stmt = transform_stmt
+        self.selectall = selectall
+        self._cache = {}
 
-        sql.binin       = binin
-        sql.binin_hex   = binin_hex
-        sql.binout      = binout
-        sql.binout_hex  = binout_hex
-        sql.revin       = revin
-        sql.revin_hex   = revin_hex
-        sql.revout      = revout
-        sql.revout_hex  = revout_hex
+        self.binin = binin
+        self.binin_hex = binin_hex
+        self.binout = binout
+        self.binout_hex = binout_hex
+        self.revin = revin
+        self.revin_hex = revin_hex
+        self.revout = revout
+        self.revout_hex = revout_hex
 
         # Might reimplement these someday...
-        def binout_int(x):
-            if x is None:
+        def binout_int(val):
+            if val is None:
                 return None
-            return int(binout_hex(x), 16)
-        def binin_int(x, bits):
-            if x is None:
+            return int(binout_hex(val), 16)
+
+        def binin_int(val, bits):
+            if val is None:
                 return None
-            return binin_hex(("%%0%dx" % (bits / 4)) % x)
-        sql.binout_int  = binout_int
-        sql.binin_int   = binin_int
+            return binin_hex(("%%0%dx" % (bits / 4)) % val)
 
-        sql.intin       = intin
-        sql.new_id      = new_id
-        sql.create_sequence = create_sequence
-        sql.drop_sequence = drop_sequence
+        self.binout_int = binout_int
+        self.binin_int = binin_int
 
-    def connect(sql):
-        cargs = sql.connect_args
+        self.intin = intin
+        self.new_id = new_id
+        self.create_sequence = create_sequence
+        self.drop_sequence = drop_sequence
+
+    def connect(self):
+        """Connect to the database"""
+        cargs = self.connect_args
 
         if cargs is None:
-            conn = sql.module.connect()
+            conn = self.module.connect()
         else:
             try:
-                conn = sql._connect(cargs)
+                conn = self._connect(cargs)
             except UnicodeError:
                 # Perhaps this driver needs its strings encoded.
                 # Python's default is ASCII.  Let's try UTF-8, which
                 # should be the default anyway.
-                #import locale
-                #enc = locale.getlocale()[1] or locale.getdefaultlocale()[1]
-                enc = 'UTF-8'
+                # import locale
+                # enc = locale.getlocale()[1] or locale.getdefaultlocale()[1]
+                enc = "UTF-8"
+
                 def to_utf8(obj):
                     if isinstance(obj, dict):
                         for k in obj.keys():
                             obj[k] = to_utf8(obj[k])
                     if isinstance(obj, list):
                         return map(to_utf8, obj)
-                    if isinstance(obj, unicode):
+                    if isinstance(obj, str):
                         return obj.encode(enc)
                     return obj
-                conn = sql._connect(to_utf8(cargs))
-                sql.log.info("Connection required conversion to UTF-8")
+
+                conn = self._connect(to_utf8(cargs))
+                self.log.info("Connection required conversion to UTF-8")
 
         return conn
 
-    def _connect(sql, cargs):
+    def _connect(self, cargs):
         if isinstance(cargs, dict):
-            if ""  in cargs:
+            if "" in cargs:
                 cargs = cargs.copy()
                 nkwargs = cargs[""]
-                del(cargs[""])
+                del cargs[""]
                 if isinstance(nkwargs, list):
-                    return sql.module.connect(*nkwargs, **cargs)
-                return sql.module.connect(nkwargs, **cargs)
+                    return self.module.connect(*nkwargs, **cargs)
+                return self.module.connect(nkwargs, **cargs)
             else:
-                return sql.module.connect(**cargs)
+                return self.module.connect(**cargs)
         if isinstance(cargs, list):
-            return sql.module.connect(*cargs)
-        return sql.module.connect(cargs)
+            return self.module.connect(*cargs)
+        return self.module.connect(cargs)
 
-    def conn(sql):
-        if sql._conn is None:
-            sql._conn = sql.connect()
-        return sql._conn
+    def conn(self):
+        if self._conn is None:
+            self._conn = self.connect()
+        return self._conn
 
-    def cursor(sql):
-        if sql._cursor is None:
-            sql._cursor = sql.conn().cursor()
-        return sql._cursor
+    def cursor(self):
+        if self._cursor is None:
+            self._cursor = self.conn().cursor()
+        return self._cursor
 
-    def rowcount(sql):
-        return sql.cursor().rowcount
+    def rowcount(self):
+        return self.cursor().rowcount
 
-    def reconnect(sql):
-        sql.log.info("Reconnecting to database.")
+    def reconnect(self):
+        self.log.info("Reconnecting to database.")
         try:
-            sql.close()
+            self.close()
         except Exception:
             pass
-        return sql.conn()
+        return self.conn()
 
     # Run transform_chunk on each chunk between string literals.
-    def _transform_stmt(sql, stmt):
+    def _transform_stmt(self, stmt) -> str:
         def transform_chunk(match):
-            return sql.transform_chunk(match.group(1)) + match.group(2)
+            return self.transform_chunk(match.group(1)) + match.group(2)
+
         return STMT_RE.sub(transform_chunk, stmt)
 
     # Convert standard placeholders to Python "format" style.
-    def _qmark_to_format(sql, fn):
+    def _qmark_to_format(self, func):
         def ret(stmt):
-            return fn(stmt.replace('%', '%%').replace("?", "%s"))
+            return func(stmt.replace("%", "%%").replace("?", "%s"))
+
         return ret
 
     # Convert standard placeholders to Python "named" style.
-    def _qmark_to_named(sql, fn):
+    def _qmark_to_named(self, func):
         patt = re.compile(r"\?")
+
         def ret(stmt):
             i = [0]
-            def newname(match):
+
+            def newname():
                 i[0] += 1
-                return ":p%d" % (i[0],)
+                return f":p{i[0]}"
+
             def transform_chunk(match):
                 return patt.sub(newname, match.group(1)) + match.group(2)
-            return fn(STMT_RE.sub(transform_chunk, stmt))
+
+            return func(STMT_RE.sub(transform_chunk, stmt))
+
         return ret
 
     # Convert the standard BINARY type to a hex string for databases
     # and drivers that don't support BINARY.
-    def _binary_as_hex(sql, fn):
+    def _binary_as_hex(self, func):
         patt = re.compile(r"\b((?:VAR)?)BINARY\s*\(\s*([0-9]+)\s*\)")
-        x_patt = re.compile(r"X\z")
-        def fixup(match):
-            return (match.group(1) + "CHAR(" +
-                    str(int(match.group(2)) * 2) + ")")
+        x_patt = re.compile(r"X\Z")
+
+        def fixup(match) -> str:
+            val: str = match.group(1) + f"CHAR({int(match.group(2)) * 2})"
+            return val
+
         def ret(chunk):
-            return fn(x_patt.sub("", patt.sub(fixup, chunk)))
+            return func(x_patt.sub("", patt.sub(fixup, chunk)))
+
         return ret
 
     # Convert the standard BINARY type to the PostgreSQL BYTEA type.
-    def _binary_as_bytea(sql, fn):
+    def _binary_as_bytea(self, func):
         type_patt = re.compile("((?:VAR)?)BINARY\\(([0-9]+)\\)")
-        lit_patt = re.compile("X'((?:[0-9a-fA-F][0-9a-fA-F])*)'")
+        # lit_patt = re.compile("X'((?:[0-9a-fA-F][0-9a-fA-F])*)'")
+
         def ret(stmt):
             def transform_chunk(match):
                 ret = type_patt.sub("BYTEA", match.group(1))
-                if match.group(1).endswith('X') and match.group(2) != '':
+                if match.group(1).endswith("X") and match.group(2) != "":
                     ret = ret[:-1] + "'"
-                    for i in match.group(2)[1:-1].decode('hex'):
-                        ret += r'\\%03o' % ord(i)
+                    for i in str(match.group(2)[1:-1], "utf-8"):
+                        ret += r"\\%03o" % ord(i)
                     ret += "'::bytea"
                 else:
                     ret += match.group(2)
                 return ret
-            return fn(STMT_RE.sub(transform_chunk, stmt))
+
+            return func(STMT_RE.sub(transform_chunk, stmt))
+
         return ret
 
     # Converts VARCHAR types that are too long to CLOB or similar.
-    def _fallback_to_lob(sql, fn):
-        if sql.config.get('max_varchar') is None:
-            return fn
-        max_varchar = int(sql.config['max_varchar'])
+    def _fallback_to_lob(self, func):
+        if self.config.get("max_varchar") is None:
+            return func
+        max_varchar = int(self.config["max_varchar"])
 
-        if sql.config.get('clob_type') is None:
-            return fn
-        clob_type = sql.config['clob_type']
+        if self.config.get("clob_type") is None:
+            return func
+        clob_type = self.config["clob_type"]
 
         patt = re.compile("VARCHAR\\(([0-9]+)\\)")
 
@@ -378,19 +451,18 @@ class SqlAbstraction(object):
             return match.group()
 
         def ret(stmt):
-            return fn(patt.sub(fixup, stmt))
+            return func(patt.sub(fixup, stmt))
 
         return ret
 
     # Convert high-precision NUMERIC and DECIMAL types to DOUBLE PRECISION
     # to avoid integer overflow with SQLite.
-    def _fallback_to_approximate(sql, fn):
-        if sql.config.get('max_precision', "") == "":
-            return fn
+    def _fallback_to_approximate(self, func):
+        if self.config.get("max_precision", "") == "":
+            return func
 
-        max_precision = int(sql.config['max_precision'])
-        patt = re.compile(
-            r"\b(?:NUMERIC|DECIMAL)\s*\(\s*([0-9]+)\s*(?:,.*?)?\)")
+        max_precision = int(self.config["max_precision"])
+        patt = re.compile(r"\b(?:NUMERIC|DECIMAL)\s*\(\s*([0-9]+)\s*(?:,.*?)?\)")
 
         def fixup(match):
             precision = int(match.group(1))
@@ -399,610 +471,695 @@ class SqlAbstraction(object):
             return match.group()
 
         def ret(stmt):
-            return fn(patt.sub(fixup, stmt))
+            return func(patt.sub(fixup, stmt))
 
         return ret
 
-    def _approximate(store, fn):
+    def _approximate(self, func):
         def repl(match):
-            return 'CAST(' + match.group(1) + match.group(2) + ' AS DOUBLE PRECISION) ' \
-                + match.group(1) + '_approx' + match.group(2)
+            return (
+                "CAST("
+                + match.group(1)
+                + match.group(2)
+                + " AS DOUBLE PRECISION) "
+                + match.group(1)
+                + "_approx"
+                + match.group(2)
+            )
+
         def ret(stmt):
-            return fn(re.sub(r'\b(\w+)(\w*) \1_approx\2\b', repl, stmt))
+            return func(re.sub(r"\b(\w+)(\w*) \1_approx\2\b", repl, stmt))
+
         return ret
 
-    def emulate_limit(sql, selectall):
+    def emulate_limit(self, selectall):
         limit_re = re.compile(r"(.*)\bLIMIT\s+(\?|\d+)\s*\Z", re.DOTALL)
+
         def ret(stmt, params=()):
-            match = limit_re.match(sql.transform_stmt_cached(stmt))
+            match = limit_re.match(self.transform_stmt_cached(stmt))
             if match:
-                if match.group(2) == '?':
-                    n = params[-1]
+                if match.group(2) == "?":
+                    num = params[-1]
                     params = params[:-1]
                 else:
-                    n = int(match.group(2))
-                sql.cursor().execute(match.group(1), params)
-                return [ sql.cursor().fetchone() for i in xrange(n) ]
+                    num = int(match.group(2))
+                self.cursor().execute(match.group(1), params)
+                return [self.cursor().fetchone() for i in range(num)]
             return selectall(stmt, params)
+
         return ret
 
-    def _transform_concat(sql, fn):
-        concat_re = re.compile(r"((?:(?:'[^']*'|\?)\s*\|\|\s*)+(?:'[^']*'|\?))", re.DOTALL)
+    def _transform_concat(self, func):
+        concat_re = re.compile(
+            r"((?:(?:'[^']*'|\?)\s*\|\|\s*)+(?:'[^']*'|\?))", re.DOTALL
+        )
+
         def repl(match):
             clist = re.sub(r"\s*\|\|\s*", ", ", match.group(1))
-            return 'CONCAT(' + clist + ')'
+            return "CONCAT(" + clist + ")"
+
         def ret(stmt):
-            return fn(concat_re.sub(repl, stmt))
+            return func(concat_re.sub(repl, stmt))
+
         return ret
 
-    def _transform_varbinary(sql, fn):
-        varbinary_re = re.compile(r"VARBINARY\(" + str(MAX_SCRIPT) + "\)")
+    def _transform_varbinary(self, func):
+        varbinary_re = re.compile(r"VARBINARY\(" + str(MAX_SCRIPT) + r"\)")
+
         def ret(stmt):
             # Suitable for prefix+length up to 16,777,215 (2^24 - 1)
-            return fn(varbinary_re.sub("MEDIUMBLOB", stmt))
+            return func(varbinary_re.sub("MEDIUMBLOB", stmt))
+
         return ret
 
-    def _append_table_epilogue(sql, fn):
-        epilogue = sql.config.get('create_table_epilogue', "")
+    def _append_table_epilogue(self, func):
+        epilogue = self.config.get("create_table_epilogue", "")
         if epilogue == "":
-            return fn
+            return func
 
         patt = re.compile(r"\s*CREATE\s+TABLE\b")
 
         def ret(stmt):
             if patt.match(stmt):
                 stmt += epilogue
-            return fn(stmt)
+            return func(stmt)
+
         return ret
 
-    def transform_stmt_cached(sql, stmt):
-        cached = sql._cache.get(stmt)
+    def transform_stmt_cached(self, stmt):
+        cached = self._cache.get(stmt)
         if cached is None:
-            cached = sql.transform_stmt(stmt)
-            sql._cache[stmt] = cached
+            cached = self.transform_stmt(stmt)
+            self._cache[stmt] = cached
         return cached
 
-    def _execute(sql, stmt, params):
+    def _execute(self, stmt, params):
         try:
-            sql.cursor().execute(stmt, params)
-        except (sql.module.OperationalError, sql.module.InternalError, sql.module.ProgrammingError) as e:
-            if sql.in_transaction or not sql.auto_reconnect:
+            self.cursor().execute(stmt, params)
+        except (
+            self.module.OperationalError,
+            self.module.InternalError,
+            self.module.ProgrammingError,
+        ) as error:
+            if self.in_transaction or not self.auto_reconnect:
                 raise
 
-            sql.log.warning("Replacing possible stale cursor: %s", e)
+            self.log.warning("Replacing possible stale cursor: %s", error)
 
             try:
-                sql.reconnect()
-            except Exception:
-                sql.log.exception("Failed to reconnect")
-                raise e
+                self.reconnect()
+            except Exception as error:
+                self.log.exception("Failed to reconnect")
+                raise error
 
-            sql.cursor().execute(stmt, params)
+            self.cursor().execute(stmt, params)
 
-    def sql(sql, stmt, params=()):
-        cached = sql.transform_stmt_cached(stmt)
-        sql.sqllog.info("EXEC: %s %r", cached, params)
+    def sql(self, stmt, params=()):
+        cached = self.transform_stmt_cached(stmt)
+        self.sqllog.info("EXEC: %s %r", cached, params)
         try:
-            sql._execute(cached, params)
-        except Exception as e:
-            sql.sqllog.info("EXCEPTION: %s", e)
+            self._execute(cached, params)
+        except Exception as error:
+            self.sqllog.info("EXCEPTION: %s", error)
             raise
         finally:
-            sql.in_transaction = True
+            self.in_transaction = True
 
-    def ddl(sql, stmt):
-        stmt = sql.transform_stmt(stmt)
-        sql.sqllog.info("DDL: %s", stmt)
+    def ddl(self, stmt):
+        stmt = self.transform_stmt(stmt)
+        self.sqllog.info("DDL: %s", stmt)
         try:
-            sql.cursor().execute(stmt)
-        except Exception as e:
-            sql.sqllog.info("EXCEPTION: %s", e)
+            self.cursor().execute(stmt)
+        except Exception as error:
+            self.sqllog.info("EXCEPTION: %s", error)
             raise
-        if sql.config.get('ddl_implicit_commit') == 'false':
-            sql.commit()
+        if self.config.get("ddl_implicit_commit") == "false":
+            self.commit()
         else:
-            sql.in_transaction = False
+            self.in_transaction = False
 
-    def selectrow(sql, stmt, params=()):
-        sql.sql(stmt, params)
-        ret = sql.cursor().fetchone()
-        sql.sqllog.debug("FETCH: %s", ret)
+    def selectrow(self, stmt, params=()):
+        self.sql(stmt, params)
+        ret = self.cursor().fetchone()
+        self.sqllog.debug("FETCH: %s", ret)
         return ret
 
-    def _selectall(sql, stmt, params=()):
-        sql.sql(stmt, params)
-        ret = sql.cursor().fetchall()
-        sql.sqllog.debug("FETCHALL: %s", ret)
+    def _selectall(self, stmt, params=()):
+        self.sql(stmt, params)
+        ret = self.cursor().fetchall()
+        self.sqllog.debug("FETCHALL: %s", ret)
         return ret
 
-    def _new_id_update(sql, key):
+    def _new_id_update(self, key):
         """
         Allocate a synthetic identifier by updating a table.
         """
         while True:
-            row = sql.selectrow("SELECT nextid FROM %ssequences WHERE sequence_key = ?" % (sql.prefix), (key,))
+            row = self.selectrow(
+                f"SELECT nextid FROM {self.prefix}sequences WHERE sequence_key = ?",
+                (key,),
+            )
             if row is None:
-                raise Exception("Sequence %s does not exist" % key)
+                raise Exception(f"Sequence {key} does not exist")
 
             ret = row[0]
-            sql.sql("UPDATE %ssequences SET nextid = nextid + 1"
-                    " WHERE sequence_key = ? AND nextid = ?" % sql.prefix,
-                    (key, ret))
-            if sql.cursor().rowcount == 1:
+            self.sql(
+                f"UPDATE {self.prefix}sequences SET nextid = nextid + 1 \
+                    WHERE sequence_key = ? AND nextid = ?",
+                (key, ret),
+            )
+            if self.cursor().rowcount == 1:
                 return ret
-            sql.log.info('Contention on %ssequences %s:%d' % sql.prefix, key, ret)
+            self.log.info("Contention on %ssequences %s:%d", self.prefix, key, ret)
 
-    def _get_sequence_initial_value(sql, key):
-        (ret,) = sql.selectrow("SELECT MAX(" + key + "_id) FROM " + key)
+    def _get_sequence_initial_value(self, key):
+        (ret,) = self.selectrow(f"SELECT MAX({key}_id) FROM {key}")
         ret = 1 if ret is None else ret + 1
         return ret
 
-    def _create_sequence_update(sql, key):
-        sql.commit()
-        ret = sql._get_sequence_initial_value(key)
+    def _create_sequence_update(self, key):
+        self.commit()
+        ret = self._get_sequence_initial_value(key)
         try:
-            sql.sql("INSERT INTO %ssequences (sequence_key, nextid)"
-                    " VALUES (?, ?)" % sql.prefix, (key, ret))
-        except sql.module.DatabaseError as e:
-            sql.rollback()
+            self.sql(
+                f"INSERT INTO {self.prefix}sequences (sequence_key, nextid) VALUES (?, ?) \
+                    ON CONFLICT (sequence_key) DO NOTHING",
+                (key, ret),
+            )
+        except self.module.DatabaseError as error:
+            self.rollback()
             try:
-                sql.ddl("""CREATE TABLE %ssequences (
-                    sequence_key VARCHAR(100) NOT NULL PRIMARY KEY,
-                    nextid NUMERIC(30)
-                )""" % sql.prefix)
-            except Exception:
-                sql.rollback()
-                raise e
-            sql.sql("INSERT INTO %ssequences (sequence_key, nextid)"
-                    " VALUES (?, ?)" % sql.prefix, (key, ret))
+                self.ddl(
+                    f"CREATE TABLE {self.prefix}sequences ("
+                    f"sequence_key VARCHAR(100) NOT NULL PRIMARY KEY,"
+                    f"nextid NUMERIC(30))"
+                )
+            except Exception as error:
+                self.rollback()
+                raise error
+            self.sql(
+                f"INSERT INTO {self.prefix}sequences (sequence_key, nextid) VALUES (?, ?) \
+                    ON CONFLICT (sequence_key) DO NOTHING",
+                (key, ret),
+            )
 
-    def _drop_sequence_update(sql, key):
-        sql.commit()
-        sql.sql("DELETE FROM %ssequences WHERE sequence_key = ?" % sql.prefix,
-                (key,))
-        sql.commit()
+    def _drop_sequence_update(self, key):
+        self.commit()
+        self.sql(f"DELETE FROM {self.prefix}sequences WHERE sequence_key = ?", (key,))
+        self.commit()
 
-    def _new_id_oracle(sql, key):
-        (ret,) = sql.selectrow("SELECT " + key + "_seq.NEXTVAL FROM DUAL")
+    def _new_id_oracle(self, key):
+        (ret,) = self.selectrow(f"SELECT {key}_seq.NEXTVAL FROM DUAL")
         return ret
 
-    def _create_sequence(sql, key):
-        sql.ddl("CREATE SEQUENCE %s_seq START WITH %d"
-                % (key, sql._get_sequence_initial_value(key)))
+    def _create_sequence(self, key):
+        self.ddl(
+            f"CREATE SEQUENCE {key}_seq START WITH {self._get_sequence_initial_value(key)}"
+        )
 
-    def _drop_sequence(sql, key):
-        sql.ddl("DROP SEQUENCE %s_seq" % (key,))
+    def _drop_sequence(self, key):
+        self.ddl(f"DROP SEQUENCE {(key,)}_seq")
 
-    def _new_id_nvf(sql, key):
-        (ret,) = sql.selectrow("SELECT NEXT VALUE FOR " + key + "_seq")
+    def _new_id_nvf(self, key):
+        (ret,) = self.selectrow(f"SELECT NEXT VALUE FOR {key}_seq")
         return ret
 
-    def _new_id_postgres(sql, key):
-        (ret,) = sql.selectrow("SELECT NEXTVAL('" + key + "_seq')")
+    def _new_id_postgres(self, key):
+        (ret,) = self.selectrow(f"SELECT NEXTVAL('{key}_seq')")
         return ret
 
-    def _create_sequence_db2(sql, key):
-        sql.commit()
+    def _create_sequence_db2(self, key):
+        self.commit()
         try:
-            rows = sql.selectall("SELECT 1 FROM %sdual" % sql.prefix)
+            rows = self.selectall(f"SELECT 1 FROM {self.prefix}dual")
             if len(rows) != 1:
-                sql.sql("INSERT INTO %sdual(x) VALUES ('X')" % sql.prefix)
-        except sql.module.DatabaseError as e:
-            sql.rollback()
-            sql.drop_table_if_exists('%sdual' % sql.prefix)
-            sql.ddl("CREATE TABLE %sdual (x CHAR(1))" % sql.prefix)
-            sql.sql("INSERT INTO %sdual(x) VALUES ('X')" % sql.prefix)
-            sql.log.info("Created silly table %sdual" % sql.prefix)
-        sql._create_sequence(key)
+                self.sql(f"INSERT INTO {self.prefix}dual(x) VALUES ('X')")
+        except self.module.DatabaseError:
+            self.rollback()
+            self.drop_table_if_exists(f"{self.prefix}dual")
+            self.ddl(f"CREATE TABLE {self.prefix}dual (x CHAR(1))")
+            self.sql(f"INSERT INTO {self.prefix}dual(x) VALUES ('X')")
+            self.log.info("Created silly table %sdual", self.prefix)
+        self._create_sequence(key)
 
-    def _new_id_db2(sql, key):
-        (ret,) = sql.selectrow("SELECT NEXTVAL FOR " + key + "_seq"
-                               " FROM %sdual" % sql.prefix)
+    def _new_id_db2(self, key):
+        (ret,) = self.selectrow(f"SELECT NEXTVAL FOR {key}_seq FROM {self.prefix}dual")
         return ret
 
-    def _create_sequence_mysql(sql, key):
-        sql.ddl("CREATE TABLE %s_seq (id BIGINT AUTO_INCREMENT PRIMARY KEY)"
-                " AUTO_INCREMENT=%d"
-                % (key, sql._get_sequence_initial_value(key)))
+    def _create_sequence_mysql(self, key):
+        self.ddl(
+            f"CREATE TABLE {key}_seq (id BIGINT AUTO_INCREMENT PRIMARY KEY) \
+                AUTO_INCREMENT={self._get_sequence_initial_value(key)}"
+        )
 
-    def _drop_sequence_mysql(sql, key):
-        sql.ddl("DROP TABLE %s_seq" % (key,))
+    def _drop_sequence_mysql(self, key):
+        self.ddl(f"DROP TABLE {key}_seq")
 
-    def _new_id_mysql(sql, key):
-        sql.sql("INSERT INTO " + key + "_seq () VALUES ()")
-        (ret,) = sql.selectrow("SELECT LAST_INSERT_ID()")
+    def _new_id_mysql(self, key):
+        self.sql(f"INSERT INTO {key}_seq () VALUES ()")
+        (ret,) = self.selectrow("SELECT LAST_INSERT_ID()")
         if ret % 1000 == 0:
-            sql.sql("DELETE FROM " + key + "_seq WHERE id < ?", (ret,))
+            self.sql(f"DELETE FROM {key}_seq WHERE id < ?", (ret,))
         return ret
 
-    def commit(sql):
-        sql.sqllog.info("COMMIT")
-        sql.conn().commit()
-        sql.in_transaction = False
+    def commit(self):
+        self.sqllog.info("COMMIT")
+        self.conn().commit()
+        self.in_transaction = False
 
-    def rollback(sql):
-        if sql.module is None:
+    def rollback(self):
+        if self.module is None:
             return
-        sql.sqllog.info("ROLLBACK")
+        self.sqllog.info("ROLLBACK")
         try:
-            sql.conn().rollback()
-            sql.in_transaction = False
-        except sql.module.OperationalError as e:
-            sql.log.warning("Reconnecting after rollback error: %s", e)
-            sql.reconnect()
+            self.conn().rollback()
+            self.in_transaction = False
+        except self.module.OperationalError as error:
+            self.log.warning("Reconnecting after rollback error: %s", error)
+            self.reconnect()
 
-    def close(sql):
-        conn = sql._conn
+    def close(self):
+        conn = self._conn
         if conn is not None:
-            sql.sqllog.info("CLOSE")
+            self.sqllog.info("CLOSE")
             conn.close()
-            sql._conn = None
-            sql._cursor = None
+            self._conn = None
+            self._cursor = None
 
-    def configure(sql):
-        sql.configure_ddl_implicit_commit()
-        sql.configure_create_table_epilogue()
-        sql.configure_max_varchar()
-        sql.configure_max_precision()
-        sql.configure_clob_type()
-        sql.configure_binary_type()
-        sql.configure_int_type()
-        sql.configure_sequence_type()
-        sql.configure_limit_style()
-        sql.configure_concat_style()
+    def configure(self):
+        self.configure_ddl_implicit_commit()
+        self.configure_create_table_epilogue()
+        self.configure_max_varchar()
+        self.configure_max_precision()
+        self.configure_clob_type()
+        self.configure_binary_type()
+        self.configure_int_type()
+        self.configure_sequence_type()
+        self.configure_limit_style()
+        self.configure_concat_style()
 
-        return sql.config
+        return self.config
 
-    def configure_binary_type(sql):
-        defaults = (['binary', 'bytearray', 'buffer', 'hex', 'pg-bytea']
-            if sql.binary_type is None else
-            [ sql.binary_type ])
-        tests = (defaults
-                 if sql.config.get('binary_type') is None else
-                 [ sql.config['binary_type'] ])
+    def configure_binary_type(self):
+        defaults = (
+            ["binary", "bytearray", "buffer", "hex", "pg-bytea"]
+            if self.binary_type is None
+            else [self.binary_type]
+        )
+        tests = (
+            defaults
+            if self.config.get("binary_type") is None
+            else [self.config["binary_type"]]
+        )
 
         for val in tests:
-            sql.config['binary_type'] = val
-            sql._set_flavour()
-            if sql._test_binary_type():
-                sql.log.info("binary_type=%s", val)
+            self.config["binary_type"] = val
+            self._set_flavour()
+            if self._test_binary_type():
+                self.log.info("binary_type=%s", val)
                 return
 
         raise Exception(
             "No known binary data representation works"
-            if len(tests) > 1 else
-            "Binary type " + tests[0] + " fails test")
+            if len(tests) > 1
+            else "Binary type " + tests[0] + " fails test"
+        )
 
-    def configure_int_type(sql):
-        defaults = (['int', 'decimal', 'str']
-            if sql.int_type is None else
-            [ sql.int_type ])
+    def configure_int_type(self):
+        defaults = (
+            ["int", "decimal", "str"] if self.int_type is None else [self.int_type]
+        )
 
-        tests = (defaults if sql.config.get('int_type') is None else
-                 [ sql.config['int_type'] ])
+        tests = (
+            defaults
+            if self.config.get("int_type") is None
+            else [self.config["int_type"]]
+        )
 
         for val in tests:
-            sql.config['int_type'] = val
-            sql._set_flavour()
-            if sql._test_int_type():
-                sql.log.info("int_type=%s", val)
+            self.config["int_type"] = val
+            self._set_flavour()
+            if self._test_int_type():
+                self.log.info("int_type=%s", val)
                 return
         raise Exception(
             "No known large integer representation works"
-            if len(tests) > 1 else
-            "Integer type " + tests[0] + " fails test")
+            if len(tests) > 1
+            else "Integer type " + tests[0] + " fails test"
+        )
 
-    def configure_sequence_type(sql):
-        for val in ['nvf', 'oracle', 'postgres', 'mysql', 'db2', 'update']:
-            sql.config['sequence_type'] = val
-            sql._set_flavour()
-            if sql._test_sequence_type():
-                sql.log.info("sequence_type=%s", val)
+    def configure_sequence_type(self):
+        for val in ["nvf", "oracle", "postgres", "mysql", "db2", "update"]:
+            self.config["sequence_type"] = val
+            self._set_flavour()
+            if self._test_sequence_type():
+                self.log.info("sequence_type=%s", val)
                 return
         raise Exception("No known sequence type works")
 
-    def _drop_if_exists(sql, otype, name):
+    def _drop_if_exists(self, otype, name):
         try:
-            sql.sql("DROP " + otype + " " + name)
-            sql.commit()
-        except sql.module.DatabaseError:
-            sql.rollback()
+            self.sql("DROP " + otype + " IF EXISTS " + name)
+            self.commit()
+        except self.module.DatabaseError:
+            self.rollback()
 
-    def drop_table_if_exists(sql, obj):
-        sql._drop_if_exists("TABLE", obj)
-    def drop_view_if_exists(sql, obj):
-        sql._drop_if_exists("VIEW", obj)
+    def drop_table_if_exists(self, obj):
+        self._drop_if_exists("TABLE", obj)
 
-    def drop_sequence_if_exists(sql, key):
+    def drop_view_if_exists(self, obj):
+        self._drop_if_exists("VIEW", obj)
+
+    def drop_sequence_if_exists(self, key):
         try:
-            sql.drop_sequence(key)
-        except sql.module.DatabaseError:
-            sql.rollback()
+            self.drop_sequence(key)
+        except self.module.DatabaseError:
+            self.rollback()
 
-    def drop_column_if_exists(sql, table, column):
+    def drop_column_if_exists(self, table, column):
         try:
-            sql.ddl("ALTER TABLE " + table + " DROP COLUMN " + column)
-        except sql.module.DatabaseError:
-            sql.rollback()
+            self.ddl("ALTER TABLE " + table + " DROP COLUMN " + column)
+        except self.module.DatabaseError:
+            self.rollback()
 
-    def configure_ddl_implicit_commit(sql):
-        if 'create_table_epilogue' not in sql.config:
-            sql.config['create_table_epilogue'] = ''
-        for val in ['true', 'false']:
-            sql.config['ddl_implicit_commit'] = val
-            sql._set_flavour()
-            if sql._test_ddl():
-                sql.log.info("ddl_implicit_commit=%s", val)
+    def configure_ddl_implicit_commit(self):
+        if "create_table_epilogue" not in self.config:
+            self.config["create_table_epilogue"] = ""
+        for val in ["true", "false"]:
+            self.config["ddl_implicit_commit"] = val
+            self._set_flavour()
+            if self._test_ddl():
+                self.log.info("ddl_implicit_commit=%s", val)
                 return
         raise Exception("Can not test for DDL implicit commit.")
 
-    def _test_ddl(sql):
+    def _test_ddl(self):
         """Test whether DDL performs implicit commit."""
-        sql.drop_table_if_exists("%stest_1" % sql.prefix)
+        self.drop_table_if_exists(f"{self.prefix}test_1")
         try:
-            sql.ddl(
-                "CREATE TABLE %stest_1 ("
-                " %stest_1_id NUMERIC(12) NOT NULL PRIMARY KEY,"
-                " foo VARCHAR(10))" % (sql.prefix, sql.prefix))
-            sql.rollback()
-            sql.selectall("SELECT MAX(%stest_1_id) FROM %stest_1"
-                          % (sql.prefix, sql.prefix))
+            self.ddl(
+                f"CREATE TABLE {self.prefix}test_1 ("
+                f"{self.prefix}test_1_id NUMERIC(12) NOT NULL PRIMARY KEY, "
+                f"foo VARCHAR(10))"
+            )
+            self.rollback()
+            self.selectall(
+                f"SELECT MAX({self.prefix}test_1_id) FROM {self.prefix}test_1"
+            )
             return True
-        except sql.module.DatabaseError as e:
-            sql.rollback()
+        except self.module.DatabaseError:
+            self.rollback()
             return False
         except Exception:
-            sql.rollback()
+            self.rollback()
             return False
         finally:
-            sql.drop_table_if_exists("%stest_1" % sql.prefix)
+            self.drop_table_if_exists(f"{self.prefix}test_1")
 
-    def configure_create_table_epilogue(sql):
-        for val in ['', ' ENGINE=InnoDB']:
-            sql.config['create_table_epilogue'] = val
-            sql._set_flavour()
-            if sql._test_transaction():
-                sql.log.info("create_table_epilogue='%s'", val)
+    def configure_create_table_epilogue(self):
+        for val in ["", " ENGINE=InnoDB"]:
+            self.config["create_table_epilogue"] = val
+            self._set_flavour()
+            if self._test_transaction():
+                self.log.info("create_table_epilogue='%s'", val)
                 return
         raise Exception("Can not create a transactional table.")
 
-    def _test_transaction(sql):
+    def _test_transaction(self):
         """Test whether CREATE TABLE needs ENGINE=InnoDB for rollback."""
-        sql.drop_table_if_exists("%stest_1" % sql.prefix)
+        self.drop_table_if_exists(f"{self.prefix}test_1")
         try:
-            sql.ddl("CREATE TABLE %stest_1 (a NUMERIC(12))" % sql.prefix)
-            sql.sql("INSERT INTO %stest_1 (a) VALUES (4)" % sql.prefix)
-            sql.commit()
-            sql.sql("INSERT INTO %stest_1 (a) VALUES (5)" % sql.prefix)
-            sql.rollback()
-            data = [int(row[0]) for row in sql.selectall(
-                    "SELECT a FROM %stest_1" % sql.prefix)]
+            self.ddl(f"CREATE TABLE {self.prefix}test_1 (a NUMERIC(12))")
+            self.sql(f"INSERT INTO {self.prefix}test_1 (a) VALUES (4)")
+            self.commit()
+            self.sql(f"INSERT INTO {self.prefix}test_1 (a) VALUES (5)")
+            self.rollback()
+            data = [
+                int(row[0])
+                for row in self.selectall(f"SELECT a FROM {self.prefix}test_1")
+            ]
             return data == [4]
-        except sql.module.DatabaseError as e:
-            sql.rollback()
+        except self.module.DatabaseError:
+            self.rollback()
             return False
-        except Exception as e:
-            sql.rollback()
+        except Exception:
+            self.rollback()
             return False
         finally:
-            sql.drop_table_if_exists("%stest_1" % sql.prefix)
+            self.drop_table_if_exists(f"{self.prefix}test_1")
 
-    def configure_max_varchar(sql):
+    def configure_max_varchar(self):
         """Find the maximum VARCHAR width, up to 0xffffffff"""
-        lo = 0
-        hi = 1 << 32
-        mid = hi - 1
-        sql.config['max_varchar'] = str(mid)
-        sql.drop_table_if_exists("%stest_1" % sql.prefix)
+        low = 0
+        high = 1 << 32
+        mid = high - 1
+        self.config["max_varchar"] = str(mid)
+        self.drop_table_if_exists(f"{self.prefix}test_1")
         while True:
-            sql.drop_table_if_exists("%stest_1" % sql.prefix)
+            self.drop_table_if_exists(f"{self.prefix}test_1")
             try:
-                sql.ddl("""CREATE TABLE %stest_1
-                           (a VARCHAR(%d), b VARCHAR(%d))"""
-                        % (sql.prefix, mid, mid))
-                sql.sql("INSERT INTO %stest_1 (a, b) VALUES ('x', 'y')"
-                        % sql.prefix)
-                row = sql.selectrow("SELECT a, b FROM %stest_1"
-                                    % sql.prefix)
-                if [x for x in row] == ['x', 'y']:
-                    lo = mid
+                self.ddl(
+                    f"CREATE TABLE {self.prefix}test_1 (a VARCHAR({mid}), b VARCHAR({mid}))"
+                )
+                self.sql(f"INSERT INTO {self.prefix}test_1 (a, b) VALUES ('x', 'y')")
+                row = self.selectrow(f"SELECT a, b FROM {self.prefix}test_1")
+                if [val for val in row] == ["x", "y"]:
+                    low = mid
                 else:
-                    hi = mid
-            except sql.module.DatabaseError as e:
-                sql.rollback()
-                hi = mid
-            except Exception as e:
-                sql.rollback()
-                hi = mid
-            if lo + 1 == hi:
-                sql.config['max_varchar'] = str(lo)
-                sql.log.info("max_varchar=%s", sql.config['max_varchar'])
+                    high = mid
+            except self.module.DatabaseError:
+                self.rollback()
+                high = mid
+            except Exception:
+                self.rollback()
+                high = mid
+            if low + 1 == high:
+                self.config["max_varchar"] = str(low)
+                self.log.info("max_varchar=%s", self.config["max_varchar"])
                 break
-            mid = (lo + hi) / 2
-        sql.drop_table_if_exists("%stest_1" % sql.prefix)
+            mid = int((low + high) / 2)
+        self.drop_table_if_exists(f"{self.prefix}test_1")
 
-    def configure_max_precision(sql):
-        sql.config['max_precision'] = ""  # XXX
+    def configure_max_precision(self):
+        self.config["max_precision"] = ""  # XXX
 
-    def configure_clob_type(sql):
+    def configure_clob_type(self):
         """Find the name of the CLOB type, if any."""
-        long_str = 'x' * 10000
-        sql.drop_table_if_exists("%stest_1" % sql.prefix)
-        for val in ['CLOB', 'LONGTEXT', 'TEXT', 'LONG']:
+        long_str = "x" * 10000
+        self.drop_table_if_exists(f"{self.prefix}test_1")
+        for val in ["CLOB", "LONGTEXT", "TEXT", "LONG"]:
             try:
-                sql.ddl("CREATE TABLE %stest_1 (a %s)" % (sql.prefix, val))
-                sql.sql("INSERT INTO %stest_1 (a) VALUES (?)" % sql.prefix, (sql.binin(long_str),))
-                out = sql.selectrow("SELECT a FROM %stest_1" % sql.prefix)[0]
-                if sql.binout(out) == long_str:
-                    sql.config['clob_type'] = val
-                    sql.log.info("clob_type=%s", val)
+                self.ddl(f"CREATE TABLE {self.prefix}test_1 (a {val})")
+                self.sql(
+                    f"INSERT INTO {self.prefix}test_1 (a) VALUES (?)",
+                    (self.binin(long_str),),
+                )
+                out = self.selectrow(f"SELECT a FROM {self.prefix}test_1")[0]
+                if self.binout(out) == long_str:
+                    self.config["clob_type"] = val
+                    self.log.info("clob_type=%s", val)
                     return
                 else:
-                    sql.log.debug("out=%s", repr(out))
-            except sql.module.DatabaseError as e:
-                sql.rollback()
-            except Exception as e:
+                    self.log.debug("out=%s", repr(out))
+            except self.module.DatabaseError:
+                self.rollback()
+            except Exception:
                 try:
-                    sql.rollback()
+                    self.rollback()
                 except Exception:
                     # Fetching a CLOB really messes up Easysoft ODBC Oracle.
-                    sql.reconnect()
+                    self.reconnect()
                     raise
             finally:
-                sql.drop_table_if_exists("%stest_1" % sql.prefix)
-        sql.log.info("No native type found for CLOB.")
-        sql.config['clob_type'] = NO_CLOB
+                self.drop_table_if_exists(f"{self.prefix}test_1")
+        self.log.info("No native type found for CLOB.")
+        self.config["clob_type"] = NO_CLOB
 
-    def _test_binary_type(sql):
-        sql.drop_table_if_exists("%stest_1" % sql.prefix)
+    def _test_binary_type(self):
+        self.drop_table_if_exists(f"{self.prefix}test_1")
         try:
+            bit_type = "BINARY(32)"
             # XXX The 10000 should be configurable: max_desired_binary?
-            sql.ddl("""
-                CREATE TABLE %stest_1 (
-                    test_id NUMERIC(2) NOT NULL PRIMARY KEY,
-                    test_bit BINARY(32),
-                    test_varbit VARBINARY(10000))""" % sql.prefix)
-            val = str(''.join(map(chr, range(0, 256, 8))))
-            sql.sql("INSERT INTO %stest_1 (test_id, test_bit, test_varbit)"
-                    " VALUES (?, ?, ?)" % sql.prefix,
-                    (1, sql.revin(val), sql.binin(val)))
-            (bit, vbit) = sql.selectrow("SELECT test_bit, test_varbit FROM %stest_1" % sql.prefix)
-            if sql.revout(bit) != val:
-                return False
-            if sql.binout(vbit) != val:
-                return False
-            return True
-        except sql.module.DatabaseError as e:
-            sql.rollback()
+            var_bit_type = "VARBINARY(10000))"
+
+            if self.config["binary_type"] == "pg-bytea":
+                bit_type = "bytea"
+                var_bit_type = "bytea"
+
+            self.ddl(
+                f"CREATE TABLE {self.prefix}test_1 ("
+                f"test_id NUMERIC(2) NOT NULL PRIMARY KEY,"
+                f"test_bit {bit_type},"
+                f"test_varbit {var_bit_type})"
+            )
+            val = "".join(map(chr, range(0, 256, 8)))
+            revin = self.revin(val)
+            binin = self.binin(val)
+            self.sql(
+                f"INSERT INTO {self.prefix}test_1 (test_id, test_bit, test_varbit) \
+                    VALUES (?, ?, ?)",
+                (1, revin, binin),
+            )
+            (bit, vbit) = self.selectrow(
+                f"SELECT test_bit, test_varbit FROM {self.prefix}test_1"
+            )
+            binout = self.binout(vbit)
+            revout = self.revout(bit)
+            return binout == val and revout == binout
+        except self.module.DatabaseError:
+            self.rollback()
             return False
-        except Exception as e:
-            sql.rollback()
+        except Exception:
+            self.rollback()
             return False
         finally:
-            sql.drop_table_if_exists("%stest_1" % sql.prefix)
+            self.drop_table_if_exists(f"{self.prefix}test_1")
 
-    def _test_int_type(sql):
-        sql.drop_view_if_exists("%stest_v1" % sql.prefix)
-        sql.drop_table_if_exists("%stest_1" % sql.prefix)
+    def _test_int_type(self):
+        self.drop_view_if_exists(f"{self.prefix}test_v1")
+        self.drop_table_if_exists(f"{self.prefix}test_1")
         try:
-            sql.ddl("""
-                CREATE TABLE %stest_1 (
+            self.ddl(
+                f"""
+                CREATE TABLE {self.prefix}test_1 (
                     test_id NUMERIC(2) NOT NULL PRIMARY KEY,
-                    i1 NUMERIC(28), i2 NUMERIC(28), i3 NUMERIC(28))""" % sql.prefix)
+                    i1 NUMERIC(28), i2 NUMERIC(28), i3 NUMERIC(28))"""
+            )
             # XXX No longer needed?
-            sql.ddl("""
-                CREATE VIEW %stest_v1 AS
+            self.ddl(
+                f"""
+                CREATE VIEW {self.prefix}test_v1 AS
                 SELECT test_id,
                        i1 i1_approx,
                        i1,
                        i2
-                  FROM %stest_1""" % (sql.prefix, sql.prefix))
-            v1 = 2099999999999999
-            v2 = 1234567890
-            v3 = 12345678901234567890L
-            sql.sql("INSERT INTO %stest_1 (test_id, i1, i2, i3)"
-                    " VALUES (?, ?, ?, ?)" % sql.prefix,
-                    (1, sql.intin(v1), v2, sql.intin(v3)))
-            sql.commit()
-            prod, o1 = sql.selectrow("SELECT i1_approx * i2, i1 FROM %stest_v1" % sql.prefix)
+                  FROM {self.prefix}test_1"""
+            )
+            val_1 = 2099999999999999
+            val_2 = 1234567890
+            val_3 = 12345678901234567890
+            self.sql(
+                f"INSERT INTO {self.prefix}test_1 (test_id, i1, i2, i3)"
+                " VALUES (?, ?, ?, ?)",
+                (1, self.intin(val_1), val_2, self.intin(val_3)),
+            )
+            self.commit()
+            prod, ord_1 = self.selectrow(
+                f"SELECT i1_approx * i2, i1 FROM {self.prefix}test_v1"
+            )
             prod = int(prod)
-            o1 = int(o1)
-            if prod < v1 * v2 * 1.0001 and prod > v1 * v2 * 0.9999 and o1 == v1:
+            ord_1 = int(ord_1)
+            if (
+                prod < val_1 * val_2 * 1.0001
+                and prod > val_1 * val_2 * 0.9999
+                and ord_1 == val_1
+            ):
                 return True
             return False
-        except sql.module.DatabaseError as e:
-            sql.rollback()
+        except self.module.DatabaseError:
+            self.rollback()
             return False
-        except Exception as e:
-            sql.rollback()
+        except Exception:
+            self.rollback()
             return False
         finally:
-            sql.drop_view_if_exists("%stest_v1" % sql.prefix)
-            sql.drop_table_if_exists("%stest_1" % sql.prefix)
+            self.drop_view_if_exists(f"{self.prefix}test_v1")
+            self.drop_table_if_exists(f"{self.prefix}test_1")
 
-    def _test_sequence_type(sql):
-        sql.drop_table_if_exists("%stest_1" % sql.prefix)
-        sql.drop_sequence_if_exists("%stest_1" % sql.prefix)
+    def _test_sequence_type(self):
+        self.drop_table_if_exists(f"{self.prefix}test_1")
+        self.drop_sequence_if_exists(f"{self.prefix}test_1")
 
         try:
-            sql.ddl("""
-                CREATE TABLE %stest_1 (
-                    %stest_1_id NUMERIC(12) NOT NULL PRIMARY KEY,
+            self.ddl(
+                f"""
+                CREATE TABLE {self.prefix}test_1 (
+                    {self.prefix}test_1_id NUMERIC(12) NOT NULL PRIMARY KEY,
                     foo VARCHAR(10)
-                )""" % (sql.prefix, sql.prefix))
-            sql.create_sequence('%stest_1' % sql.prefix)
-            id1 = sql.new_id('%stest_1' % sql.prefix)
-            id2 = sql.new_id('%stest_1' % sql.prefix)
+                )"""
+            )
+            self.create_sequence(f"{self.prefix}test_1")
+            id1 = self.new_id(f"{self.prefix}test_1")
+            id2 = self.new_id(f"{self.prefix}test_1")
             if int(id1) != int(id2):
                 return True
             return False
-        except sql.module.DatabaseError as e:
-            sql.rollback()
+        except self.module.DatabaseError:
+            self.rollback()
             return False
-        except Exception as e:
-            sql.rollback()
+        except Exception:
+            self.rollback()
             return False
         finally:
-            sql.drop_table_if_exists("%stest_1" % sql.prefix)
+            self.drop_table_if_exists(f"{self.prefix}test_1")
             try:
-                sql.drop_sequence("%stest_1" % sql.prefix)
-            except sql.module.DatabaseError:
-                sql.rollback()
+                self.drop_sequence(f"{self.prefix}test_1")
+            except self.module.DatabaseError:
+                self.rollback()
 
-    def configure_limit_style(sql):
-        for val in ['native', 'emulated']:
-            sql.config['limit_style'] = val
-            sql._set_flavour()
-            if sql._test_limit_style():
-                sql.log.info("limit_style=%s", val)
+    def configure_limit_style(self):
+        for val in ["native", "emulated"]:
+            self.config["limit_style"] = val
+            self._set_flavour()
+            if self._test_limit_style():
+                self.log.info("limit_style=%s", val)
                 return
         raise Exception("Can not emulate LIMIT.")
 
-    def _test_limit_style(sql):
-        sql.drop_table_if_exists("%stest_1" % sql.prefix)
+    def _test_limit_style(self):
+        self.drop_table_if_exists(f"{self.prefix}test_1")
         try:
-            sql.ddl("""
-                CREATE TABLE %stest_1 (
-                    %stest_1_id NUMERIC(12) NOT NULL PRIMARY KEY
-                )""" % (sql.prefix, sql.prefix))
-            for id in (2, 4, 6, 8):
-                sql.sql("INSERT INTO %stest_1 (%stest_1_id) VALUES (?)"
-                        % (sql.prefix, sql.prefix),
-                        (id,))
-            rows = sql.selectall("""
-                SELECT %stest_1_id FROM %stest_1 ORDER BY %stest_1_id
-                 LIMIT 3""" % (sql.prefix, sql.prefix, sql.prefix))
+            self.ddl(
+                f"""
+                CREATE TABLE {self.prefix}test_1 (
+                    {self.prefix}test_1_id NUMERIC(12) NOT NULL PRIMARY KEY
+                )"""
+            )
+            for elem in (2, 4, 6, 8):
+                self.sql(
+                    f"INSERT INTO {self.prefix}test_1 ({self.prefix}test_1_id) VALUES (?)",
+                    (elem,),
+                )
+            rows = self.selectall(
+                f"""
+                SELECT {self.prefix}test_1_id
+                FROM {self.prefix}test_1
+                ORDER BY {self.prefix}test_1_id
+                LIMIT 3"""
+            )
             return [int(row[0]) for row in rows] == [2, 4, 6]
-        except sql.module.DatabaseError as e:
-            sql.rollback()
+        except self.module.DatabaseError:
+            self.rollback()
             return False
-        except Exception as e:
-            sql.rollback()
+        except Exception:
+            self.rollback()
             return False
         finally:
-            sql.drop_table_if_exists("%stest_1" % sql.prefix)
+            self.drop_table_if_exists(f"{self.prefix}test_1")
 
-    def configure_concat_style(sql):
-        for val in ['ansi', 'mysql']:
-            sql.config['concat_style'] = val
-            sql._set_flavour()
-            if sql._test_concat_style():
-                sql.log.info("concat_style=%s", val)
+    def configure_concat_style(self):
+        for val in ["ansi", "mysql"]:
+            self.config["concat_style"] = val
+            self._set_flavour()
+            if self._test_concat_style():
+                self.log.info("concat_style=%s", val)
                 return
         raise Exception("Can not find suitable concatenation style.")
 
-    def _test_concat_style(sql):
+    def _test_concat_style(self):
         try:
-            rows = sql.selectall("""
+            rows = self.selectall(
+                """
                 SELECT 'foo' || ? || 'baz' AS String1,
                     ? || 'foo' || ? AS String2
-                """, ('bar', 'baz', 'bar'));
-            sql.log.info(str(rows))
-            if rows[0][0] == 'foobarbaz' and rows[0][1] == 'bazfoobar':
+                """,
+                ("bar", "baz", "bar"),
+            )
+            self.log.info(str(rows))
+            if rows[0][0] == "foobarbaz" and rows[0][1] == "bazfoobar":
                 return True
-        except Exception as e:
+        except Exception:
             pass
 
-        sql.rollback()
+        self.rollback()
         return False
-

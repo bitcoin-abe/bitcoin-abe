@@ -1,9 +1,11 @@
-# RIPEMD hash interface via hashlib for those who don't have
-# Crypto.Hash.RIPEMD.
+"""RIPEMD hash interface via hashlib for those who don't have
+Crypto.Hash.RIPEMD."""
 
 import hashlib
 
-def new(data=''):
-    h = hashlib.new('ripemd160')
-    h.update(data)
-    return h
+
+def new(data=""):
+    """RIPEMD interface"""
+    _hash = hashlib.new("ripemd160")
+    _hash.update(data)
+    return _hash

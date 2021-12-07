@@ -18,12 +18,12 @@
 """Reconfigure an Abe instance."""
 
 import sys
-import logging
+from Abe import firstbits
+from Abe.data_store import CmdLine
 
-import util
-import firstbits
 
 def keep_scriptsig_reconfigure(store, args):
+    """keep scriptsig while reconfiguring"""
     have = store.keep_scriptsig
     want = args.keep_scriptsig
     if have == want:
@@ -38,7 +38,7 @@ def keep_scriptsig_reconfigure(store, args):
 
         store.drop_column_if_exists("txin", "txin_scriptSig")
         store.drop_column_if_exists("txin", "txin_sequence")
-        store.config['keep_scriptsig'] = "false"
+        store.config["keep_scriptsig"] = "false"
 
         store.keep_scriptsig = want
         store.refresh_ddl()
@@ -48,10 +48,12 @@ def keep_scriptsig_reconfigure(store, args):
     finally:
         store.release_lock(lock)
 
+
 def main(argv):
-    cmdline = util.CmdLine(argv)
-    cmdline.usage = lambda: \
-        """Usage: python -m Abe.reconfigure [-h] [--config=FILE] [--CONFIGVAR=VALUE]...
+    """Main method"""
+    cmdline = CmdLine(argv)
+    cmdline.usage = (
+        lambda: """Usage: python -m Abe.reconfigure [-h] [--config=FILE] [--CONFIGVAR=VALUE]...
 
 Apply configuration changes to an existing Abe database, if possible.
 
@@ -62,8 +64,9 @@ Apply configuration changes to an existing Abe database, if possible.
   --keep-scriptsig false    Remove input validation scripts from the database.
 
 All configuration variables may be given as command arguments."""
+    )
 
-    store, argv = cmdline.init()
+    store, args = cmdline.init()
     if store is None:
         return 0
 
@@ -71,5 +74,6 @@ All configuration variables may be given as command arguments."""
     keep_scriptsig_reconfigure(store, args)
     return 0
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
