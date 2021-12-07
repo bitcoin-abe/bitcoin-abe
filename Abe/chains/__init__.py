@@ -101,7 +101,6 @@ CHAIN_CONFIG: List[PolicyAttrs] = [
     {"chain": "BlackCoin"},
     {"chain": "Unbreakablecoin"},
     {"chain": "Californium"},
-    {"chain": "", "code3": "", "address_version": b"", "magic": b""},
 ]
 
 
@@ -110,22 +109,25 @@ def create(name: str, src=None, **kwargs) -> BaseChain:
 
     Args:
         `name` (str): The name of the chain to be instantiated
+        `src` (BaseChain): Allows passing in a chain to specify the object
+        `kwargs` (PolicyAttrs): A dict of keyword arguments for configuration
 
     Returns:
-        `BaseChain`: The instantiated class of the named chain
+        `Chain` (BaseChain): The instantiated class of the named chain
     """
     mod = __import__("Abe.chains", globals(), locals(), ["chains"], 0)
 
-    if kwargs is None:
-        policy_kwargs = next(
+    if kwargs is None or not bool(kwargs):
+        policy_kwargs: PolicyAttrs = next(
             item.copy() for item in CHAIN_CONFIG if item["chain"] == name
         )
-
         assert policy_kwargs["chain"] is not None
-        name = policy_kwargs["chain"]
-        policy_kwargs["name"] = name
+        name = policy_kwargs["name"] = policy_kwargs["chain"]
     else:
-        policy_kwargs = kwargs
+        # Ideally, the def would have **kwargs: Expand[PolicyAttrs] but this is not yet
+        # available https://github.com/python/mypy/issues/4441
+        # So, will leave the # type: ignore until it is.
+        policy_kwargs = kwargs  # type: ignore
 
     policy_kwargs["chain"] = None
 
@@ -136,7 +138,7 @@ def create(name: str, src=None, **kwargs) -> BaseChain:
     chain = getattr(mod, policy)
 
     class Chain(chain):  # type: ignore
-        __doc__ = f"""The fully configured {chain.__name__} chain"""
+        """The fully configured chain"""
 
         def __init__(self, src=None, **kwargs):
             chain.__init__(self, src, **kwargs)
