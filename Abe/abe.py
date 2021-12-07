@@ -27,7 +27,6 @@ import logging
 import json
 import errno
 import urllib.parse
-import pkgutil
 import tarfile
 import mimetypes
 import inspect
@@ -37,7 +36,8 @@ import signal
 from wsgiref.simple_server import make_server
 import importlib.metadata
 from flup.server.fcgi import WSGIServer
-from . import data_store, readconf, deserialize, util, base58, Chain
+from . import data_store, readconf, deserialize, util, base58, chains
+from .data_store import DataStore
 
 # bitcointools -- modified deserialize.py to return raw transaction
 
@@ -157,8 +157,8 @@ NETHASH_SVG_TEMPLATE = """\
 MAX_UNSPENT_ADDRESSES = 200
 
 
-def make_store(args):
-    store = data_store.new(args)
+def make_store(args) -> DataStore:
+    store: DataStore = data_store.new(args)
     if not args.no_load:
         store.catch_up()
     return store
@@ -182,7 +182,7 @@ class Streamed(Exception):
 
 
 class Abe:
-    def __init__(self, store, args):
+    def __init__(self, store: DataStore, args):
         self.store = store
         self.args = args
         self.htdocs = args.document_root or find_htdocs()
@@ -208,8 +208,8 @@ class Abe:
         else:
             self.shortlink_type = args.shortlink_type
             if self.shortlink_type != "firstbits":
-                self.shortlink_type = int(self.shortlink_type)
-                if self.shortlink_type < 2:
+                self.shortlink_type = int(self.shortlink_type)  # type: ignore
+                if self.shortlink_type < 2:  # type: ignore
                     raise ValueError("shortlink-type: 2 character minimum")
             elif not store.use_firstbits:
                 self.shortlink_type = "non-firstbits"
@@ -217,7 +217,7 @@ class Abe:
                     "Ignoring shortlink-type=firstbits since the database does not support it."
                 )
         if self.shortlink_type == "non-firstbits":
-            self.shortlink_type = 10
+            self.shortlink_type = 10  # type: ignore
 
     def __call__(self, env, start_response):
 
@@ -1041,21 +1041,21 @@ class Abe:
 
         binaddr = history["binaddr"]
         version = history["version"]
-        chains = history["chains"]
+        _chains = history["chains"]
         txpoints = history["txpoints"]
         balance = history["balance"]
         sent = history["sent"]
         received = history["received"]
         counts = history["counts"]
 
-        if not chains:
+        if not _chains:
             page["status"] = "404 Not Found"
             body += ["<p>Address not seen on the network.</p>"]
             return
 
         def format_amounts(amounts, link):
             ret = []
-            for chain in chains:
+            for chain in _chains:
                 if ret:
                     ret += [", "]
                 ret += [
@@ -1103,12 +1103,12 @@ class Abe:
             chain = page["chain"]
 
             if chain is None:
-                for count_iter in chains:
+                for count_iter in _chains:
                     if count_iter.script_addr_vers == version:
                         chain = count_iter
                         break
                 if chain is None:
-                    chain = chains[0]
+                    chain = _chains[0]
 
             body += ["<br />\nEscrow"]
             for subbinaddr in history["subbinaddr"]:
@@ -1119,7 +1119,7 @@ class Abe:
                     ),
                 ]
 
-        for chain in chains:
+        for chain in _chains:
             balance[chain.id] = 0  # Reset for history traversal.
 
         body += [
@@ -2006,7 +2006,8 @@ class Abe:
         addr = wsgiref.util.shift_path_info(page["env"])
         if chain is None or addr is None:
             return (
-                "returns amount of money received by given address (not balance, sends are not subtracted)\n"
+                "returns amount of money received by given address (not balance, \
+                    sends are not subtracted)\n"
                 "/chain/CHAIN/q/getreceivedbyaddress/ADDRESS\n"
             )
 
@@ -2406,33 +2407,28 @@ def process_is_alive(pid):
 
 
 def list_policies():
-
-    policies = []
-    for _, name, ispkg in pkgutil.iter_modules(path=[os.path.dirname(Chain.__file__)]):
-        if not ispkg:
-            policies.append(name)
-    return policies
+    return chains.chains.__all__
 
 
 def show_policy(policy):
 
     try:
-        chain = Chain.create(policy)
+        chain = chains.create(policy)
     except ImportError as e:
-        print("%s: policy unavailable (%s)" % (policy, e.message))
+        print(f"{policy}: policy unavailable ({e.message})")
         return
 
-    print("%s:" % policy)
+    print(f"{policy}:")
 
     parents = []
     for cls in type(chain).__mro__[1:]:
-        if cls == Chain.BaseChain:
+        if cls == chains.BaseChain:
             break
         parents.append(cls)
     if parents:
         print("  Inherits from:")
         for cls in parents:
-            print("    %s" % cls.__name__)
+            print(f"    {cls.__name__}" )
 
     params = []
     for attr in chain.POLICY_ATTRS:
@@ -2448,12 +2444,12 @@ def show_policy(policy):
                 except UnicodeError:
                     if type(val) == bytes:
                         # The value could be a magic number or address version.
-                        val = json.dumps(str(val, "latin_1"))
+                        val = json.dumps(str(val, "utf-8"))
                     else:
                         val = repr(val)
             except TypeError as e:
                 val = repr(val)
-            print("    %s: %s" % (attr, val))
+            print(f"    {attr}: {val}")
 
     doc = inspect.getdoc(chain)
     if doc is not None:

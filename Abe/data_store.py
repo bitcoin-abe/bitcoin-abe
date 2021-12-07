@@ -31,14 +31,16 @@ from logging import config as logging_config
 from random import randint
 import sys
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
-from Abe import readconf, SqlAbstraction, Chain, util, upgrade, sql, genesis_tx
+
+from chains.base_chain import BaseChain
+from . import readconf, SqlAbstraction, chains, util, upgrade, sql, genesis_tx
+from .chains import CHAIN_CONFIG
 
 from .constants import (
     CONFIG_DEFAULTS,
     SCHEMA_VERSION,
     NULL_PUBKEY_HASH,
     NULL_PUBKEY_ID,
-    CHAIN_CONFIG,
     SCHEMA_TYPE,
     WORK_BITS,
     PUBKEY_ID_NETWORK_FEE,
@@ -53,8 +55,8 @@ from .exceptions import (
 )
 from .merkle import Merkle
 from .streams import BCDataStream
-from .typing import Block, Transaction
-from .util import b2hex, hex2b, transaction_hash
+from .typing import Block  # , Transaction, TxIn
+from .util import b2hex, hex2b
 
 # bitcointools -- modified deserialize.py to return raw transaction
 
@@ -464,7 +466,13 @@ class DataStore:
         no_bit8_chains = self.args.ignore_bit8_chains or []
         if isinstance(no_bit8_chains, str):
             no_bit8_chains = [no_bit8_chains]
-
+        row = self.selectall(
+            """
+            SELECT chain_id, chain_magic, chain_name, chain_code3,
+                    chain_address_version, chain_script_addr_vers,
+                    chain_policy, chain_decimals
+            FROM chain"""
+        )
         for (
             chain_id,
             magic,
@@ -474,20 +482,13 @@ class DataStore:
             script_addr_vers,
             chain_policy,
             chain_decimals,
-        ) in self.selectall(
-            """
-                    SELECT chain_id, chain_magic, chain_name, chain_code3,
-                           chain_address_version, chain_script_addr_vers,
-                           chain_policy, chain_decimals
-                      FROM chain
-                """
-        ):
-            chain = Chain.create(
-                policy=str(chain_policy),
+        ) in row:
+            chain: BaseChain = chains.create(
+                policy=chain_policy,
                 id=int(chain_id),
                 magic=self.binout(magic),
-                name=str(chain_name),
-                code3=chain_code3 and str(chain_code3),
+                name=chain_name,
+                code3=chain_code3,
                 address_version=self.binout(address_version),
                 script_addr_vers=self.binout(script_addr_vers),
                 decimals=None if chain_decimals is None else int(chain_decimals),
@@ -497,24 +498,24 @@ class DataStore:
             if chain.name in no_bit8_chains and chain.has_feature(
                 "block_version_bit8_merge_mine"
             ):
-                chain = Chain.create(src=chain, policy="LegacyNoBit8")
+                chain = chains.create("LegacyNoBit8", chain)
 
             self.chains_by.id[chain.id] = chain
             self.chains_by.name[chain.name] = chain
             self.chains_by.magic[chain.magic] = chain
 
-    def get_chain_by_id(self, chain_id):
+    def get_chain_by_id(self, chain_id) -> BaseChain:
         """get_chain_by_id"""
         return self.chains_by.id[int(chain_id)]
 
-    def get_chain_by_name(self, name):
+    def get_chain_by_name(self, name: str) -> BaseChain:
         """get_chain_by_name"""
         return self.chains_by.name.get(name, None)
 
-    def get_default_chain(self):
+    def get_default_chain(self) -> BaseChain:
         """get_default_chain"""
         self.log.debug("Falling back to default (Bitcoin) policy.")
-        return Chain.create(self.default_chain)
+        return chains.create(self.default_chain)
 
     def get_ddl(self, key):
         """get_ddl"""
@@ -584,13 +585,8 @@ class DataStore:
         # Insert some well-known chain metadata.
         for conf in CHAIN_CONFIG:
             conf = conf.copy()
-            conf["name"] = conf.pop("chain")
-            if "policy" in conf:
-                policy = conf.pop("policy")
-            else:
-                policy = conf["name"]
-
-            chain = Chain.create(policy, **conf)
+            name = conf["chain"]
+            chain = chains.create(name)
             self.insert_chain(chain)
 
         self.sql(
@@ -858,7 +854,9 @@ class DataStore:
                     self.log.debug("Falling back to SHA256 transaction hash")
                     transaction["hash"] = util.double_sha256(transaction["__data__"])
                 else:
-                    transaction["hash"] = transaction_hash(transaction["__data__"])
+                    transaction["hash"] = chain.transaction_hash(
+                        transaction["__data__"]
+                    )
 
             tx_hash_array.append(transaction["hash"])
             transaction["tx_id"] = self.tx_find_id_and_value(transaction, pos == 0)
@@ -868,10 +866,10 @@ class DataStore:
             else:
                 if self.commit_bytes == 0:
                     transaction["tx_id"] = self.import_and_commit_tx(
-                        transaction, pos == 0, chain
+                        transaction, chain, pos == 0
                     )
                 else:
-                    transaction["tx_id"] = self.import_tx(transaction, pos == 0, chain)
+                    transaction["tx_id"] = self.import_tx(transaction, chain, pos == 0)
                 if transaction.get("unlinked_count", 1) > 0:
                     all_txins_linked = False
 
@@ -1405,7 +1403,7 @@ class DataStore:
             if pair and pair[1] > ret[chain_id][1]:
                 ret[chain_id] = pair
 
-    def _export_scriptPubKey(self, txout, chain, scriptPubKey):
+    def _export_scriptPubKey(self, txout, chain: BaseChain, scriptPubKey):
         """In txout, set script_type, address_version, binaddr, and for multisig,
         required_signatures."""
 
@@ -1418,26 +1416,26 @@ class DataStore:
         txout["script_type"] = script_type
         txout["address_version"] = chain.address_version
 
-        if script_type == Chain.SCRIPT_TYPE_PUBKEY:
+        if script_type == chains.SCRIPT_TYPE_PUBKEY:
             txout["binaddr"] = util.pubkey_to_hash(data)
-        elif script_type == Chain.SCRIPT_TYPE_ADDRESS:
+        elif script_type == chains.SCRIPT_TYPE_ADDRESS:
             txout["binaddr"] = data
-        elif script_type == Chain.SCRIPT_TYPE_P2SH:
+        elif script_type == chains.SCRIPT_TYPE_P2SH:
             txout["address_version"] = chain.script_addr_vers
             txout["binaddr"] = data
-        elif script_type == Chain.SCRIPT_TYPE_MULTISIG:
+        elif script_type == chains.SCRIPT_TYPE_MULTISIG:
             txout["required_signatures"] = data["m"]
             txout["binaddr"] = util.pubkey_to_hash(scriptPubKey)
             txout["subbinaddr"] = [
                 util.pubkey_to_hash(pubkey) for pubkey in data["pubkeys"]
             ]
-        elif script_type == Chain.SCRIPT_TYPE_BURN:
+        elif script_type == chains.SCRIPT_TYPE_BURN:
             txout["binaddr"] = NULL_PUBKEY_HASH
         else:
             txout["binaddr"] = None
 
     def export_block(
-        self, chain=None, block_hash=None, block_number=None
+        self, chain: BaseChain = None, block_hash=None, block_number=None
     ) -> Optional[Dict[str, Any]]:
         """
         Return a dict with the following:
@@ -1504,8 +1502,7 @@ class DataStore:
             where.append("block_height = ? AND in_longest = 1")
             bind.append(block_number)
 
-        _sql = (
-            """
+        _sql = f"""
             SELECT
                 chain_id,
                 in_longest,
@@ -1528,13 +1525,11 @@ class DataStore:
                 block_ss_destroyed,
                 block_num_tx
               FROM chain_summary
-             WHERE """
-            + " AND ".join(where)
-            + """
+             WHERE 
+             AND {where}
              ORDER BY
                 in_longest DESC,
                 chain_id DESC"""
-        )
         rows = self.selectall(_sql, bind)
 
         if len(rows) == 0:
@@ -1780,7 +1775,7 @@ class DataStore:
 
         return None
 
-    def import_tx(self, transaction, is_coinbase, chain):
+    def import_tx(self, transaction, chain: BaseChain, is_coinbase: bool):
         """import_tx"""
         tx_id = self.new_id("tx")
         dbhash = self.hashin(transaction["hash"])
@@ -1811,7 +1806,7 @@ class DataStore:
         for pos in range(len(transaction["txOut"])):
             txout = transaction["txOut"][pos]
             transaction["value_out"] += txout["value"]
-            txout_id = self.new_id("txout")
+            txout_id: Optional[int] = self.new_id("txout")
 
             pubkey_id = self.script_to_pubkey_id(chain, txout["scriptPubKey"])
             # Attention: much match how tx_find_id_and_value gets undestroyed
@@ -1911,10 +1906,10 @@ class DataStore:
         # requires them.
         return tx_id
 
-    def import_and_commit_tx(self, transaction, is_coinbase, chain):
+    def import_and_commit_tx(self, transaction, chain: BaseChain, is_coinbase):
         """import_and_commit_tx"""
         try:
-            tx_id = self.import_tx(transaction, is_coinbase, chain)
+            tx_id = self.import_tx(transaction, chain, is_coinbase)
             self.commit()
 
         except self.dbmodule.DatabaseError:
@@ -1926,14 +1921,14 @@ class DataStore:
 
         return tx_id
 
-    def maybe_import_binary_tx(self, chain_name, binary_tx):
+    def maybe_import_binary_tx(self, chain_name: str, binary_tx):
         """maybe_import_binary_tx"""
         if chain_name is None:
-            chain = self.get_default_chain()
+            chain: BaseChain = self.get_default_chain()
         else:
             chain = self.get_chain_by_name(chain_name)
 
-        tx_hash = transaction_hash(binary_tx)
+        tx_hash = chain.transaction_hash(binary_tx)
 
         (count,) = self.selectrow(
             "SELECT COUNT(1) FROM tx WHERE tx_hash = ?", (self.hashin(tx_hash),)
@@ -1942,17 +1937,19 @@ class DataStore:
         if count == 0:
             transaction = chain.parse_transaction(binary_tx)
             transaction["hash"] = tx_hash
-            self.import_tx(transaction, chain.is_coinbase_tx(transaction), chain)
+            self.import_tx(transaction, chain, chain.is_coinbase_tx(transaction))
             self.imported_bytes(transaction["size"])
 
-    def export_tx(self, tx_id=None, tx_hash=None, decimals=8, fmt="api", chain=None):
+    def export_tx(
+        self, tx_id=None, tx_hash=None, decimals=8, fmt="api", chain: BaseChain = None
+    ):
         """Return a dict as seen by /rawtx or None if not found."""
 
         # TODO: merge _export_tx_detail with export_tx.
         if fmt == "browser":
             return self._export_tx_detail(tx_hash, chain=chain)
 
-        transaction: Transaction = {}
+        transaction: Dict[str, Any] = {}
         is_bin = fmt == "binary"
 
         if tx_id is not None:
@@ -1979,18 +1976,18 @@ class DataStore:
             )
             if row is None:
                 return None
-            transaction["hash"] = tx_hash.decode("hex")[::-1] if is_bin else tx_hash
+            transaction["hash"] = tx_hash[::-1] if is_bin else tx_hash
             tx_id = row[0]
 
         else:
             raise ValueError("export_tx requires either tx_id or tx_hash.")
 
-        transaction["version" if is_bin else "ver"] = int(row[1])
-        transaction["lockTime" if is_bin else "lock_time"] = int(row[2])
+        transaction["version" if is_bin else "ver"] = int(row[1])  # type: ignore
+        transaction["lockTime" if is_bin else "lock_time"] = int(row[2])  # type: ignore
         transaction["size"] = int(row[3])
 
-        txins = []
-        transaction["txIn" if is_bin else "in"] = txins
+        txins: List[Dict[str, Any]] = []
+        transaction["txIn" if is_bin else "in"] = txins  # type: ignore
         for row in self.selectall(
             """
             SELECT
@@ -2038,7 +2035,7 @@ class DataStore:
                 txin["sequence"] = None if sequence is None else int(sequence)
             txins.append(txin)
 
-        txouts = []
+        txouts: List[Dict[str, Any]] = []
         transaction["txOut" if is_bin else "out"] = txouts
         for satoshis, scriptPubKey in self.selectall(
             """
@@ -2221,13 +2218,13 @@ class DataStore:
         received = {}
         sent = {}
         counts = [0, 0]
-        chains = []
+        _chains = []
 
         def adj_balance(txpoint):
             chain = txpoint["chain"]
 
             if chain.id not in balance:
-                chains.append(chain)
+                _chains.append(chain)
                 balance[chain.id] = 0
                 received[chain.id] = 0
                 sent[chain.id] = 0
@@ -2406,7 +2403,7 @@ class DataStore:
         hist = {
             "binaddr": binaddr,
             "version": version,
-            "chains": chains,
+            "chains": _chains,
             "txpoints": txpoints,
             "balance": balance,
             "sent": sent,
@@ -2635,17 +2632,17 @@ class DataStore:
         )
         return (None, None) if row is None else (row[0], int(row[1]))
 
-    def script_to_pubkey_id(self, chain, script):
+    def script_to_pubkey_id(self, chain: BaseChain, script: bytes):
         """Extract address and script type from transaction output script."""
         script_type, data = chain.parse_txout_script(script)
 
-        if script_type in (Chain.SCRIPT_TYPE_ADDRESS, Chain.SCRIPT_TYPE_P2SH):
+        if script_type in (chains.SCRIPT_TYPE_ADDRESS, chains.SCRIPT_TYPE_P2SH):
             return self.pubkey_hash_to_id(data)
 
-        if script_type == Chain.SCRIPT_TYPE_PUBKEY:
+        if script_type == chains.SCRIPT_TYPE_PUBKEY:
             return self.pubkey_to_id(data)
 
-        if script_type == Chain.SCRIPT_TYPE_MULTISIG:
+        if script_type == chains.SCRIPT_TYPE_MULTISIG:
             script_hash = util.script_to_hash(script)
             multisig_id = self._pubkey_id(script_hash, script)
 
@@ -2662,21 +2659,21 @@ class DataStore:
                     )
             return multisig_id
 
-        if script_type == Chain.SCRIPT_TYPE_BURN:
+        if script_type == chains.SCRIPT_TYPE_BURN:
             return PUBKEY_ID_NETWORK_FEE
 
         return None
 
-    def pubkey_hash_to_id(self, pubkey_hash):
+    def pubkey_hash_to_id(self, pubkey_hash: bytes) -> int:
         """pubkey_hash_to_id"""
         return self._pubkey_id(pubkey_hash, None)
 
-    def pubkey_to_id(self, pubkey):
+    def pubkey_to_id(self, pubkey: bytes) -> int:
         """pubkey_to_id"""
         pubkey_hash = util.pubkey_to_hash(pubkey)
         return self._pubkey_id(pubkey_hash, pubkey)
 
-    def _pubkey_id(self, pubkey_hash, pubkey):
+    def _pubkey_id(self, pubkey_hash: bytes, pubkey: Optional[bytes]) -> int:
         dbhash = self.binin(pubkey_hash)  # binin, not hashin for 160-bit
         row = self.selectrow(
             """
@@ -2686,7 +2683,7 @@ class DataStore:
             (dbhash,),
         )
         if row:
-            return row[0]
+            return int(row[0])
         pubkey_id = self.new_id("pubkey")
 
         if pubkey is not None and len(pubkey) > MAX_PUBKEY:
@@ -2735,7 +2732,7 @@ class DataStore:
                 self.log.exception("Failed to catch up %s", dircfg)
                 self.rollback()
 
-    def catch_up_rpc(self, dircfg):
+    def catch_up_rpc(self, dircfg: Dict):
         """
         Load new blocks using RPC.  Requires running *coind supporting
         getblockhash, getblock with verbose=false, and optionally
@@ -2746,15 +2743,15 @@ class DataStore:
         if chain_id is None:
             self.log.error("no chain_id")
             return False
-        chain: Chain.BaseChain = self.chains_by.id[chain_id]
+        chain: BaseChain = self.chains_by.id[chain_id]
 
         conffile = dircfg.get("conf") or chain.datadir_conf_file_name
         conffile = os.path.join(dircfg["dirname"], conffile)
         try:
             with open(conffile, encoding="utf-8") as file:
-                conf = dict(
+                conf: Dict[str, Any] = dict(
                     [
-                        line.strip().split("=", 1)
+                        line.strip().split("=", 1)  # type:ignore
                         if "=" in line
                         else (line.strip(), True)
                         for line in file
@@ -2782,10 +2779,11 @@ class DataStore:
                  FROM unlinked_tx ut
                  JOIN tx t ON (ut.tx_id = t.tx_id)"""
             )
-            self.mempool_tx = {self.hashout_hex(i[0]) for i in rows}
+            self.mempool_tx = {self.hashout_hex(i[0]) for i in rows}  # type: ignore
 
         def rpc(func, *params):
             self.rpclog.info("RPC>> %s %s", func, params)
+            # print(f"url: {url}, method: {func}")
             ret = util.jsonrpc(url, func, *params)
 
             if self.rpclog.isEnabledFor(logging.INFO):
@@ -2809,7 +2807,7 @@ class DataStore:
         # Returns -1 on error, so we'll get 0 on empty chain
         height = self.get_block_number(chain.id) + 1
 
-        def get_tx(rpc_tx_hash):
+        def get_tx(rpc_tx_hash, chain: BaseChain):
             try:
                 rpc_tx_hex = rpc("getrawtransaction", rpc_tx_hash)
 
@@ -2832,7 +2830,7 @@ class DataStore:
             rpc_tx = hex2b(rpc_tx_hex)
             tx_hash = hex2b(rpc_tx_hash)[::-1]
 
-            computed_tx_hash = transaction_hash(rpc_tx)
+            computed_tx_hash = chain.transaction_hash(rpc_tx)
             if tx_hash != computed_tx_hash:
                 # raise InvalidBlock('transaction hash mismatch')
                 self.log.warning(
@@ -2886,7 +2884,7 @@ class DataStore:
                             return rpc_hash
                         height_chk = time.time() + 1
 
-                    transaction = get_tx(rpc_tx_hash)
+                    transaction = get_tx(rpc_tx_hash, chain)
                     if transaction is None:
                         # NB: On new blocks, older mempool tx are often missing
                         # This happens some other times too, just get over with
@@ -2898,7 +2896,7 @@ class DataStore:
                         transaction, False, check_only=True
                     )
                     if tx_id is None:
-                        tx_id = self.import_tx(transaction, False, chain)
+                        tx_id = self.import_tx(transaction, chain, False)
                         self.log.info("mempool tx %d", tx_id)
                         self.imported_bytes(transaction["size"])
 
@@ -3113,7 +3111,7 @@ class DataStore:
 
             # Assume blocks obey the respective policy if they get here.
             chain_id = dircfg["chain_id"]
-            chain: Chain.BaseChain = self.chains_by.id.get(chain_id, None)
+            chain: BaseChain = self.chains_by.id.get(chain_id, None)
 
             if chain is None:
                 chain = self.chains_by.magic.get(magic, None)

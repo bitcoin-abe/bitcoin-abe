@@ -25,6 +25,7 @@ from Abe.streams import BCDataStream
 
 
 def mixup_blocks(store, data_stream, count, datadir_chain=None, seed=None):
+    """mixup_blocks"""
     bytes_done = 0
     offsets = []
 
@@ -138,6 +139,7 @@ def mixup_blocks(store, data_stream, count, datadir_chain=None, seed=None):
 
 
 def main(argv):
+    """main"""
     conf = {
         "count": 200,
         "seed": 1,

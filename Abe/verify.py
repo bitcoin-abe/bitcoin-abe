@@ -31,10 +31,10 @@ import sys
 import getopt
 import logging
 from logging import Logger
-from Abe import util
-from Abe.Chain import BaseChain
-from Abe.data_store import CmdLine, DataStore
-from Abe.util import NULL_HASH
+from .chains import BaseChain
+from .data_store import CmdLine, DataStore
+from .merkle import Merkle
+from .util import NULL_HASH
 
 # pylint: disable=invalid-name
 
@@ -76,7 +76,8 @@ class AbeVerify:
             "btibad": 0,  # txin_id's linked to wrong block (untested)
         }
 
-    def verify_blockchain(self, chain_id, chain: BaseChain) -> None:
+    def verify_blockchain(self, chain_id) -> None:
+        """verify_blockchain"""
 
         # Reset stats
         self.stats = {key: 0 for key in self.stats}
@@ -116,7 +117,7 @@ class AbeVerify:
                 continue
 
             if self.ckmerkle:
-                self.verify_tx_merkle_hash(block_id, chain)
+                self.verify_tx_merkle_hash(block_id)
                 self.procstats(
                     "Merkle trees",
                     block_height,
@@ -198,7 +199,8 @@ class AbeVerify:
                 "%d %s (%sheight: %d): %s bad", checked, name, lst, height, bad
             )
 
-    def verify_tx_merkle_hash(self, block_id, chain: BaseChain) -> None:
+    def verify_tx_merkle_hash(self, block_id) -> None:
+        """verify_tx_merkle_hash"""
         block_height, merkle_root, num_tx = self.store.selectrow(
             """
             SELECT b.block_height, b.block_hashMerkleRoot, b.block_num_tx
@@ -229,7 +231,7 @@ class AbeVerify:
                 len(tree),
             )
             bad = 1
-        root = util.merkle_root(tree) or NULL_HASH
+        root = Merkle(tree).root() or NULL_HASH
         if root != merkle_root:
             self.logger.info(
                 "block %d (id %s): block_hashMerkleRoot mismatch",
@@ -241,7 +243,7 @@ class AbeVerify:
         self.stats["mchecked"] += 1
 
     def verify_block_txin(self, block_id):
-        """"""
+        """verify_block_txin"""
         rows = self.store.selectall(
             """
             SELECT txin_id, out_block_id
@@ -318,6 +320,7 @@ class AbeVerify:
         self.stats["btichecked"] += checks + len(missing)
 
     def verify_block_stats(self, block_id, chain_id):
+        """verify_block_stats"""
         (
             block_height,
             nTime,
@@ -453,13 +456,13 @@ class AbeVerify:
             for txout_value, block_nTime in self.store.selectall(
                 """
                 SELECT COALESCE(txout_approx.txout_approx_value, 0),
-                       b.block_nTime
-                  FROM block_txin bti
-                  JOIN txin ON (bti.txin_id = txin.txin_id)
-                  JOIN txout_approx ON (txin.txout_id = txout_approx.txout_id)
-                  JOIN block_tx obt ON (txout_approx.tx_id = obt.tx_id)
-                  JOIN block b ON (obt.block_id = b.block_id)
-                 WHERE bti.block_id = ? AND txin.tx_id = ?""",
+                    b.block_nTime
+                FROM block_txin bti
+                JOIN txin ON (bti.txin_id = txin.txin_id)
+                JOIN txout_approx ON (txin.txout_id = txout_approx.txout_id)
+                JOIN block_tx obt ON (txout_approx.tx_id = obt.tx_id)
+                JOIN block b ON (obt.block_id = b.block_id)
+                WHERE bti.block_id = ? AND txin.tx_id = ?""",
                 (block_id, tx_id),
             ):
                 destroyed += txout_value * (nTime - block_nTime)
@@ -474,11 +477,11 @@ class AbeVerify:
             (destroyed,) = self.store.selectrow(
                 """
                 SELECT SUM(txout.txout_value) - SUM(
-                 CASE WHEN txout.pubkey_id IS NOT NULL AND txout.pubkey_id <= 0
-                      THEN 0 ELSE txout.txout_value END)
-                  FROM tx
-                  LEFT JOIN txout ON (tx.tx_id = txout.tx_id)
-                 WHERE tx.tx_id = ?""",
+                    CASE WHEN txout.pubkey_id IS NOT NULL AND txout.pubkey_id <= 0
+                        THEN 0 ELSE txout.txout_value END)
+                FROM tx
+                LEFT JOIN txout ON (tx.tx_id = txout.tx_id)
+                WHERE tx.tx_id = ?""",
                 (tid,),
             )
             value_destroyed += destroyed
@@ -511,14 +514,14 @@ class AbeVerify:
             self.store.sql(
                 """
                 UPDATE block
-                   SET block_value_in = ?,
-                       block_value_out = ?,
-                       block_total_seconds = ?,
-                       block_total_satoshis = ?,
-                       block_satoshi_seconds = ?,
-                       block_total_ss = ?,
-                       block_ss_destroyed = ?
-                 WHERE block_id = ?""",
+                SET block_value_in = ?,
+                    block_value_out = ?,
+                    block_total_seconds = ?,
+                    block_total_satoshis = ?,
+                    block_satoshi_seconds = ?,
+                    block_total_ss = ?,
+                    block_ss_destroyed = ?
+                WHERE block_id = ?""",
                 (
                     self.store.intin(b["value_in"]),
                     self.store.intin(b["value_out"]),
@@ -545,14 +548,14 @@ class AbeVerify:
         for txin_id, oblock_id in self.store.selectall(
             """
             SELECT txin.txin_id, obt.block_id
-              FROM block_tx bt
-              JOIN txin ON (txin.tx_id = bt.tx_id)
-              JOIN txout ON (txin.txout_id = txout.txout_id)
-              JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
-              JOIN block ob ON (obt.block_id = ob.block_id)
-             WHERE bt.block_id = ?
-               AND ob.block_chain_work IS NOT NULL
-          ORDER BY txin.txin_id ASC, obt.block_id ASC""",
+            FROM block_tx bt
+            JOIN txin ON (txin.tx_id = bt.tx_id)
+            JOIN txout ON (txin.txout_id = txout.txout_id)
+            JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
+            JOIN block ob ON (obt.block_id = ob.block_id)
+            WHERE bt.block_id = ?
+            AND ob.block_chain_work IS NOT NULL
+            ORDER BY txin.txin_id ASC, obt.block_id ASC""",
             (block_id,),
         ):
 
@@ -583,6 +586,7 @@ class AbeVerify:
 
 
 def main(argv):
+    """main"""
     cmdline = CmdLine(argv)
     cmdline.usage = (
         lambda: """Usage: verify.py --dbtype=MODULE --connect-args=ARGS [checks]
@@ -702,7 +706,7 @@ def main(argv):
         """
         SELECT chain_id FROM chain ORDER BY chain_id DESC"""
     ):
-        chain = store.chains_by.id[chain_id]
+        chain: BaseChain = store.chains_by.id[chain_id]
         if chains is not None:
             if chain.name not in chains:
                 continue
@@ -716,7 +720,7 @@ def main(argv):
         )
 
         try:
-            chk.verify_blockchain(chain_id, chain)
+            chk.verify_blockchain(chain_id)
         except KeyboardInterrupt:
             # Prevents some DB warnings warnings
             store.close()

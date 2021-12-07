@@ -19,8 +19,10 @@
 
 import sys
 from random import randint
-from Abe import Chain, firstbits, util
-from Abe.constants import NULL_PUBKEY_HASH, NULL_PUBKEY_ID, SCRIPT_NETWORK_FEE
+from . import chains, firstbits, util
+from .constants import NULL_PUBKEY_HASH, NULL_PUBKEY_ID, SCRIPT_NETWORK_FEE
+
+# from .data_store import DataStore
 
 
 def run_upgrades_locked(store, _upgrades):
@@ -137,27 +139,19 @@ def init_block_txin(store):
     seen = set()
 
     store.log.info("...loading existing keys")
-    # XXX store.conn and store.sql_transform no longer exist.
-    cur = store.conn.cursor()
-    cur.execute(
-        store.sql_transform(
-            """
-        SELECT block_id, txin_id FROM block_txin"""
-        )
-    )
+    cur = store.selectall("""SELECT block_id, txin_id FROM block_txin""")
+
     for row in cur:
         seen.add(row)
 
     store.log.info("...finding output blocks")
-    cur.execute(
-        store.sql_transform(
-            """
+    cur = store.selectall(
+        """
         SELECT bt.block_id, txin.txin_id, obt.block_id
-          FROM block_tx bt
-          JOIN txin USING (tx_id)
-          JOIN txout USING (txout_id)
-          JOIN block_tx obt ON (txout.tx_id = obt.tx_id)"""
-        )
+        FROM block_tx bt
+        JOIN txin USING (tx_id)
+        JOIN txout USING (txout_id)
+        JOIN block_tx obt ON (txout.tx_id = obt.tx_id)"""
     )
     for row in cur:
         (block_id, txin_id, oblock_id) = row
@@ -226,11 +220,11 @@ def init_block_totals(store):
     for row in store.selectall(
         """
         SELECT cc.chain_id, b.prev_block_id, b.block_id,
-               b.block_value_out - b.block_value_in, b.block_nTime
-          FROM chain_candidate cc
-          JOIN block b USING (block_id)
-         WHERE cc.block_height IS NOT NULL
-         ORDER BY cc.chain_id, cc.block_height"""
+            b.block_value_out - b.block_value_in, b.block_nTime
+        FROM chain_candidate cc
+        JOIN block b USING (block_id)
+        WHERE cc.block_height IS NOT NULL
+        ORDER BY cc.chain_id, cc.block_height"""
     ):
 
         chain_id, prev_id, block_id, generated, nTime = row
@@ -267,28 +261,25 @@ def init_satoshi_seconds_destroyed(store):
     step = 100
     start = 1
     stop = int(store.selectrow("SELECT MAX(block_id) FROM block_tx")[0])
-    # XXX store.conn and store.sql_transform no longer exist.
-    cur = store.conn.cursor()
+
     while start <= stop:
-        cur.execute(
-            store.sql_transform(
-                """
+        cur = store.selectall(
+            """
             SELECT bt.block_id, bt.tx_id,
-                   SUM(txout.txout_value * (b.block_nTime - ob.block_nTime))
-              FROM block b
-              JOIN block_tx bt USING (block_id)
-              JOIN txin USING (tx_id)
-              JOIN txout USING (txout_id)
-              JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
-              JOIN block_txin bti ON (
-                       bti.block_id = bt.block_id AND
-                       bti.txin_id = txin.txin_id AND
-                       obt.block_id = bti.out_block_id)
-              JOIN block ob ON (bti.out_block_id = ob.block_id)
-             WHERE bt.block_id >= ?
-               AND bt.block_id < ?
-             GROUP BY bt.block_id, bt.tx_id"""
-            ),
+                SUM(txout.txout_value * (b.block_nTime - ob.block_nTime))
+            FROM block b
+            JOIN block_tx bt USING (block_id)
+            JOIN txin USING (tx_id)
+            JOIN txout USING (txout_id)
+            JOIN block_tx obt ON (txout.tx_id = obt.tx_id)
+            JOIN block_txin bti ON (
+                bti.block_id = bt.block_id AND
+                bti.txin_id = txin.txin_id AND
+                obt.block_id = bti.out_block_id)
+            JOIN block ob ON (bti.out_block_id = ob.block_id)
+            WHERE bt.block_id >= ?
+            AND bt.block_id < ?
+            GROUP BY bt.block_id, bt.tx_id""",
             (start, start + step),
         )
         for row in cur:
@@ -306,17 +297,13 @@ def init_satoshi_seconds_destroyed(store):
 
 def set_0_satoshi_seconds_destroyed(store):
     store.log.info("Setting NULL to 0 in satoshi_seconds_destroyed.")
-    # XXX store.conn and store.sql_transform no longer exist.
-    cur = store.conn.cursor()
-    cur.execute(
-        store.sql_transform(
-            """
+    cur = store.selectall(
+        """
         SELECT bt.block_id, bt.tx_id
-          FROM block_tx bt
-          JOIN block b USING (block_id)
-         WHERE b.block_height IS NOT NULL
-           AND bt.satoshi_seconds_destroyed IS NULL"""
-        )
+        FROM block_tx bt
+        JOIN block b USING (block_id)
+        WHERE b.block_height IS NOT NULL
+        AND bt.satoshi_seconds_destroyed IS NULL"""
     )
     for row in cur:
         store.sql(
@@ -327,26 +314,21 @@ def set_0_satoshi_seconds_destroyed(store):
         )
 
 
-def init_block_satoshi_seconds(
-    store,
-):
+def init_block_satoshi_seconds(store):
     store.log.info("Calculating satoshi-seconds.")
-    # XXX store.conn and store.sql_transform no longer exist.
-    cur = store.conn.cursor()
     stats = {}
-    cur.execute(
-        store.sql_transform(
-            """
+    cur = store.selectall(
+        """
         SELECT b.block_id, b.block_total_satoshis, b.block_nTime,
-               b.prev_block_id, SUM(bt.satoshi_seconds_destroyed),
-               b.block_height
-          FROM block b
-          JOIN block_tx bt ON (b.block_id = bt.block_id)
-         GROUP BY b.block_id, b.block_total_satoshis, b.block_nTime,
-               b.prev_block_id, b.block_height
-         ORDER BY b.block_height"""
-        )
+            b.prev_block_id, SUM(bt.satoshi_seconds_destroyed),
+            b.block_height
+        FROM block b
+        JOIN block_tx bt ON (b.block_id = bt.block_id)
+        GROUP BY b.block_id, b.block_total_satoshis, b.block_nTime,
+            b.prev_block_id, b.block_height
+        ORDER BY b.block_height"""
     )
+
     count = 0
     while True:
         row = cur.fetchone()
@@ -590,7 +572,7 @@ def add_datadir_chain_id(store):
     store.sql("ALTER TABLE datadir ADD chain_id NUMERIC(10) NULL")
 
 
-def noop(store):
+def noop(store):  # pylint: disable=unused-argument
     pass
 
 
@@ -1216,7 +1198,7 @@ def drop_magic(store):
     for stmt in ["ALTER TABLE chain DROP COLUMN magic_id", "DROP TABLE magic"]:
         try:
             store.ddl(stmt)
-        except store.dbmodule.DatabaseError as e:
+        except store.dbmodule.DatabaseError:
             store.log.warning("Cleanup failed, ignoring: %s", stmt)
 
 
@@ -1227,7 +1209,7 @@ def add_chain_decimals(store):
 def insert_chain_novacoin(store):
 
     try:
-        store.insert_chain(Chain.create("NovaCoin"))
+        store.insert_chain(chains.create("NovaCoin"))
     except Exception:
         pass
 

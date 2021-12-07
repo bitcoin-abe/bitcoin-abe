@@ -1,7 +1,7 @@
 # Copyright(C) 2013 by Abe developers.
 
-# genesis_tx.py: known transactions unavailable through RPC for
-# historical reasons: https://bitcointalk.org/index.php?topic=119530.0
+"""genesis_tx.py: known transactions unavailable through RPC for
+historical reasons: https://bitcointalk.org/index.php?topic=119530.0"""
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as

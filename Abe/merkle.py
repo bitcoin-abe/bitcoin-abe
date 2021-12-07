@@ -1,7 +1,7 @@
 """Tools for determining the Merkle roots of different data types."""
 
 from typing import List, Tuple
-from util import SHA256D64, double_sha256, witness_hash, NULL_HASH
+from util import SHA256D64, double_sha256, NULL_HASH
 
 
 #    WARNING! If you're reading this because you're learning about crypto
@@ -153,6 +153,6 @@ class Merkle:
         self.hashes = [NULL_HASH] * size  # The witness hash of the coinbase is 0.
 
         for i in (j for j in range(1, size) if size > 1):
-            self.hashes[i + 1] = witness_hash(self.leaves[i + 1])
+            self.hashes[i + 1] = double_sha256(self.leaves[i + 1])
 
         return (self.root(), self.mutated)

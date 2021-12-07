@@ -1,6 +1,6 @@
 """A library containing all of the types used in Abe"""
 
-from typing import TypedDict, List, Dict, Tuple, Optional
+from typing import Any, TypedDict, List, Dict, Tuple, Optional
 from Abe.enumeration import Enumeration
 
 
@@ -13,6 +13,12 @@ class TxIn(TypedDict, total=False):
     sequence: int
 
 
+class Witness(TypedDict, total=False):
+    """Witness Dictionary Type"""
+
+    witness: bytes
+
+
 class TxOut(TypedDict, total=False):
     """TxOut Dictionary Type"""
 
@@ -20,26 +26,40 @@ class TxOut(TypedDict, total=False):
     scriptPubKey: bytes
 
 
-class Witness(TypedDict):
-    """Witness Dictionary Type"""
+class BlockHeader(TypedDict, total=False):
+    """Block Dictionary Type"""
 
-    witness: bytes
+    version: int
+    hashPrev: bytes
+    hashMerkleRoot: bytes
+    nTime: int
+    nBits: int
+    nNonce: int
+    __header__: bytes
+
+    # Aux PoW
+    auxpow: Optional[Any]
 
 
 class Transaction(TypedDict, total=False):
     """Transaction Dictionary Type"""
 
     version: int
-    nTime: Optional[bytes]  # This is for some alt.
     marker: Optional[bytes]  # SegWit marker
     flag: Optional[bytes]  # SegWit flag
     txIn: List[TxIn]
     txOut: List[TxOut]
-    scriptWitnesses: Optional[List[Witness]]  # segregated witness
+    scriptWitnesses: Optional[List[bytes]]  # SegWit
     lockTime: int
     __data__: bytes
 
+    # Aux PoW
+    chainMerkleBranch: Optional[bytes]
+    chainIndex: Optional[int]
+    parentBlock: Optional[Any]
+
     # The following are not in the block chain but are computed
+    size: int
     hash: bytes
     tx_id: bytes
     value_in: int
@@ -68,22 +88,13 @@ class WalletTx(MerkleTx, total=False):
     spent: bool
 
 
-class BlockHeader(TypedDict, total=False):
-    """Block Dictionary Type"""
-
-    version: int
-    hashPrev: bytes
-    hashMerkleRoot: bytes
-    nTime: int
-    nBits: int
-    nNonce: int
-    __header__: bytes
-
-
 class Block(BlockHeader, total=False):
     """Block Dictionary Type"""
 
     transactions: List[Transaction]
+
+    # PoS
+    block_sig: Optional[bytes]
 
     # Additional items are computed and not parsed from the blockchain
     block_id: int  # This is the big endian hex representation

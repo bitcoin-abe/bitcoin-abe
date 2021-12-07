@@ -22,15 +22,18 @@ from data_store import CmdLine
 
 
 def commit(store):
+    """commit"""
     store.commit()
     store.log.info("Commit.")
 
 
 def log_rowcount(store, msg):
+    """log_rowcount"""
     store.log.info(msg, store.rowcount())
 
 
 def link_txin(store):
+    """link_txin"""
     store.log.info("Linking missed transaction inputs to their previous outputs.")
 
     store.sql(
@@ -57,6 +60,7 @@ def link_txin(store):
 
 
 def delete_tx(store, id_or_hash):
+    """delete_tx"""
     try:
         tx_id = int(id_or_hash)
     except ValueError:
@@ -86,6 +90,7 @@ def delete_tx(store, id_or_hash):
 
 
 def rewind_datadir(store, dirname):
+    """rewind_datadir"""
     store.sql(
         """
         UPDATE datadir
@@ -99,6 +104,7 @@ def rewind_datadir(store, dirname):
 
 
 def rewind_chain_blockfile(store, chain_id):
+    """rewind_chain_blockfile"""
     store.sql(
         """
         UPDATE datadir
@@ -111,6 +117,7 @@ def rewind_chain_blockfile(store, chain_id):
 
 
 def chain_name_to_id(store, name):
+    """chain_name_to_id"""
     (chain_id,) = store.selectrow(
         "SELECT chain_id FROM chain WHERE chain_name = ?", (name,)
     )
@@ -118,6 +125,7 @@ def chain_name_to_id(store, name):
 
 
 def del_chain_blocks_1(store, name, chain_id):
+    """del_chain_blocks_1"""
     store.sql(
         "UPDATE chain SET chain_last_block_id = NULL WHERE chain_id = ?", (chain_id,)
     )
@@ -174,6 +182,7 @@ def del_chain_blocks_1(store, name, chain_id):
 
 
 def del_chain_block_tx(store, chain_id):
+    """del_chain_block_tx"""
     store.sql(
         """
         DELETE FROM block_tx WHERE block_id IN (
@@ -185,6 +194,7 @@ def del_chain_block_tx(store, chain_id):
 
 
 def delete_chain_blocks(store, name, chain_id=None):
+    """delete_chain_blocks"""
     if chain_id is None:
         chain_id = chain_name_to_id(store, name)
 
@@ -195,6 +205,7 @@ def delete_chain_blocks(store, name, chain_id=None):
 
 
 def delete_chain_transactions(store, name, chain_id=None):
+    """delete_chain_transactions"""
     if chain_id is None:
         chain_id = chain_name_to_id(store, name)
 
@@ -270,6 +281,7 @@ def delete_chain_transactions(store, name, chain_id=None):
 
 
 def del_chain_blocks_2(store, chain_id):
+    """del_chain_blocks_2"""
     block_ids = []
     for row in store.selectall(
         "SELECT block_id FROM chain_candidate WHERE chain_id = ?", (chain_id,)
@@ -294,6 +306,7 @@ def del_chain_blocks_2(store, chain_id):
 
 
 def main(argv):
+    """main"""
     cmdline = CmdLine(argv)
     cmdline.usage = (
         lambda: """Usage: python -m Abe.admin [-h] [--config=FILE] COMMAND...

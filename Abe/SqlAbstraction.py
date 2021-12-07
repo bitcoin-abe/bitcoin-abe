@@ -20,11 +20,9 @@ import re
 import decimal
 import logging
 from typing import Union
-from Abe.util import b2hex, hex2b
+from .util import b2hex, hex2b
+from .constants import MAX_SCRIPT, NO_CLOB
 
-MAX_SCRIPT = 1000000
-MAX_PUBKEY = 65
-NO_CLOB = "BUG_NO_CLOB"
 STMT_RE = re.compile(r"([^']+)((?:'[^']*')?)")
 
 
@@ -570,7 +568,7 @@ class SqlAbstraction:
 
             try:
                 self.reconnect()
-            except Exception:
+            except Exception as error:
                 self.log.exception("Failed to reconnect")
                 raise error
 
@@ -656,7 +654,7 @@ class SqlAbstraction:
                     f"sequence_key VARCHAR(100) NOT NULL PRIMARY KEY,"
                     f"nextid NUMERIC(30))"
                 )
-            except Exception:
+            except Exception as error:
                 self.rollback()
                 raise error
             self.sql(

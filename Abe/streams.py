@@ -1,7 +1,7 @@
 """Workalike python implementation of Bitcoin's CDataStream class."""
 import struct
 import mmap
-from typing import Union
+from typing import Optional, Union
 from Abe.exceptions import SerializationError
 
 
@@ -38,6 +38,9 @@ class BCDataStream:
         if isinstance(self.input, mmap.mmap):
             self.input.close()
 
+    #
+    # Read Methods
+    #
     def read_string(self) -> bytes:
         """
         Strings are encoded depending on length:
@@ -58,14 +61,6 @@ class BCDataStream:
             raise SerializationError("attempt to read past end of buffer") from error
 
         return self.read_bytes(length)
-
-    def write_string(self, string: Union[str, bytes]) -> None:
-        """Length-encoded as with read_string"""
-        self.write_compact_size(len(string))
-        if isinstance(string, str):
-            self.write(bytes(string, "utf-8"))
-        if isinstance(string, bytes):
-            self.write(string)
 
     def read_bytes(self, length: int) -> bytes:
         """Read the bytes from the cursor position"""
@@ -115,34 +110,6 @@ class BCDataStream:
         """read_uint64"""
         return self._read_num("<Q")
 
-    def write_boolean(self, val: int) -> None:
-        """write_boolean"""
-        self.write(b"\x01" if val else b"\x00")
-
-    def write_int16(self, num: int) -> None:
-        """write_int16"""
-        self._write_num("<h", num)
-
-    def write_uint16(self, num: int) -> None:
-        """write_uint16"""
-        self._write_num("<H", num)
-
-    def write_int32(self, num: int) -> None:
-        """write_int32"""
-        self._write_num("<i", num)
-
-    def write_uint32(self, num: int) -> None:
-        """write_uint32"""
-        self._write_num("<I", num)
-
-    def write_int64(self, num: int) -> None:
-        """write_int64"""
-        self._write_num("<q", num)
-
-    def write_uint64(self, num: int) -> None:
-        """write_uint64"""
-        self._write_num("<Q", num)
-
     def read_compact_size(self) -> int:
         """Read the compact notation for integer compression"""
         if self.input is None:
@@ -157,8 +124,66 @@ class BCDataStream:
             size = self._read_num("<Q")
         return size
 
-    def write_compact_size(self, size: int) -> None:
+    def _read_num(self, _format: str) -> int:
+        # pylint: disable=no-member
+
+        if self.input is None:
+            raise SerializationError("call write(bytes) before trying to deserialize")
+
+        num: int
+        (num,) = struct.unpack_from(_format, self.input, self.read_cursor)
+        self.read_cursor += struct.calcsize(_format)
+        return num
+
+    #
+    # Write Methods
+    #
+    # All of the write methods are Optional. The purpose is so that if they are passed None
+    # the action is skipped. Thus when serializing data into raw bytes
+    def write_string(self, string: Union[str, bytes, None]) -> None:
+        """Length-encoded as with read_string"""
+        if string is None:
+            return None
+        self.write_compact_size(len(string))
+        if isinstance(string, str):
+            self.write(bytes(string, "utf-8"))
+        if isinstance(string, bytes):
+            self.write(string)
+
+    def write_boolean(self, val: Optional[int]) -> None:
+        """write_boolean"""
+        if val is None:
+            return None
+        self.write(b"\x01" if val else b"\x00")
+
+    def write_int16(self, num: Optional[int]) -> None:
+        """write_int16"""
+        self._write_num("<h", num)
+
+    def write_uint16(self, num: Optional[int]) -> None:
+        """write_uint16"""
+        self._write_num("<H", num)
+
+    def write_int32(self, num: Optional[int]) -> None:
+        """write_int32"""
+        self._write_num("<i", num)
+
+    def write_uint32(self, num: Optional[int]) -> None:
+        """write_uint32"""
+        self._write_num("<I", num)
+
+    def write_int64(self, num: Optional[int]) -> None:
+        """write_int64"""
+        self._write_num("<q", num)
+
+    def write_uint64(self, num: Optional[int]) -> None:
+        """write_uint64"""
+        self._write_num("<Q", num)
+
+    def write_compact_size(self, size: Optional[int]) -> None:
         """Write an integer in its compressed form"""
+        if size is None:
+            return None
         if size < 0:
             raise SerializationError("attempt to write size < 0")
         # specify the unsigned integer type
@@ -174,18 +199,9 @@ class BCDataStream:
         val = size.to_bytes((size.bit_length() + 7) // 8, "little")
         self.write(val)
 
-    def _read_num(self, _format: str) -> int:
+    def _write_num(self, _format: str, num: Optional[int]) -> None:
         # pylint: disable=no-member
-
-        if self.input is None:
-            raise SerializationError("call write(bytes) before trying to deserialize")
-
-        num: int
-        (num,) = struct.unpack_from(_format, self.input, self.read_cursor)
-        self.read_cursor += struct.calcsize(_format)
-        return num
-
-    def _write_num(self, _format: str, num: int) -> None:
-        # pylint: disable=no-member
+        if num is None:
+            return None
         val = struct.pack(_format, num)
         self.write(val)

@@ -34,9 +34,21 @@ from urllib.request import (
 from Crypto.Hash import SHA256, RIPEMD160
 from base58 import b58decode, b58encode
 
+
 NULL_HASH = b"\x00" * 32
 GENESIS_HASH_PREV = NULL_HASH
 ADDRESS_RE = re.compile("[1-9A-HJ-NP-Za-km-z]{26,}\\Z")
+
+
+class Memoize:
+    """Memoization wrapper to create a class"""
+
+    def __init__(self, func):
+        self.func = func
+        self.cache = {}
+
+    def __call__(self, *args, **kwargs):
+        return self.cache.setdefault(args, self.func(*args, **kwargs))
 
 
 class JsonrpcException(Exception):
@@ -113,19 +125,19 @@ def script_to_hash(script: Union[bytes, bytearray, memoryview, None]) -> bytes:
     return pubkey_to_hash(script)
 
 
-def transaction_hash(binary_tx: bytes) -> bytes:
-    """transaction_hash"""
-    return bytes(double_sha256(binary_tx))
+# def transaction_hash(binary_tx: bytes) -> bytes:
+#     """transaction_hash"""
+#     return bytes(double_sha256(binary_tx))
 
 
-def witness_hash(binary_tx: bytes) -> bytes:
-    """witness_hash"""
-    return double_sha256(binary_tx)
+# def witness_hash(binary_tx: bytes) -> bytes:
+#     """witness_hash"""
+#     return double_sha256(binary_tx)
 
 
-def block_header_hash(header: Union[bytes, bytearray, memoryview, None]) -> bytes:
-    """Provides the double SHA256 hash of the blockheader"""
-    return double_sha256(header)
+# def block_header_hash(header: Union[bytes, bytearray, memoryview, None]) -> bytes:
+#     """Provides the double SHA256 hash of the blockheader"""
+#     return double_sha256(header)
 
 
 def SHA256D64(hashes: List[bytes]) -> List[bytes]:  # pylint: disable=invalid-name

@@ -5,7 +5,7 @@ from base58 import b58encode, b58decode
 from Crypto.Hash import SHA256, RIPEMD160
 from util import hex2b, b2hex
 
-# XXX This file only supports P2PKH and neither P2SH, Bech32, nor P2TR
+# XXX This file only supports P2PKH and P2SH and neither Bech32 nor P2TR
 
 
 def hash_160(public_key: Union[bytes, bytearray, memoryview, None]) -> bytes:

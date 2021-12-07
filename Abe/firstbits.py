@@ -19,6 +19,7 @@
 
 
 def populate_firstbits(store):
+    """populate_firstbits"""
     blocks, fbs = 0, 0
     log_incr = 1000
 
@@ -43,6 +44,7 @@ def populate_firstbits(store):
 
 
 def create_firstbits(store):
+    """create_firstbits"""
     store.log.info("Creating firstbits table.")
     store.ddl(
         """CREATE TABLE abe_firstbits (
@@ -62,11 +64,13 @@ def create_firstbits(store):
 
 
 def drop_firstbits(store):
+    """drop_firstbits"""
     store.log.info("Dropping firstbits table.")
     store.ddl("DROP TABLE abe_firstbits")
 
 
 def reconfigure(store, args):
+    """reconfigure"""
     have = store.config["use_firstbits"] == "true"
     want = args.use_firstbits
     if have == want:
