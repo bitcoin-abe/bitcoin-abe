@@ -15,6 +15,7 @@ from .typing import (
     MerkleTx,
     WalletTx,
     Block,
+    Witness,
     opcodes,
 )
 from .util import b2hex, short_hex, long_hex
@@ -145,8 +146,10 @@ def has_extended_format(data_stream: BCDataStream) -> bool:
 
 def parse_scriptWitness(data_stream: BCDataStream) -> bytes:
     """Parse the witness stream data to dict"""
-    txin: TxIn = {"witness": data_stream.read_bytes(data_stream.read_compact_size())}
-    return txin["witness"]
+    witness: Witness = {
+        "witness": data_stream.read_bytes(data_stream.read_compact_size())
+    }
+    return witness["witness"]
 
 
 def parse_Transaction(data_stream: BCDataStream, has_nTime=False) -> Transaction:
@@ -167,9 +170,10 @@ def parse_Transaction(data_stream: BCDataStream, has_nTime=False) -> Transaction
 
     if has_extended_format(data_stream):
         marker: Optional[bytes] = data_stream.read_bytes(1)
-        flag: bytes = data_stream.read_bytes(1)
+        flag: Optional[bytes] = data_stream.read_bytes(1)
     else:
         marker = None
+        flag = None
 
     n_vin: int = data_stream.read_compact_size()
     txins: List[TxIn] = []
@@ -184,10 +188,15 @@ def parse_Transaction(data_stream: BCDataStream, has_nTime=False) -> Transaction
         txouts.append(parse_TxOut(data_stream))
 
     if marker is not None and flag == b"\x01":
-        script_witnesses: List[bytes] = []
+        script_witnesses: Optional[List[bytes]] = []
+        assert script_witnesses is not None
+
         for _ in range(n_vin):
             script_witnesses.append(parse_scriptWitness(data_stream))
+    else:
+        script_witnesses = None
 
+    lockTime: int = data_stream.read_uint32()
     stream_data = data_stream.input[start_pos : data_stream.read_cursor]
 
     data: Transaction = {
@@ -198,7 +207,7 @@ def parse_Transaction(data_stream: BCDataStream, has_nTime=False) -> Transaction
         "txIn": txins,
         "txOut": txouts,
         "scriptWitnesses": script_witnesses,
-        "lockTime": data_stream.read_uint32(),
+        "lockTime": lockTime,
         "__data__": bytes(stream_data),
     }
 

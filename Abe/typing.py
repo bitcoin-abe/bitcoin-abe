@@ -47,6 +47,7 @@ class Transaction(TypedDict, total=False):
     version: int
     marker: Optional[bytes]  # SegWit marker
     flag: Optional[bytes]  # SegWit flag
+    nTime: Optional[int]  # used in Bitleu
     txIn: List[TxIn]
     txOut: List[TxOut]
     scriptWitnesses: Optional[List[bytes]]  # SegWit
