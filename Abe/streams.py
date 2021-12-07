@@ -9,7 +9,7 @@ class BCDataStream:
     """Bitcoin's CDataStream Class"""
 
     def __init__(self):
-        self.input: Union[bytearray, memoryview, None] = None
+        self.input: Union[bytes, bytearray, memoryview, None] = None
         self.read_cursor = int(0)
 
     def clear(self) -> None:

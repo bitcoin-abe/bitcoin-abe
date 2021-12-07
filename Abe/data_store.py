@@ -504,13 +504,17 @@ class DataStore:
             self.chains_by.name[chain.name] = chain
             self.chains_by.magic[chain.magic] = chain
 
-    def get_chain_by_id(self, chain_id) -> BaseChain:
+    def get_chain_by_id(self, chain_id: int) -> BaseChain:
         """get_chain_by_id"""
-        return self.chains_by.id[int(chain_id)]
+        return self.chains_by.id[chain_id]
+
+    def get_chain_by_magic(self, magic: bytes) -> BaseChain:
+        """get_chain_by_name"""
+        return self.chains_by.magic.get(magic)
 
     def get_chain_by_name(self, name: str) -> BaseChain:
         """get_chain_by_name"""
-        return self.chains_by.name.get(name, None)
+        return self.chains_by.name.get(name)
 
     def get_default_chain(self) -> BaseChain:
         """get_default_chain"""
@@ -802,10 +806,10 @@ class DataStore:
         row = self.selectrow(
             """
             SELECT block_id, block_height, block_chain_work,
-                   block_total_satoshis, block_total_seconds,
-                   block_satoshi_seconds, block_total_ss, block_nTime
-              FROM block
-             WHERE block_hash=?""",
+                block_total_satoshis, block_total_seconds,
+                block_satoshi_seconds, block_total_ss, block_nTime
+            FROM block
+            WHERE block_hash=?""",
             (self.hashin(_hash),),
         )
         if row is None:
@@ -823,7 +827,7 @@ class DataStore:
         return (
             int(block_id),
             None if height is None else int(height),
-            int(self.binout_int(chain_work)),
+            self.binout_int(chain_work),
             None if satoshis is None else int(satoshis),
             None if seconds is None else int(seconds),
             None if satoshi_seconds is None else int(satoshi_seconds),
@@ -1257,7 +1261,9 @@ class DataStore:
             else:
                 chain_work = block["chain_work"] + new_work - orphan_work
 
-            if value_in is None:
+            if (
+                value_in is None
+            ):  # XXX getting a bunch of warnings in here during parsing
                 value, count1, count2 = self.selectrow(
                     """
                     SELECT SUM(txout.txout_value),
@@ -2743,7 +2749,7 @@ class DataStore:
         if chain_id is None:
             self.log.error("no chain_id")
             return False
-        chain: BaseChain = self.chains_by.id[chain_id]
+        chain: BaseChain = self.get_chain_by_id(chain_id)
 
         conffile = dircfg.get("conf") or chain.datadir_conf_file_name
         conffile = os.path.join(dircfg["dirname"], conffile)
@@ -3110,11 +3116,11 @@ class DataStore:
                 continue
 
             # Assume blocks obey the respective policy if they get here.
-            chain_id = dircfg["chain_id"]
-            chain: BaseChain = self.chains_by.id.get(chain_id, None)
+            chain_id: int = dircfg["chain_id"]
+            chain: BaseChain = self.get_chain_by_id(chain_id)
 
             if chain is None:
-                chain = self.chains_by.magic.get(magic, None)
+                chain = self.get_chain_by_magic(magic)
 
             if chain is None:
                 self.log.warning(
@@ -3136,7 +3142,7 @@ class DataStore:
                 self.log.info("Scanning for initial magic number %s.", b2hex(magic))
 
                 data_stream.read_cursor = offset
-                offset = data_stream.input.find(magic, offset.to_bytes())  # type:ignore
+                offset = data_stream.input.find(magic, offset)  # type:ignore
                 if offset == -1:
                     self.log.info("Magic number scan unsuccessful.")
                     break
@@ -3152,13 +3158,14 @@ class DataStore:
                 continue
 
             length = data_stream.read_int32()
-            if data_stream.read_cursor + length > len(data_stream.input):
+            end = data_stream.read_cursor + length
+
+            if end > len(data_stream.input):
                 self.log.debug(
                     "incomplete block of length %d chain %d", length, chain.id
                 )
                 data_stream.read_cursor = offset
                 break
-            end = data_stream.read_cursor + length
 
             _hash = chain.ds_block_header_hash(data_stream)
 

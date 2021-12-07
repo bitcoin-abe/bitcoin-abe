@@ -133,7 +133,7 @@ class BaseChain:
 
     def ds_block_header_hash(self, data_stream: BCDataStream) -> bytes:
         """For a datastream return the hash of the block header"""
-        if isinstance(data_stream.input, (bytearray, memoryview)):
+        if isinstance(data_stream.input, (bytes, bytearray, memoryview)):
             return util.double_sha256(
                 data_stream.input[
                     data_stream.read_cursor : data_stream.read_cursor + 80
